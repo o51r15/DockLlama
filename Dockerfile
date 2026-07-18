@@ -10,4 +10,4 @@ COPY frontend/ frontend/
 
 EXPOSE 8556
 
-CMD ["python", "-m", "dockmon.main"]
+CMD ["python", "-m", "dockmon"]

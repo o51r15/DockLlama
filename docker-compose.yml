@@ -1,6 +1,7 @@
 services:
   dockmon:
-    build: .
+    image: ghcr.io/o51r15/dockmon:latest
+    # build: .  # uncomment for local builds
     container_name: dockmon
     restart: unless-stopped
     ports:
