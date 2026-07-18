@@ -21,6 +21,7 @@ class MonitoringConfig(BaseModel):
     poll_interval_seconds: int = 60
     log_lines_per_check: int = 200
     dry_run: bool = True
+    db_path: str = "/app/data/dockmon.db"
 
 
 class ContainerConfig(BaseModel):

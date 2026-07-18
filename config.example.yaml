@@ -1,13 +1,14 @@
 ollama:
-  base_url: "http://ollama:11434"
-  default_model: "gemma2:2b"
-  digest_model: "llama3:8b"
-  timeout_seconds: 30
+  base_url: "http://192.168.1.125:11434"
+  default_model: "llama3.2:3b"
+  digest_model: "llama3.1:8b"
+  timeout_seconds: 120
 
 monitoring:
   poll_interval_seconds: 60
   log_lines_per_check: 200
   dry_run: true
+  db_path: "./data/dockmon.db"
 
 containers:
   - name: "bitmagnet"
