@@ -15,18 +15,23 @@ containers:
     enabled: true
     ignore_patterns: []
     compose_group: null
-  # - name: "bitmagnet"
-  #   enabled: true
-  #   model_override: null
-  #   ignore_patterns:
-  #     - "^\\d{4}/\\d{2}/\\d{2}.*DEBUG"
-  #   compose_group: null
-  # - name: "bitmagnet-postgres"
-  #   enabled: true
-  #   ignore_patterns:
-  #     - "checkpoint starting"
-  #     - "checkpoint complete"
-  #   compose_group: null
+  - name: "gluetun"
+    enabled: true
+    ignore_patterns:
+      - "^\\d{4}/\\d{2}/\\d{2}.*INFO"
+    compose_group: null
+  - name: "bitmagnet"
+    enabled: true
+    model_override: null
+    ignore_patterns:
+      - "^\\d{4}/\\d{2}/\\d{2}.*DEBUG"
+    compose_group: "bitmagnet"
+  - name: "bitmagnet-postgres"
+    enabled: true
+    ignore_patterns:
+      - "checkpoint starting"
+      - "checkpoint complete"
+    compose_group: "bitmagnet"
 
 cooldowns:
   initial_minutes: 5

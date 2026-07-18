@@ -16,7 +16,7 @@ from dockmon.config import OllamaConfig
 logger = logging.getLogger(__name__)
 
 PROMPT_DIR = Path(__file__).parent / "prompts"
-DEFAULT_PROMPT_VERSION = "v1_evaluate"
+DEFAULT_PROMPT_VERSION = "v2_evaluate"
 
 
 class EvaluationResult(BaseModel):
@@ -24,7 +24,10 @@ class EvaluationResult(BaseModel):
     status: str  # "healthy" or "unhealthy"
     confidence: int
     root_cause_category: str
+    error_origin: str  # "internal", "external", or "none"
     summary: str
+    restart_would_help: bool
+    restart_reasoning: str
     recommended_action: str
 
     @field_validator("status")
@@ -46,6 +49,12 @@ class EvaluationResult(BaseModel):
         v = v.lower().strip()
         valid = {"oom", "network", "config", "dependency", "crash", "storage", "none"}
         return v if v in valid else "none"
+
+    @field_validator("error_origin")
+    @classmethod
+    def validate_origin(cls, v: str) -> str:
+        v = v.lower().strip()
+        return v if v in ("internal", "external", "none") else "none"
 
     @field_validator("recommended_action")
     @classmethod
@@ -98,7 +107,10 @@ def _make_fallback(container_name: str, reason: str) -> EvaluationResult:
         status="healthy",
         confidence=0,
         root_cause_category="none",
+        error_origin="none",
         summary=f"Evaluation failed: {reason}. Failing open (assuming healthy).",
+        restart_would_help=False,
+        restart_reasoning="Evaluation failed, cannot determine.",
         recommended_action="none",
     )
 
@@ -118,7 +130,10 @@ async def evaluate(
             status="healthy",
             confidence=95,
             root_cause_category="none",
+            error_origin="none",
             summary="No warning or error lines detected in recent logs.",
+            restart_would_help=False,
+            restart_reasoning="No issues detected.",
             recommended_action="none",
         ), ctx.prompt_version
 
@@ -136,7 +151,7 @@ async def evaluate(
                     "stream": False,
                     "options": {
                         "temperature": 0.1,
-                        "num_predict": 300,
+                        "num_predict": 500,
                     },
                 },
             )

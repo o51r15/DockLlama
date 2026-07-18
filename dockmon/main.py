@@ -172,14 +172,18 @@ async def _process_container(container_cfg, container, cfg: DockmonConfig, conn)
 
     # 4. Log the evaluation
     logger.info(
-        "[%s] -> %s (confidence=%d, category=%s, action=%s): %s",
+        "[%s] -> %s (confidence=%d, origin=%s, category=%s, restart_helps=%s, action=%s): %s",
         container_cfg.name,
         result.status.upper(),
         result.confidence,
+        result.error_origin,
         result.root_cause_category,
+        result.restart_would_help,
         result.recommended_action,
         result.summary,
     )
+    if result.restart_reasoning:
+        logger.info("[%s] Restart reasoning: %s", container_cfg.name, result.restart_reasoning)
 
     # 5. Store evaluation event
     log_snapshot = "\n".join(batch.filtered_lines[:50])
@@ -202,7 +206,10 @@ async def _process_container(container_cfg, container, cfg: DockmonConfig, conn)
         "status": result.status,
         "confidence": result.confidence,
         "root_cause_category": result.root_cause_category,
+        "error_origin": result.error_origin,
         "summary": result.summary,
+        "restart_would_help": result.restart_would_help,
+        "restart_reasoning": result.restart_reasoning,
         "recommended_action": result.recommended_action,
     })
 
