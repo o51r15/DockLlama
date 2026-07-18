@@ -20,7 +20,8 @@ CREATE TABLE IF NOT EXISTS events (
     action_taken TEXT,
     log_snapshot TEXT,
     prompt_version TEXT,
-    model_used TEXT
+    model_used TEXT,
+    health_score INTEGER
 );
 
 CREATE TABLE IF NOT EXISTS cooldowns (

@@ -195,12 +195,12 @@ async def _process_container(container_cfg, container, cfg: DockmonConfig, conn)
     conn.execute(
         """INSERT INTO events
            (container, event_type, ai_status, confidence, root_cause_category,
-            summary, action_taken, log_snapshot, prompt_version, model_used)
-           VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
+            summary, action_taken, log_snapshot, prompt_version, model_used, health_score)
+           VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
         (
             container_cfg.name, "evaluation", result.status, result.confidence,
             result.root_cause_category, result.summary, result.recommended_action,
-            log_snapshot, prompt_version, model,
+            log_snapshot, prompt_version, model, result.health_score,
         ),
     )
     conn.commit()

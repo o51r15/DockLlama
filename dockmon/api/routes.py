@@ -90,7 +90,7 @@ async def get_containers() -> list[ContainerStatus]:
         # Get latest evaluation
         row = conn.execute(
             """SELECT ai_status, confidence, root_cause_category, summary,
-                      action_taken, timestamp, model_used
+                      action_taken, timestamp, model_used, health_score
                FROM events WHERE container = ? AND event_type = 'evaluation'
                ORDER BY id DESC LIMIT 1""",
             (container_cfg.name,),
@@ -106,6 +106,7 @@ async def get_containers() -> list[ContainerStatus]:
                 "action_taken": row[4],
                 "timestamp": row[5],
                 "model_used": row[6],
+                "health_score": row[7],
             }
 
         result.append(ContainerStatus(
