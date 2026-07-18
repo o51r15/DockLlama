@@ -26,12 +26,17 @@ Look at the logs holistically. Ask yourself:
 - Are there signs of successful operations alongside the errors? A crawler that successfully indexes from 20 sources but fails on 3 is degraded at worst. A VPN client that cannot establish any tunnel is unhealthy.
 - Has the container entered a state where it's running but useless? That's unhealthy or critical, not degraded.
 
-### Step 3: Is this a persistent problem or a transient blip?
+### Step 3: Are recent lines healthy? (CRITICAL — recency matters most)
 
+Log lines are numbered [1/N] (oldest) through [N/N] (newest). **The last ~20% of lines represent the container's CURRENT state.** Your assessment must primarily reflect what's happening NOW, not what happened earlier.
+
+- **Errors early, clean later = RECOVERED.** If lines 1-50 show errors but lines 150-200 show normal operation, the container recovered. Score should be HIGH (healthy). The errors are history.
+- **Clean early, errors later = ACTIVE PROBLEM.** If recent lines show errors, that's the current state. Score should reflect the severity.
+- **Errors throughout = PERSISTENT.** Same error from start to finish is a real pattern. Score should be low.
+- **Startup errors followed by normal operation = HEALTHY.** Many containers log errors during initialization (connection retries, waiting for dependencies) that resolve once the service is up. If the later lines show the service working, those startup errors are irrelevant.
 - A single timeout that will be retried is noise. Score stays high.
-- The same error repeating across the entire log window is a pattern — lower the score.
 - Errors followed by recovery ("connection lost" then "reconnected") are transient. Keep score high.
-- Errors with NO recovery visible in the log window MIGHT be ongoing. Lower confidence, moderate score reduction.
+- When counting errors, note WHERE they appear. 10 errors in lines 1-20 followed by 180 clean lines is very different from 10 errors in the last 20 lines.
 
 ### Step 4: If something is wrong, would restarting help?
 

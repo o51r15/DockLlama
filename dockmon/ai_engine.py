@@ -100,8 +100,10 @@ def _build_messages(ctx: EvaluationContext) -> tuple[str, str]:
         )
 
     user_parts.append(f"\nRecent log lines ({len(ctx.filtered_lines)} lines, pre-filtered to WARN/ERROR/unknown only):")
+    user_parts.append("Line 1 is the OLDEST, line {0} is the MOST RECENT. Weight recent lines more heavily.".format(len(ctx.filtered_lines)))
     user_parts.append("---")
-    user_parts.append("\n".join(ctx.filtered_lines))
+    numbered = [f"[{i+1}/{len(ctx.filtered_lines)}] {line}" for i, line in enumerate(ctx.filtered_lines)]
+    user_parts.append("\n".join(numbered))
     user_parts.append("---")
 
     return system_prompt, "\n".join(user_parts)
