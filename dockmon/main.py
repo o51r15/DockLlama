@@ -14,7 +14,7 @@ from fastapi import FastAPI
 from fastapi.staticfiles import StaticFiles
 
 from dockmon.config import load_config, DockmonConfig
-from dockmon.db import init_db, verify_tables
+from dockmon.db import init_db, verify_tables, prune_old_events, vacuum_db
 from dockmon.docker_client import get_client, get_logs, list_containers
 from dockmon.log_pipeline import process_logs
 from dockmon.ai_engine import evaluate, EvaluationContext
@@ -73,6 +73,10 @@ def startup_check(cfg: DockmonConfig) -> None:
     conn = init_db(cfg.monitoring.db_path)
     tables = verify_tables(conn)
     logger.info("Database OK: %s", tables)
+    pruned = prune_old_events(conn, cfg.monitoring.retention_days)
+    if pruned:
+        vacuum_db(conn)
+        logger.info("DB maintenance: pruned %d old events, vacuumed", pruned)
     conn.close()
 
     client = get_client()
@@ -331,6 +335,10 @@ async def run(cfg: DockmonConfig) -> None:
             try:
                 conn = init_db(cfg.monitoring.db_path)
                 digest = await send_digest(cfg, conn)
+                # Daily maintenance after digest
+                pruned = prune_old_events(conn, cfg.monitoring.retention_days)
+                if pruned:
+                    vacuum_db(conn)
                 conn.close()
                 publish("digest", {"overall_health": digest.get("overall_health", "unknown"),
                                    "headline": digest.get("headline", "")})

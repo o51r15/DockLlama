@@ -99,6 +99,27 @@ async def generate_digest(cfg: DockmonConfig, conn: sqlite3.Connection) -> dict[
     """Generate a daily digest via the configured LLM."""
     stats = _query_period_stats(conn)
 
+    # Add trend data for richer digest
+    try:
+        from dockmon.trends import get_fleet_trends
+        container_names = [c["name"] for c in stats.get("containers", [])]
+        if container_names:
+            trends = get_fleet_trends(conn, container_names)
+            stats["trends_7d_30d"] = {
+                "fleet_health_pct_7d": trends["fleet_health_pct_7d"],
+                "fleet_restarts_7d": trends["fleet_restarts_7d"],
+                "worsening_containers": trends["worsening_containers"],
+                "per_container": [
+                    {"name": c["container"], "trend": c["trend"],
+                     "health_7d": c["last_7d"]["health_pct"],
+                     "health_30d": c["last_30d"]["health_pct"]}
+                    for c in trends["containers"]
+                ],
+            }
+    except Exception:
+        logger.debug("Could not add trend data to digest", exc_info=True)
+
+
     if not stats["containers"]:
         logger.info("No evaluation data for digest period — skipping.")
         return {"overall_health": "unknown", "headline": "No monitoring data in the last 24 hours."}

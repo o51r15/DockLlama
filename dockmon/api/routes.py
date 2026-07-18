@@ -292,6 +292,26 @@ async def trigger_digest():
         conn.close()
 
 
+
+@router.get("/trends")
+async def get_trends(container: Optional[str] = None):
+    """7-day and 30-day health trends per container."""
+    cfg = _get_cfg()
+    conn = init_db(cfg.monitoring.db_path)
+    try:
+        from dockmon.trends import get_fleet_trends, get_container_trends
+        if container:
+            result = get_container_trends(conn, container)
+        else:
+            names = [c.name for c in cfg.containers if c.enabled]
+            result = get_fleet_trends(conn, names)
+        return result
+    except Exception as e:
+        raise HTTPException(500, f"Trend calculation failed: {e}")
+    finally:
+        conn.close()
+
+
 @router.get("/config")
 async def get_config():
     """Current running configuration (sanitized)."""

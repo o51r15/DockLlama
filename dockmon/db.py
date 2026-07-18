@@ -92,3 +92,22 @@ if __name__ == "__main__":
     conn.close()
     os.unlink(test_path)
     print("Test passed, cleaned up.")
+
+
+def prune_old_events(conn, retention_days=90):
+    """Delete events older than retention_days. Returns rows deleted."""
+    import logging
+    from datetime import datetime, timedelta, timezone
+    logger = logging.getLogger(__name__)
+    cutoff = (datetime.now(timezone.utc) - timedelta(days=retention_days)).strftime("%Y-%m-%d %H:%M:%S")
+    cursor = conn.execute("DELETE FROM events WHERE timestamp < ?", (cutoff,))
+    deleted = cursor.rowcount
+    conn.commit()
+    if deleted:
+        logger.info("Pruned %d events older than %d days", deleted, retention_days)
+    return deleted
+
+
+def vacuum_db(conn):
+    """Reclaim space after pruning."""
+    conn.execute("VACUUM")

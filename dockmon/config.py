@@ -22,6 +22,7 @@ class MonitoringConfig(BaseModel):
     log_lines_per_check: int = 200
     dry_run: bool = True
     db_path: str = "/app/data/dockmon.db"
+    retention_days: int = 90
 
 
 class ContainerConfig(BaseModel):

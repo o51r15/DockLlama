@@ -9,6 +9,7 @@ monitoring:
   log_lines_per_check: 200
   dry_run: true
   db_path: "/home/o51r15/scripts/dockmon/data/dockmon.db"
+  retention_days: 90
 
 containers:
   - name: "bentopdf"
