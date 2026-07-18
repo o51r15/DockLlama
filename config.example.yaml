@@ -51,6 +51,35 @@ containers:
       - "checkpoint complete"
     compose_group: "pinchfork"
 
+  - name: "jellyfin"
+    enabled: true
+    ignore_patterns: []
+    compose_group: null
+  - name: "karakeep"
+    enabled: true
+    ignore_patterns: []
+    compose_group: "karakeep"
+  - name: "karakeep_chrome"
+    enabled: true
+    ignore_patterns: []
+    compose_group: "karakeep"
+  - name: "karakeep_meilisearch"
+    enabled: true
+    ignore_patterns: []
+    compose_group: "karakeep"
+  - name: "memos"
+    enabled: true
+    ignore_patterns: []
+    compose_group: null
+  - name: "tautulli"
+    enabled: true
+    ignore_patterns: []
+    compose_group: null
+  - name: "seerr"
+    enabled: true
+    ignore_patterns: []
+    compose_group: null
+
 cooldowns:
   initial_minutes: 5
   backoff_multiplier: 3
