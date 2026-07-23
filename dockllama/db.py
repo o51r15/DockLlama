@@ -59,6 +59,16 @@ CREATE TABLE IF NOT EXISTS alert_urls (
     url TEXT NOT NULL UNIQUE,
     added_at TEXT NOT NULL DEFAULT (datetime('now'))
 );
+
+CREATE TABLE IF NOT EXISTS tested_models (
+    model TEXT PRIMARY KEY,
+    tested_at TEXT NOT NULL DEFAULT (datetime('now')),
+    healthy_pass INTEGER DEFAULT 0,
+    failing_pass INTEGER DEFAULT 0,
+    avg_response_ms INTEGER DEFAULT 0,
+    status TEXT DEFAULT 'untested'
+);
+
 CREATE TABLE IF NOT EXISTS container_prompts (
     container TEXT PRIMARY KEY,
     context_prompt TEXT,
@@ -166,6 +176,40 @@ def delete_container_prompt(conn, container: str) -> bool:
     cursor = conn.execute("DELETE FROM container_prompts WHERE container = ?", (container,))
     conn.commit()
     return cursor.rowcount > 0
+
+
+
+def get_tested_models(conn) -> list[dict]:
+    """Get all tested model records."""
+    rows = conn.execute(
+        "SELECT model, tested_at, healthy_pass, failing_pass, avg_response_ms, status "
+        "FROM tested_models ORDER BY tested_at DESC"
+    ).fetchall()
+    return [
+        {"model": r[0], "tested_at": r[1], "healthy_pass": bool(r[2]),
+         "failing_pass": bool(r[3]), "avg_response_ms": r[4], "status": r[5]}
+        for r in rows
+    ]
+
+
+def save_tested_model(conn, model: str, healthy_pass: bool, failing_pass: bool,
+                       avg_response_ms: int) -> None:
+    """Save or update a model test result."""
+    from datetime import datetime, timezone
+    now = datetime.now(timezone.utc).strftime("%Y-%m-%d %H:%M:%S")
+    status = "supported" if (healthy_pass and failing_pass) else "failed"
+    conn.execute(
+        """INSERT INTO tested_models (model, tested_at, healthy_pass, failing_pass, avg_response_ms, status)
+           VALUES (?, ?, ?, ?, ?, ?)
+           ON CONFLICT(model) DO UPDATE SET
+             tested_at = excluded.tested_at,
+             healthy_pass = excluded.healthy_pass,
+             failing_pass = excluded.failing_pass,
+             avg_response_ms = excluded.avg_response_ms,
+             status = excluded.status""",
+        (model, now, int(healthy_pass), int(failing_pass), avg_response_ms, status),
+    )
+    conn.commit()
 
 def prune_old_events(conn, retention_days=90):
     """Delete events older than retention_days. Returns rows deleted."""

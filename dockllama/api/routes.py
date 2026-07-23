@@ -10,7 +10,7 @@ from fastapi import APIRouter, Query, HTTPException
 from pydantic import BaseModel
 
 from dockllama.config import DockLlamaConfig
-from dockllama.db import init_db, get_container_prompt, save_container_prompt, delete_container_prompt
+from dockllama.db import init_db, get_container_prompt, save_container_prompt, delete_container_prompt, get_tested_models, save_tested_model
 from dockllama.docker_client import get_client, get_logs, list_containers
 from dockllama.log_pipeline import process_logs
 from dockllama.ai_engine import evaluate, EvaluationContext
@@ -528,6 +528,222 @@ async def test_prompt(name: str, prompt: PromptConfig):
         "lines_evaluated": len(batch.filtered_lines),
         "test_mode": True,
     }
+
+
+
+
+# --- Model Management ---
+
+@router.get("/models")
+async def list_models():
+    """List all models available in Ollama, with test status from DB."""
+    cfg = _get_cfg()
+    conn = init_db(cfg.monitoring.db_path)
+    try:
+        # Get tested models from DB
+        tested = {m["model"]: m for m in get_tested_models(conn)}
+
+        # Query Ollama for available models
+        import httpx
+        models = []
+        try:
+            async with httpx.AsyncClient(timeout=10) as http:
+                r = await http.get(f"{cfg.ollama.base_url}/api/tags")
+                if r.status_code == 200:
+                    data = r.json()
+                    for m in data.get("models", []):
+                        name = m.get("name", "")
+                        size_bytes = m.get("size", 0)
+                        size_gb = round(size_bytes / (1024**3), 1) if size_bytes else 0
+                        test_info = tested.get(name, {})
+                        models.append({
+                            "name": name,
+                            "size_gb": size_gb,
+                            "parameter_size": m.get("details", {}).get("parameter_size", ""),
+                            "quantization": m.get("details", {}).get("quantization_level", ""),
+                            "family": m.get("details", {}).get("family", ""),
+                            "modified_at": m.get("modified_at", ""),
+                            "is_current": name == cfg.ollama.default_model,
+                            "is_digest": name == cfg.ollama.digest_model,
+                            "test_status": test_info.get("status", "untested"),
+                            "test_info": test_info if test_info else None,
+                        })
+        except Exception as e:
+            raise HTTPException(502, f"Failed to reach Ollama: {e}")
+
+        return {
+            "models": models,
+            "current_default": cfg.ollama.default_model,
+            "current_digest": cfg.ollama.digest_model,
+        }
+    finally:
+        conn.close()
+
+
+class ModelTestRequest(BaseModel):
+    model: str
+
+
+@router.post("/models/test")
+async def test_model(req: ModelTestRequest):
+    """Run validation tests against a model (healthy fixture + failing fixture)."""
+    cfg = _get_cfg()
+
+    # Hardcoded test fixtures
+    healthy_summary = """Container: test-healthy-fixture
+Time Window: 15 minutes
+Resource Usage: CPU 2.1% | RAM 18.4%
+Log Severities: 0 ERROR, 0 WARN, 12 INFO
+Recent Tail (last 10 lines):
+[1/10] LOG: checkpoint starting: time
+[2/10] LOG: checkpoint complete: wrote 42 buffers (0.3%)
+[3/10] LOG: automatic analyze of table "public.users" system usage is 1%
+[4/10] LOG: checkpoint starting: time
+[5/10] LOG: checkpoint complete: wrote 18 buffers (0.1%)
+[6/10] LOG: connection received: host=172.19.0.3 port=54210
+[7/10] LOG: connection authorized: user=app database=prod
+[8/10] LOG: disconnection: session time: 0:00:02.104
+[9/10] LOG: checkpoint starting: time
+[10/10] LOG: checkpoint complete: wrote 5 buffers (0.0%)"""
+
+    failing_summary = """Container: test-failing-fixture
+Time Window: 15 minutes
+Resource Usage: CPU 99.8% | RAM 97.2%
+Log Severities: 14 ERROR, 3 WARN, 0 INFO
+Deduplicated Errors:
+  "Out of memory: Killed process 1842 (node)" (×6)
+  "Container exceeded memory limit, OOM killed" (×4)
+  "FATAL: the database system is shutting down" (×2)
+  "panic: runtime error: invalid memory address or nil pointer dereference" (×2)
+Recovery: No recovery detected — errors continue through most recent lines.
+Restart Sequence: Detected — container restarting repeatedly.
+Recent Tail (last 10 lines):
+[1/10] ERROR: Out of memory: Killed process 1842 (node)
+[2/10] ERROR: Container exceeded memory limit, OOM killed
+[3/10] WARN: Container restart count: 5 in last 10 minutes
+[4/10] ERROR: FATAL: the database system is shutting down
+[5/10] ERROR: Out of memory: Killed process 1843 (node)
+[6/10] ERROR: Container exceeded memory limit, OOM killed
+[7/10] ERROR: panic: runtime error: invalid memory address or nil pointer dereference
+[8/10] WARN: process exited with code 137 (SIGKILL)
+[9/10] ERROR: Out of memory: Killed process 1844 (node)
+[10/10] ERROR: Container exceeded memory limit, OOM killed"""
+
+    from dockllama.ai_engine import evaluate, EvaluationContext
+
+    results = {}
+    times = []
+
+    # Test 1: Healthy fixture
+    import time as _time
+    ctx_healthy = EvaluationContext(
+        container_name="test-healthy-fixture",
+        filtered_lines=[],
+        structured_summary=healthy_summary,
+        model=req.model,
+    )
+    t0 = _time.time()
+    try:
+        result_h, _ = await evaluate(ctx_healthy, cfg.ollama)
+        t_healthy = round((_time.time() - t0) * 1000)
+        times.append(t_healthy)
+        healthy_pass = result_h.health_score >= 80 and result_h.status == "healthy"
+        results["healthy"] = {
+            "passed": healthy_pass,
+            "status": result_h.status,
+            "health_score": result_h.health_score,
+            "confidence": result_h.confidence,
+            "summary": result_h.summary,
+            "response_ms": t_healthy,
+            "expected": "status=healthy, score>=80",
+        }
+    except Exception as e:
+        results["healthy"] = {"passed": False, "error": str(e), "response_ms": 0}
+        healthy_pass = False
+
+    # Test 2: Failing fixture
+    ctx_failing = EvaluationContext(
+        container_name="test-failing-fixture",
+        filtered_lines=[],
+        structured_summary=failing_summary,
+        model=req.model,
+    )
+    t0 = _time.time()
+    try:
+        result_f, _ = await evaluate(ctx_failing, cfg.ollama)
+        t_failing = round((_time.time() - t0) * 1000)
+        times.append(t_failing)
+        failing_pass = result_f.health_score < 40 and result_f.status in ("unhealthy", "critical")
+        results["failing"] = {
+            "passed": failing_pass,
+            "status": result_f.status,
+            "health_score": result_f.health_score,
+            "confidence": result_f.confidence,
+            "summary": result_f.summary,
+            "response_ms": t_failing,
+            "expected": "status=unhealthy/critical, score<40",
+        }
+    except Exception as e:
+        results["failing"] = {"passed": False, "error": str(e), "response_ms": 0}
+        failing_pass = False
+
+    avg_ms = round(sum(times) / len(times)) if times else 0
+    all_passed = healthy_pass and failing_pass
+
+    # Save to DB
+    conn = init_db(cfg.monitoring.db_path)
+    try:
+        save_tested_model(conn, req.model, healthy_pass, failing_pass, avg_ms)
+    finally:
+        conn.close()
+
+    return {
+        "model": req.model,
+        "passed": all_passed,
+        "results": results,
+        "avg_response_ms": avg_ms,
+        "status": "supported" if all_passed else "failed",
+    }
+
+
+class SetDefaultModelRequest(BaseModel):
+    model: str
+    role: str = "eval"  # "eval" or "digest"
+
+
+@router.put("/models/default")
+async def set_default_model(req: SetDefaultModelRequest):
+    """Set the default model (requires model to be tested/supported for eval role)."""
+    cfg = _get_cfg()
+
+    if req.role == "eval":
+        # Check if model has been tested and passed
+        conn = init_db(cfg.monitoring.db_path)
+        try:
+            tested = {m["model"]: m for m in get_tested_models(conn)}
+            test_info = tested.get(req.model)
+            if not test_info or test_info["status"] != "supported":
+                raise HTTPException(400, f"Model '{req.model}' must pass validation tests before it can be set as default. Run tests first.")
+        finally:
+            conn.close()
+        cfg.ollama.default_model = req.model
+        return {"status": "ok", "role": "eval", "model": req.model, "note": "Change is runtime-only. Update config.yaml to persist across restarts."}
+    elif req.role == "digest":
+        cfg.ollama.digest_model = req.model
+        return {"status": "ok", "role": "digest", "model": req.model, "note": "Change is runtime-only. Update config.yaml to persist across restarts."}
+    else:
+        raise HTTPException(400, f"Invalid role: {req.role}")
+
+
+@router.get("/models/tested")
+async def list_tested_models():
+    """List all previously tested models."""
+    cfg = _get_cfg()
+    conn = init_db(cfg.monitoring.db_path)
+    try:
+        return {"models": get_tested_models(conn)}
+    finally:
+        conn.close()
 
 
 # --- Alert management ---
