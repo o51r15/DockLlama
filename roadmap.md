@@ -361,12 +361,12 @@ Instead of requiring manual `context_prompt` configuration, detect common worklo
 
 ---
 
-### Phase 9 — Model Validation & Hardware-Aware Scheduling ⬅️ START HERE
+### Phase 9 — Model Validation & Hardware-Aware Scheduling
 
-**Status:** NOT STARTED
+**Status:** 9.1-9.3 COMPLETE (Session 5), 9.4-9.5 NOT STARTED ⬅️ START HERE
 **Objective:** Eliminate guesswork from model selection and poll interval configuration. The settings page should validate that a model actually works before allowing it, benchmark its speed on the user's hardware, and calculate a safe poll interval automatically.
 
-#### 9.1 Model Discovery & Selection UI
+#### 9.1 Model Discovery & Selection UI ✅
 
 New "Model Configuration" section on the Settings page.
 
@@ -377,7 +377,7 @@ New "Model Configuration" section on the Settings page.
 - Untested models show a warning: "This model has not been validated. Quality of results may vary with unsupported models."
 - Store tested model results in a new `tested_models` DB table: `(model TEXT PK, tested_at TEXT, healthy_pass BOOL, failing_pass BOOL, avg_response_ms INT, status TEXT)` where status is "supported" or "untested"
 
-#### 9.2 Model Validation Testing
+#### 9.2 Model Validation Testing ✅
 
 Before a model can be saved as the default, it must pass two hardcoded test fixtures:
 

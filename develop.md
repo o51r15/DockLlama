@@ -1,9 +1,9 @@
 # DockLlama — Developer Log & Handoff
 
-**Last updated:** July 23, 2026 (end of Session 5)
+**Last updated:** July 23, 2026 (Session 6)
 **Repository:** https://github.com/o51r15/DockLlama (renamed from DockLlama)
 **Status:** Running in dry-run mode as Docker container, monitoring 15 production containers
-**Latest commit:** `cbd8456` — Restructure nav: Dashboard, Insights (sidebar), Settings (sidebar)
+**Latest commit:** `7487933` — Restructure nav: Dashboard, Insights (sidebar), Settings (sidebar)
 
 ## FIRST TASK: Complete Rename ✅ DONE (Session 4)
 Renamed dockmon → dockllama across 32 files including Python package dir, imports, Docker image, CI/CD, compose, all user-facing strings.
@@ -74,18 +74,18 @@ C:\PROGRA~1\PuTTY\pscp.exe -batch -i C:\Users\o51r15\.ssh\id_ed25519.ppk o51r15@
 ```bash
 # Full rebuild and restart cycle (run on server via plink)
 cd /home/o51r15/scripts/dockmon
-docker build -t ghcr.io/o51r15/dockmon:dev .
-docker stop dockmon && docker rm dockmon
-docker run -d --name dockmon --restart unless-stopped \
+docker build -t ghcr.io/o51r15/dockllama:dev .
+docker stop dockllama && docker rm dockllama
+docker run -d --name dockllama --restart unless-stopped \
   -p 8556:8556 \
   -v /var/run/docker.sock:/var/run/docker.sock:ro \
-  -v /home/o51r15/scripts/dockmon/config.yaml:/app/config/config.yaml:ro \
-  -v dockllama-data:/app/data \
+  -v /home/o51r15/docker/dockmon/config.yaml:/app/config/config.yaml \
+  -v dockmon-data:/app/data \
   -e TZ=America/New_York \
-  ghcr.io/o51r15/dockmon:dev
+  ghcr.io/o51r15/dockllama:dev
 
 # Check logs
-docker logs dockmon --tail 20
+docker logs dockllama --tail 20
 
 # Alternative: run from host (for debugging only)
 cd ~/scripts/dockmon && nohup python3 -m dockllama config.yaml > /tmp/dockmon.log 2>&1 &
@@ -187,13 +187,13 @@ main.py: _process_container()
 
 ## Configuration
 
-**config.yaml** (gitignored, on server): 15 containers, `poll_interval_seconds: 900`, `timeout_seconds: 300`, `base_url: "http://192.168.1.125:11434"`, `default_model: "llama3.1:8b"` (was briefly qwen2.5:7b-instruct, reverted) (was briefly qwen2.5:7b-instruct, reverted), `digest_model: "gemma4:latest"`, `dry_run: true`.
+**config.yaml** (gitignored, on server): 15 containers, `poll_interval_seconds: 412`, `timeout_seconds: 300`, `base_url: "http://192.168.1.125:11434"`, `default_model: "llama3.1:8b"` (was briefly qwen2.5:7b-instruct, reverted) (was briefly qwen2.5:7b-instruct, reverted), `digest_model: "gemma4:latest"`, `dry_run: true`.
 
 **Monitored containers (15):** gluetun, bitmagnet, bitmagnet-postgres, qbittorrent, kometa, audiobookshelf, pinchfork, pinchfork-db, jellyfin, karakeep, karakeep_chrome, karakeep_meilisearch, memos, tautulli, seerr
 
 **Compose groups** (restart together): bitmagnet (bitmagnet + bitmagnet-postgres), pinchfork (pinchfork + pinchfork-db), karakeep (karakeep + karakeep_chrome + karakeep_meilisearch)
 
-**Docker volume:** `dockllama-data:/app/data` persists the SQLite DB across container restarts.
+**Docker volume:** `dockmon-data:/app/data` persists the SQLite DB across container restarts.
 
 ---
 
@@ -288,7 +288,7 @@ Five versions, each fixing failure modes discovered live:
 
 ## CI/CD
 
-`.github/workflows/docker-publish.yml`: push to main → `ghcr.io/o51r15/dockmon:dev`, GitHub Release → `:latest` + semver. Currently running `:dev` built locally (GHCR pull had timeout issues).
+`.github/workflows/docker-publish.yml`: push to main → `ghcr.io/o51r15/dockllama:dev`, GitHub Release → `:latest` + semver. Currently running `:dev` built locally (GHCR pull had timeout issues).
 
 ---
 
@@ -325,24 +325,20 @@ Key commits this session: `d3b4c52` (auto-healthy, digest fix, settings/digest p
 
 Key commits: rename (32 files), Phase 7 metrics pipeline, Phase 8 context injection, preprocessing explanation in base prompt, routine counts in severity display.
 
-### Session 4 — Telemetry, Context Injection & Model Tuning (July 23, 2026)
 
-**Rename:** Completed dockmon → dockllama across 32 files (package dir, imports, Docker, CI/CD, compose, strings).
+### Session 5-6 — Model Testing, Stats History, Bug Fixes & Config Persistence (July 23, 2026)
 
-**Phase 7 (Telemetry):** Added `get_container_stats()` to docker_client.py using Docker stats API with delta CPU calculation. Added cpu_percent/mem_percent to LogSummary dataclass and to_prompt() output. Added resource correlation rules to v5_evaluate.txt. All 15 containers now report CPU/RAM metrics.
+**Phase 9.1-9.3 (Model Validation & Scheduling):** Model discovery UI queries Ollama for available models. Validation testing sends healthy/failing test fixtures with warmup call to avoid cold-start benchmark skew. Results persist in tested_models DB table with full results_json. Selectable model cards show stored test results and interval calc. Hardware-aware interval slider with red/yellow/green zones auto-jumps to recommended value.
 
-**Phase 8.1-8.3 (Context Injection):** Added context_prompt, examples, and known_patterns fields to ContainerConfig. context_prompt injects container-specific knowledge into the system prompt. Few-shot examples provide calibration scenarios. known_patterns tag matching log lines with [ROUTINE:] metadata. Configured context for gluetun (port forwarding failures), bitmagnet-postgres (shutdown sequences), and karakeep_chrome (headless Chromium noise).
+**Phase 7B (Stats History & Resource Charts):** Container stats persist to container_stats table with configurable retention. API endpoints with downsampling for 1h/24h/7d/30d ranges. Dashboard sparklines on each card. Detail drawer with Chart.js line charts. Fleet overview bar.
 
-**Base prompt improvements:** Added "What you are reading" section to v5_evaluate.txt explaining the full preprocessing pipeline (ignore_patterns, known_patterns, severity counting, context overrides). Added "Reading the severity line" section explaining routine counts.
+**DB path fix:** Config had db_path pointing to host path inaccessible inside container. Fixed to /app/data/dockllama.db (volume-mounted). Migrated old data (3772 events, 16 baselines, 5 digests). Added warning comment to config.yaml.
 
-**Routine counts:** Added routine_counts tracking to log_analyzer.py — counts how many ERROR/WARN lines carry [ROUTINE:] tags and displays inline: `18 (18 routine) ERROR`.
+**Evaluate Now bug fixes:** Button click bubbled to detail drawer (added @click.stop). On-demand eval now saves to events table as on_demand_eval event type so dashboard reflects new results.
 
-**Model switch:** Switched from qwen2.5:7b-instruct back to llama3.1:8b for better context-following.
+**Config persistence:** Interval and model changes from UI now persist to config.yaml via targeted regex replacement (preserves comments/formatting). Removed :ro from config mount. Single source of truth.
 
-**Known bug:** karakeep_chrome scores 60 (DEGRADED) despite all errors being routine Chromium noise. See BUG_karakeep_chrome_scoring.md for full analysis and future fix ideas. Best candidate: reclassify routine-tagged lines as INFO in the preprocessor.
-
-Key commits: rename (32 files), Phase 7 metrics pipeline, Phase 8 context injection, preprocessing explanation in base prompt, routine counts in severity display.
-
+Key commits: ad8df22, 851c8bc, 487f205, 98c4eb9, 7487933.
 
 ---
 
@@ -387,4 +383,4 @@ Key commits: rename (32 files), Phase 7 metrics pipeline, Phase 8 context inject
    - 1 few-shot example (normal startup → 95/healthy)
    - 4 known_patterns with [ROUTINE:] tags (D-Bus, Bluetooth, sandbox, bluez)
 2. **Docker image tag mismatch** — docker-compose.yml references `:latest` but active container runs `:dev`. Next GitHub Release will sync.
-3. **Docker volume vs host DB** — container uses `dockllama-data:/app/data`. Host path `/home/o51r15/scripts/dockmon/data/dockllama.db` is separate. Don't confuse them.
+3. **Docker volume vs host DB** — RESOLVED. — container uses `dockmon-data:/app/data`. Host path `/home/o51r15/scripts/dockmon/data/dockllama.db` is separate. Don't confuse them.
