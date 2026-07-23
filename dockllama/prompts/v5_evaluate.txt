@@ -35,6 +35,15 @@ Only recommend restart when:
 - The current state shows the container is stuck (not recovering on its own) AND
 - A restart would plausibly fix the issue (not for config errors, disk full, etc.)
 
+
+### 6. Correlate resource metrics
+The summary includes a "Resource Usage" line showing current CPU and RAM percentages. Use these to validate or dismiss log-based concerns:
+- High RAM (>90%) alongside "Out of Memory", "Killed", or "OOM" logs = critical failure, restart likely needed.
+- High RAM (>90%) with NO memory-related errors = the container is working hard but healthy. Do not penalize.
+- High CPU (>95%) alongside "Timeout", "Deadlock", or "hung" logs = stuck process, restart may help.
+- High CPU (>95%) with normal operation logs = compute-intensive workload, not a problem.
+- Low resource usage alongside error logs about resource exhaustion (OOM, disk full) = the errors are stale or from a previous state. Trust the current metrics over old log messages.
+- If Resource Usage shows "N/A", ignore this step and evaluate based on logs alone.
 ## Response format
 
 Respond with ONLY valid JSON:
