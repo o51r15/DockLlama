@@ -1,9 +1,24 @@
-# Dockmon — Developer Log & Handoff
+# DockLlama — Developer Log & Handoff
 
 **Last updated:** July 23, 2026 (end of Session 3)
-**Repository:** https://github.com/o51r15/Dockmon
-**Status:** Running in dry-run mode as Docker container (`ghcr.io/o51r15/dockmon:dev`), monitoring 15 production containers
-**Latest commit:** `6bee8b0` — Fix: load persisted alert URLs before closing DB connection
+**Repository:** https://github.com/o51r15/DockLlama (renamed from Dockmon)
+**Status:** Running in dry-run mode as Docker container, monitoring 15 production containers
+**Latest commit:** `f9daf92` — Update handoff docs
+
+## FIRST TASK: Complete Rename from Dockmon to DockLlama
+
+The GitHub repo has been renamed by the user. The following still need updating in the codebase:
+
+- All Python source references to "Dockmon" / "dockmon" (module name, log strings, FastAPI title, banner)
+- Docker image tag: `ghcr.io/o51r15/dockllama:dev` (was `ghcr.io/o51r15/dockmon:dev`)
+- GitHub Actions workflow (image name in `.github/workflows/docker-publish.yml`)
+- Container name in `docker run` command (currently `--name dockmon`)
+- README, config.example.yaml, any user-facing strings
+- Python package directory: rename `dockmon/` → `dockllama/` and update all imports
+- `__main__.py`, `Dockerfile` CMD, `docker-compose.yml` service name
+- This file and `roadmap.md` (replace remaining "Dockmon" references)
+
+Do this rename BEFORE starting the roadmap phases. Follow the standard inspect→build→review→test→review workflow.
 
 ---
 

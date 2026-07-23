@@ -1,4 +1,4 @@
-# Dockmon Roadmap
+# DockLlama Roadmap (formerly Dockmon)
 
 ## How To Use This Roadmap
 
@@ -12,6 +12,12 @@ When the user says "lets start the roadmap," find the phase marked **⬅️ STAR
 6. **Move to next** — Mark the sub-phase done in this file, then start the next one.
 
 Do NOT batch multiple sub-phases into one commit. One sub-phase = one commit = one test cycle.
+
+---
+
+## Pre-Roadmap: Rename Dockmon → DockLlama ⬅️ DO THIS FIRST
+
+The GitHub repo has been renamed by the user. Complete the codebase rename before starting any roadmap phases. See the checklist in `develop.md` under "FIRST TASK."
 
 ---
 
@@ -289,7 +295,71 @@ Instead of requiring manual `context_prompt` configuration, detect common worklo
 
 ---
 
-### Phase 9 — Learning Mode
+### Phase 9 — Model Validation & Hardware-Aware Scheduling
+
+**Status:** NOT STARTED
+**Objective:** Eliminate guesswork from model selection and poll interval configuration. The settings page should validate that a model actually works before allowing it, benchmark its speed on the user's hardware, and calculate a safe poll interval automatically.
+
+#### 9.1 Model Discovery & Selection UI
+
+New "Model Configuration" section on the Settings page.
+
+- On page load, query Ollama `GET /api/tags` to list all available models
+- Display models in a dropdown/selector with size and quantization info
+- "Save" button stays **grayed out** until the model passes validation (9.2)
+- Previously tested and validated models are listed as **"Supported"** — these can be selected without re-testing
+- Untested models show a warning: "This model has not been validated. Quality of results may vary with unsupported models."
+- Store tested model results in a new `tested_models` DB table: `(model TEXT PK, tested_at TEXT, healthy_pass BOOL, failing_pass BOOL, avg_response_ms INT, status TEXT)` where status is "supported" or "untested"
+
+#### 9.2 Model Validation Testing
+
+Before a model can be saved as the default, it must pass two hardcoded test fixtures:
+
+- **Healthy test:** A known-good log summary (clean PostgreSQL checkpoint sequence). Expected result: `status: "healthy"`, `health_score >= 80`.
+- **Failing test:** A known-bad log summary (OOM crash loop with no recovery). Expected result: `status: "unhealthy" or "critical"`, `health_score < 40`.
+- Both tests run sequentially. If the model returns no result or times out → **fail**, suggest a different model.
+- If results come back but scores are wrong (healthy test scored unhealthy, or failing test scored healthy) → **fail**, display what the model returned vs. what was expected, suggest trying a different model.
+- Response time from both tests is recorded and averaged — this is the per-container eval time used for interval calculation (9.3).
+
+**Advanced mode:** Users can also paste their own log samples and define expected outcomes to test models against real-world scenarios specific to their stack.
+
+#### 9.3 Hardware-Aware Poll Interval Calculation
+
+Once a model passes validation, its average response time unlocks the interval configuration:
+
+- **Base calculation:** `safe_interval = (avg_response_time × container_count) + 300s` (5 minute buffer)
+- Example: 11s avg × 15 containers = 165s work + 300s buffer = 465s (~7.75 min) safe interval
+- A **slider** appears showing the interval range with color coding:
+  - 🔴 **Red:** interval < total work time (hardware cannot keep up, evaluations will overlap)
+  - 🟡 **Yellow:** interval < work time + 2 min (high load, minimal breathing room)
+  - 🟢 **Green:** interval >= work time + 5 min (safe, recommended zone)
+- Default position: start of green zone
+- User can drag into yellow (with warning) but not into red
+
+**Per-container overrides:** If a container has a different `model_override` or custom send interval, that container's eval time uses its own model's benchmark rather than the system default. The total work time calculation sums each container's individual expected eval time.
+
+#### 9.4 Dynamic Recalculation
+
+- When containers are added or removed from monitoring, display a banner: "Container count changed. Recalculating recommended interval..." with a "Retest" button
+- Retest is **suggested but not required** — the system recalculates using the existing per-model benchmark times and the new container count
+- If a container specifies a `model_override` for a model that hasn't been tested yet, that model must pass validation (9.2) before the container can be enabled
+- Store interval calculation inputs in DB so they survive restarts: `(model, avg_ms, container_count, calculated_interval, user_override, updated_at)`
+
+#### 9.5 First-Run Setup Wizard (Stretch)
+
+Optional guided setup shown when DockLlama starts with no config or an empty container list:
+
+1. **Ollama connection** — enter URL, test connectivity, show available models
+2. **Model selection** — pick a model, run validation tests (9.2)
+3. **Container selection** — show running Docker containers, pick which to monitor
+4. **Interval recommendation** — auto-calculate and display the slider (9.3)
+5. **Save** — write config and start monitoring
+
+If the wizard is skipped, all of this is accessible from the Settings page.
+
+---
+
+### Phase 10 — Learning Mode (formerly Phase 9)
 
 The core problem with generic AI healthchecks is that every container has its own definition of "normal." Learning Mode lets Dockmon observe containers passively, surface patterns it thinks might be problems, and learn from user feedback what actually matters for each container.
 
@@ -338,26 +408,26 @@ containers:
 
 ---
 
-### Phase 10 — Fleet Management (Distributed Architecture)
+### Phase 11 — Fleet Management (Distributed Architecture)
 
 **Objective:** Scale Dockmon to monitor multiple servers across an entire homelab or production environment.
 
-#### 10.1 Remote Socket Integration
+#### 11.1 Remote Socket Integration
 - Refactor `docker_client.py` to support multiple Docker clients
 - Beyond `/var/run/docker.sock`, support TCP (`tcp://192.168.1.50:2375`) and SSH endpoints in `config.yaml`
 - Update database schema to include `node_name` on all events and cooldowns
 
-#### 10.2 UI Fleet Grouping
+#### 11.2 UI Fleet Grouping
 - Dashboard groups containers by host node
 - Log Explorer dropdown to filter by node
 
-#### 10.3 Portainer API Sync (Stretch)
+#### 11.3 Portainer API Sync (Stretch)
 - Accept a Portainer API token, auto-discover all running edge nodes, dynamically map target containers
 - Eliminates manual IP configuration in `config.yaml`
 
 ---
 
-### Phase 11 — Open-Source Readiness
+### Phase 12 — Open-Source Readiness
 
 **Objective:** Prepare the repository for public consumption and community contributions.
 
