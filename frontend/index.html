@@ -156,7 +156,7 @@ nav a.active, nav a:hover { color:var(--text); background:var(--surface2); }
         </div>
       </div>
       <div class="card-actions">
-        <button class="btn btn-eval" @click="evalNow(c.name)" :disabled="evaluating===c.name">
+        <button class="btn btn-eval" @click.stop="evalNow(c.name)" :disabled="evaluating===c.name">
           <span x-text="evaluating===c.name ? 'Evaluating...' : 'Evaluate Now'"></span>
         </button>
         <a class="btn" :href="'/insights.html?view=explorer&container=' + c.name">Logs</a>

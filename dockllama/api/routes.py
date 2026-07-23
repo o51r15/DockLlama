@@ -208,6 +208,31 @@ async def evaluate_container(name: str, req: EvalRequest):
     result, prompt_version = await evaluate(ctx, cfg.ollama)
     elapsed = round(time.time() - start, 2)
 
+    # Save to events DB so dashboard reflects the new evaluation
+    conn = init_db(cfg.monitoring.db_path)
+    try:
+        log_snapshot = "\n".join(filtered_lines[-50:]) if filtered_lines else ""
+        conn.execute(
+            "INSERT INTO events (container, event_type, ai_status, confidence, "
+            "root_cause_category, summary, action_taken, log_snapshot, model_used, health_score) "
+            "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+            (
+                name,
+                "on_demand_eval",
+                result.status,
+                result.confidence,
+                result.root_cause_category,
+                result.summary,
+                result.recommended_action,
+                log_snapshot,
+                model,
+                result.health_score,
+            ),
+        )
+        conn.commit()
+    finally:
+        conn.close()
+
     return {
         "container": name,
         "status": result.status,
