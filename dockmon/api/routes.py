@@ -391,19 +391,30 @@ class AlertConfig(BaseModel):
 
 @router.get("/alerts")
 async def get_alerts():
-    """Get current alert configuration."""
+    """Get current alert configuration (from DB)."""
     cfg = _get_cfg()
-    return {"urls": cfg.alerts.urls}
+    conn = init_db(cfg.monitoring.db_path)
+    try:
+        from dockmon.alerts import load_alert_urls
+        urls = load_alert_urls(conn)
+        return {"urls": urls}
+    finally:
+        conn.close()
 
 
 @router.put("/alerts")
 async def update_alerts(alert_cfg: AlertConfig):
-    """Update alert URLs (runtime only — does not persist to config file)."""
+    """Update alert URLs (persisted to database)."""
     cfg = _get_cfg()
     cfg.alerts.urls = alert_cfg.urls
-    from dockmon.alerts import init_alerts
+    from dockmon.alerts import init_alerts, save_alert_urls
     init_alerts(alert_cfg.urls)
-    return {"status": "ok", "count": len(alert_cfg.urls)}
+    conn = init_db(cfg.monitoring.db_path)
+    try:
+        save_alert_urls(conn, alert_cfg.urls)
+    finally:
+        conn.close()
+    return {"status": "ok", "count": len(alert_cfg.urls), "persisted": True}
 
 
 @router.post("/alerts/test")

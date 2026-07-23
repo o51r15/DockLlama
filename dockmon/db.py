@@ -53,6 +53,12 @@ CREATE TABLE IF NOT EXISTS digests (
 );
 
 CREATE INDEX IF NOT EXISTS idx_digests_date ON digests(date);
+
+CREATE TABLE IF NOT EXISTS alert_urls (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    url TEXT NOT NULL UNIQUE,
+    added_at TEXT NOT NULL DEFAULT (datetime('now'))
+);
 """
 
 

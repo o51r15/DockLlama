@@ -46,6 +46,21 @@ def _send(title: str, body: str, notify_type: apprise.NotifyType = apprise.Notif
         return False
 
 
+
+def load_alert_urls(conn) -> list[str]:
+    """Load persisted alert URLs from the database."""
+    rows = conn.execute("SELECT url FROM alert_urls ORDER BY id").fetchall()
+    return [r[0] for r in rows]
+
+
+def save_alert_urls(conn, urls: list[str]) -> None:
+    """Replace all persisted alert URLs with the given list."""
+    conn.execute("DELETE FROM alert_urls")
+    for url in urls:
+        conn.execute("INSERT OR IGNORE INTO alert_urls (url) VALUES (?)", (url,))
+    conn.commit()
+    logger.info("Persisted %d alert URL(s) to database", len(urls))
+
 def alert_restart(container_name: str, result: EvaluationResult, action: ActionResult) -> bool:
     """Send an alert when a container is restarted."""
     now = datetime.now(timezone.utc).strftime("%Y-%m-%d %H:%M UTC")
