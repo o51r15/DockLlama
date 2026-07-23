@@ -80,6 +80,9 @@ class LogSummary:
     severity_counts: dict = field(default_factory=lambda: {
         "info": 0, "warn": 0, "error": 0, "unknown": 0
     })
+    routine_counts: dict = field(default_factory=lambda: {
+        "warn": 0, "error": 0
+    })
     restart_detected: bool = False
     restart_details: str = ""
     last_error_line_num: int = 0
@@ -111,11 +114,18 @@ class LogSummary:
             mem_str = f"{self.mem_percent}%" if self.mem_percent is not None else "N/A"
             parts.append(f"Resource Usage: CPU {cpu_str} | RAM {mem_str}")
 
+        # Build severity line with routine annotations
+        warn_str = str(self.severity_counts["warn"])
+        if self.routine_counts.get("warn", 0) > 0:
+            warn_str += f" ({self.routine_counts['warn']} routine)"
+        error_str = str(self.severity_counts["error"])
+        if self.routine_counts.get("error", 0) > 0:
+            error_str += f" ({self.routine_counts['error']} routine)"
         parts.append(
             f"Lines: {self.total_lines} total | "
             f"{self.severity_counts['info']} INFO | "
-            f"{self.severity_counts['warn']} WARN | "
-            f"{self.severity_counts['error']} ERROR | "
+            f"{warn_str} WARN | "
+            f"{error_str} ERROR | "
             f"{self.severity_counts['unknown']} other"
         )
 
@@ -301,6 +311,17 @@ def analyze_logs(
         "error": level_counts.get("error", 0),
         "unknown": level_counts.get("unknown", 0),
     }
+
+    # Count how many error/warn lines are tagged as routine
+    routine_error = 0
+    routine_warn = 0
+    for line_text, line_level in zip(lines, levels):
+        if "[ROUTINE:" in line_text:
+            if line_level == "error":
+                routine_error += 1
+            elif line_level == "warn":
+                routine_warn += 1
+    summary.routine_counts = {"warn": routine_warn, "error": routine_error}
 
     # Timestamps and time span
     valid_ts = [(i, ts) for i, ts in enumerate(timestamps) if ts]

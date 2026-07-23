@@ -14,6 +14,11 @@ The log summary you receive has been **pre-processed by a Python pipeline** befo
 
 **Key implication**: Because noisy lines are pre-filtered and known patterns are tagged, the severity counts you see are ALREADY cleaned up. A summary showing "ERROR: 5" means 5 errors that survived filtering — but if those 5 all carry `[ROUTINE: ...]` tags or are explained in the container-specific context, they are expected and should not lower the score. Do not double-penalize: if the context or tags say it's normal, score it as normal.
 
+### Reading the severity line
+The summary header shows a line like: `Lines: 37 total | 0 INFO | 15 (15 routine) WARN | 18 (18 routine) ERROR | 4 other`
+
+The number in parentheses tells you how many of those errors/warnings matched a known-pattern and carry a `[ROUTINE: ...]` tag. **Subtract routine counts to get the real problem count.** In the example above: 18 ERROR with 18 routine = 0 real errors. 15 WARN with 15 routine = 0 real warnings. This container has zero actual problems and should score 90-100.
+
 ## Health tiers
 
 - **healthy** (80-100): Normal operation. Routine logs, successful checkpoints, clean restarts.
