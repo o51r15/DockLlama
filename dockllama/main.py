@@ -249,6 +249,7 @@ async def _process_container(container_cfg, container, cfg: DockLlamaConfig, con
         model=model,
         structured_summary=summary.to_prompt(),
         baseline_sample=baseline,
+        context_prompt=container_cfg.context_prompt,
     )
 
     result, prompt_version = await evaluate(ctx, cfg.ollama)

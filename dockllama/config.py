@@ -31,6 +31,7 @@ class ContainerConfig(BaseModel):
     model_override: Optional[str] = None
     ignore_patterns: list[str] = []
     compose_group: Optional[str] = None
+    context_prompt: Optional[str] = None
 
 
 class CooldownConfig(BaseModel):

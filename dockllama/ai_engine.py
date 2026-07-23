@@ -77,6 +77,7 @@ class EvaluationContext:
     model: str
     structured_summary: Optional[str] = None  # from log_analyzer
     baseline_sample: Optional[str] = None
+    context_prompt: Optional[str] = None
     prompt_version: str = DEFAULT_PROMPT_VERSION
 
 
@@ -91,6 +92,10 @@ def _load_prompt(version: str) -> str:
 def _build_messages(ctx: EvaluationContext) -> tuple[str, str]:
     """Build system and user prompts for the LLM."""
     system_prompt = _load_prompt(ctx.prompt_version)
+
+    # Append container-specific context if provided
+    if ctx.context_prompt:
+        system_prompt += "\n\n## Container-Specific Context\n" + ctx.context_prompt
 
     # v5: use structured summary from log_analyzer if available
     if ctx.structured_summary:
