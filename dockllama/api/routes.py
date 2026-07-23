@@ -693,7 +693,9 @@ Recent Tail (last 10 lines):
     # Save to DB
     conn = init_db(cfg.monitoring.db_path)
     try:
-        save_tested_model(conn, req.model, healthy_pass, failing_pass, avg_ms)
+        import json as _json
+        results_json = _json.dumps({"results": results, "avg_response_ms": avg_ms, "passed": all_passed})
+        save_tested_model(conn, req.model, healthy_pass, failing_pass, avg_ms, results_json)
     finally:
         conn.close()
 
@@ -735,6 +737,31 @@ async def set_default_model(req: SetDefaultModelRequest):
         raise HTTPException(400, f"Invalid role: {req.role}")
 
 
+
+@router.get("/models/tested/{model_name:path}")
+async def get_tested_model_detail(model_name: str):
+    """Get stored test results for a specific model."""
+    cfg = _get_cfg()
+    conn = init_db(cfg.monitoring.db_path)
+    try:
+        row = conn.execute(
+            "SELECT model, tested_at, healthy_pass, failing_pass, avg_response_ms, status, results_json "
+            "FROM tested_models WHERE model = ?", (model_name,)
+        ).fetchone()
+        if not row:
+            raise HTTPException(404, f"No test results for model '{model_name}'")
+        import json as _json
+        result = {
+            "model": row[0], "tested_at": row[1],
+            "healthy_pass": bool(row[2]), "failing_pass": bool(row[3]),
+            "avg_response_ms": row[4], "status": row[5],
+        }
+        if row[6]:
+            result["detail"] = _json.loads(row[6])
+        return result
+    finally:
+        conn.close()
+
 @router.get("/models/tested")
 async def list_tested_models():
     """List all previously tested models."""
@@ -750,7 +777,7 @@ async def list_tested_models():
 # --- Interval Calculator (Phase 9.3) ---
 
 @router.get("/models/interval-calc")
-async def calculate_interval():
+async def calculate_interval(model: str = None):
     """Calculate recommended poll interval based on model benchmark and container count."""
     cfg = _get_cfg()
     conn = init_db(cfg.monitoring.db_path)
@@ -760,10 +787,11 @@ async def calculate_interval():
         conn.close()
 
     # Find the current default model's avg_response_ms
-    current_model = cfg.ollama.default_model
+    target_model = model or cfg.ollama.default_model
+    is_default = (target_model == cfg.ollama.default_model)
     model_info = None
     for m in tested:
-        if m["model"] == current_model:
+        if m["model"] == target_model:
             model_info = m
             break
 
@@ -773,14 +801,15 @@ async def calculate_interval():
     if avg_ms == 0:
         # No benchmark data — return defaults with a note
         return {
-            "current_model": current_model,
+            "current_model": target_model,
+            "is_default": is_default,
             "avg_response_ms": 0,
             "container_count": container_count,
             "total_work_seconds": 0,
             "recommended_interval": cfg.monitoring.poll_interval_seconds,
             "current_interval": cfg.monitoring.poll_interval_seconds,
             "zones": {"red_max": 0, "yellow_max": 0, "green_start": 0},
-            "note": "No benchmark data. Validate the current model first.",
+            "note": "No benchmark data. Validate this model first." if model else "No benchmark data. Validate the current model first.",
         }
 
     avg_seconds = avg_ms / 1000.0
@@ -789,7 +818,8 @@ async def calculate_interval():
     buffer_5min = total_work + 300
 
     return {
-        "current_model": current_model,
+        "current_model": target_model,
+        "is_default": is_default,
         "avg_response_ms": avg_ms,
         "container_count": container_count,
         "total_work_seconds": round(total_work),

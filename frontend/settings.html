@@ -88,6 +88,9 @@ label { display:block; font-size:0.85rem; color:var(--text-dim); margin-bottom:0
 
 
 
+.model-card.selected { border-color: var(--blue); box-shadow: 0 0 0 1px var(--blue); }
+.model-card.selected::before { content: ''; position: absolute; top: 0; left: 0; right: 0; height: 2px; background: var(--blue); border-radius: 8px 8px 0 0; }
+.model-card { position: relative; }
 /* Interval Calculator */
 .interval-section { margin-top:1.5rem; padding:1.25rem; background:var(--surface); border:1px solid var(--border); border-radius:8px; }
 .interval-section h3 { margin:0 0 0.5rem; font-size:1rem; }
@@ -346,7 +349,7 @@ label { display:block; font-size:0.85rem; color:var(--text-dim); margin-bottom:0
 
           <div class="model-grid" x-show="!modelsLoading && models.length > 0">
             <template x-for="m in models" :key="m.name">
-              <div class="model-card" :class="m.is_current && 'current'">
+              <div class="model-card" :class="{'current': m.is_current, 'selected': selectedModel === m.name}" @click="selectModel(m)" style="cursor:pointer;">
                 <div class="model-info">
                   <div class="model-name" x-text="m.name"></div>
                   <div class="model-meta">
@@ -383,9 +386,10 @@ label { display:block; font-size:0.85rem; color:var(--text-dim); margin-bottom:0
               </h3>
               <div style="font-size:0.8rem;color:var(--text-dim);margin-bottom:0.75rem;">
                 Avg response: <strong x-text="lastTestResult.avg_response_ms + 'ms'"></strong>
+                <span x-show="lastTestResult.tested_at" x-text="' — tested ' + (lastTestResult.tested_at || '')" style="margin-left:0.5rem;"></span>
               </div>
 
-              <template x-for="(fixture, key) in lastTestResult.results" :key="key">
+              <template x-for="(fixture, key) in (lastTestResult.results || {})" :key="key">
                 <div class="test-fixture">
                   <div class="test-fixture-header">
                     <strong x-text="key === 'healthy' ? 'Healthy Fixture' : 'Failing Fixture'"></strong>
@@ -405,7 +409,7 @@ label { display:block; font-size:0.85rem; color:var(--text-dim); margin-bottom:0
 
           <!-- Interval Calculator (Phase 9.3) -->
           <div class="interval-section" x-show="intervalData && !intervalData.note">
-            <h3>Poll Interval Calculator</h3>
+            <h3>Poll Interval Calculator <span x-show="!intervalData?.is_default" style="font-size:0.75rem;color:var(--text-dim);font-weight:400;">(set as default to apply)</span></h3>
             <div class="interval-meta">
               <span>Model: <strong x-text="intervalData?.current_model"></strong></span>
               <span>Avg eval: <strong x-text="intervalData?.avg_response_ms + 'ms'"></strong></span>
@@ -438,11 +442,12 @@ label { display:block; font-size:0.85rem; color:var(--text-dim); margin-bottom:0
             </div>
 
             <div class="interval-actions">
-              <button class="btn btn-primary" @click="saveInterval()" :disabled="!intervalDirty || savingInterval"
+              <button class="btn btn-primary" @click="saveInterval()" :disabled="!intervalDirty || savingInterval || !intervalData?.is_default"
                       style="font-size:0.85rem;padding:0.4rem 1rem;">
                 <span x-text="savingInterval ? 'Saving...' : 'Apply Interval'"></span>
               </button>
               <button class="btn btn-test" @click="intervalValue = intervalData.recommended_interval; intervalDirty = true"
+                      :disabled="!intervalData?.is_default"
                       style="font-size:0.85rem;padding:0.4rem 1rem;">
                 Use Recommended
               </button>
@@ -453,7 +458,7 @@ label { display:block; font-size:0.85rem; color:var(--text-dim); margin-bottom:0
           </div>
 
           <div class="interval-section" x-show="intervalData && intervalData.note" style="color:var(--text-dim);">
-            <h3>Poll Interval Calculator</h3>
+            <h3>Poll Interval Calculator <span x-show="selectedModel" style="font-size:0.75rem;font-weight:400;" x-text="'— ' + (selectedModel || '')"></span></h3>
             <p x-text="intervalData?.note" style="font-size:0.85rem;margin:0.5rem 0 0;"></p>
           </div>
 
@@ -493,6 +498,7 @@ function settingsApp() {
     modelsLoading: false,
     testingModel: null,
     lastTestResult: null,
+    selectedModel: null,
     // Interval calculator
     intervalData: null,
     intervalValue: 900,
@@ -639,6 +645,36 @@ function settingsApp() {
       this.loadIntervalCalc();
     },
 
+
+    async selectModel(m) {
+      this.selectedModel = m.name;
+      // Load stored test results if model has been tested
+      if (m.test_status === 'supported' || m.test_status === 'failed') {
+        try {
+          const r = await fetch('/api/models/tested/' + encodeURIComponent(m.name));
+          if (r.ok) {
+            const data = await r.json();
+            if (data.detail) {
+              this.lastTestResult = { model: m.name, ...data.detail };
+            } else {
+              // Old data without detail — show summary
+              this.lastTestResult = {
+                model: m.name,
+                passed: data.healthy_pass && data.failing_pass,
+                avg_response_ms: data.avg_response_ms,
+                results: null,
+                tested_at: data.tested_at,
+              };
+            }
+          }
+        } catch(e) { /* silent */ }
+      } else {
+        this.lastTestResult = null;
+      }
+      // Load interval calc for this model
+      this.loadIntervalCalc(m.name);
+    },
+
     async testModel(name) {
       this.testingModel = name;
       this.lastTestResult = null;
@@ -649,8 +685,9 @@ function settingsApp() {
         });
         if (!r.ok) throw new Error('Test failed');
         this.lastTestResult = await r.json();
+        this.selectedModel = name;
         await this.loadModels();  // refresh badges
-        await this.loadIntervalCalc();  // recalculate interval
+        await this.loadIntervalCalc(name);  // recalculate interval for tested model
         this.showToast(
           this.lastTestResult.passed ? name + ' passed validation!' : name + ' failed validation',
           this.lastTestResult.passed ? 'success' : 'error'
@@ -673,9 +710,10 @@ function settingsApp() {
 
 
     // ── Interval Calculator ──
-    async loadIntervalCalc() {
+    async loadIntervalCalc(model) {
       try {
-        const r = await fetch('/api/models/interval-calc');
+        const url = model ? '/api/models/interval-calc?model=' + encodeURIComponent(model) : '/api/models/interval-calc';
+        const r = await fetch(url);
         if (!r.ok) return;
         this.intervalData = await r.json();
         this.intervalValue = this.intervalData.current_interval;

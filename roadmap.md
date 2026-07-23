@@ -187,6 +187,18 @@ Add explicit correlation rules to `v5_evaluate.txt`:
 - "High CPU usage (>95%) alongside 'Timeout' or 'Deadlock' logs indicates a hung process requiring a restart."
 - Run a manual evaluation against a noisy container to verify LLM confidence scores improve with the added context
 
+#### 9.4 Container-Specific Model Overrides
+
+Allow setting different AI models per container from the Settings → Models UI. Some containers may benefit from larger/smarter models while simpler containers can use faster ones.
+
+- Add `model_override` dropdown to container detail or prompt editor page
+- Store in DB (container_prompts table — already has per-container config)
+- Eval pipeline checks for per-container model override before falling back to default
+- Models page shows which containers use each model (hover/tooltip on model card)
+- Validation: only tested/supported models can be assigned to containers
+- **DockLlama twist:** Enables cost/speed optimization — fast model for simple containers, powerful model for complex ones
+
+
 ### Phase 7B — Stats History & Resource Charts *(inspired by darthnorse/dockmon)*
 
 **Status:** NOT STARTED

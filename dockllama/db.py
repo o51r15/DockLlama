@@ -66,7 +66,8 @@ CREATE TABLE IF NOT EXISTS tested_models (
     healthy_pass INTEGER DEFAULT 0,
     failing_pass INTEGER DEFAULT 0,
     avg_response_ms INTEGER DEFAULT 0,
-    status TEXT DEFAULT 'untested'
+    status TEXT DEFAULT 'untested',
+    results_json TEXT
 );
 
 CREATE TABLE IF NOT EXISTS container_prompts (
@@ -96,6 +97,15 @@ def init_db(db_path: str | Path = DEFAULT_DB_PATH) -> sqlite3.Connection:
     conn = get_connection(db_path)
     conn.executescript(SCHEMA)
     conn.commit()
+    # Migrations for existing installs
+    for sql in [
+        "ALTER TABLE tested_models ADD COLUMN results_json TEXT",
+    ]:
+        try:
+            conn.execute(sql)
+            conn.commit()
+        except Exception:
+            pass  # column already exists
     return conn
 
 
@@ -193,21 +203,22 @@ def get_tested_models(conn) -> list[dict]:
 
 
 def save_tested_model(conn, model: str, healthy_pass: bool, failing_pass: bool,
-                       avg_response_ms: int) -> None:
+                       avg_response_ms: int, results_json: str = None) -> None:
     """Save or update a model test result."""
     from datetime import datetime, timezone
     now = datetime.now(timezone.utc).strftime("%Y-%m-%d %H:%M:%S")
     status = "supported" if (healthy_pass and failing_pass) else "failed"
     conn.execute(
-        """INSERT INTO tested_models (model, tested_at, healthy_pass, failing_pass, avg_response_ms, status)
-           VALUES (?, ?, ?, ?, ?, ?)
+        """INSERT INTO tested_models (model, tested_at, healthy_pass, failing_pass, avg_response_ms, status, results_json)
+           VALUES (?, ?, ?, ?, ?, ?, ?)
            ON CONFLICT(model) DO UPDATE SET
              tested_at = excluded.tested_at,
              healthy_pass = excluded.healthy_pass,
              failing_pass = excluded.failing_pass,
              avg_response_ms = excluded.avg_response_ms,
-             status = excluded.status""",
-        (model, now, int(healthy_pass), int(failing_pass), avg_response_ms, status),
+             status = excluded.status,
+             results_json = excluded.results_json""",
+        (model, now, int(healthy_pass), int(failing_pass), avg_response_ms, status, results_json),
     )
     conn.commit()
 
