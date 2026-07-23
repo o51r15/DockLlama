@@ -18,7 +18,7 @@ from dockmon.db import init_db, verify_tables, prune_old_events, vacuum_db
 from dockmon.docker_client import get_client, get_logs, list_containers
 from dockmon.log_pipeline import process_logs
 from dockmon.log_analyzer import analyze_logs
-from dockmon.ai_engine import evaluate, EvaluationContext
+from dockmon.ai_engine import evaluate, EvaluationContext, EvaluationResult
 from dockmon.actions import execute_action
 from dockmon.alerts import (
     init_alerts, alert_restart, alert_dry_run, alert_escalation,
@@ -164,7 +164,55 @@ async def _process_container(container_cfg, container, cfg: DockmonConfig, conn)
         summary.recovery_detected,
     )
 
-    # 3. Evaluate with AI
+    # 3. Skip LLM if all logs were filtered (nothing meaningful to evaluate)
+    if summary.total_lines == 0:
+        logger.info("[%s] All log lines matched ignore patterns — auto-healthy", container_cfg.name)
+        result = EvaluationResult(
+            status="healthy",
+            health_score=95,
+            confidence=90,
+            summary="All log output is known noise (filtered by ignore patterns). No meaningful logs to evaluate.",
+            root_cause_category="none",
+            error_origin="none",
+            restart_would_help=False,
+            restart_reasoning="No issues detected — all logs are expected noise.",
+            recommended_action="none",
+        )
+        prompt_version = "auto-healthy"
+
+        # Log, store, publish, then return early
+        logger.info(
+            "[%s] -> %s [score=%d] (auto-healthy, no LLM call)",
+            container_cfg.name, result.status.upper(), result.health_score,
+        )
+        log_snapshot = "(all lines filtered by ignore patterns)"
+        conn.execute(
+            """INSERT INTO events
+               (container, event_type, ai_status, confidence, root_cause_category,
+                summary, action_taken, log_snapshot, prompt_version, model_used, health_score)
+               VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
+            (
+                container_cfg.name, "evaluation", result.status, result.confidence,
+                result.root_cause_category, result.summary, result.recommended_action,
+                log_snapshot, prompt_version, "none", result.health_score,
+            ),
+        )
+        conn.commit()
+        publish("evaluation", {
+            "container": container_cfg.name,
+            "status": result.status,
+            "health_score": result.health_score,
+            "confidence": result.confidence,
+            "root_cause_category": result.root_cause_category,
+            "error_origin": result.error_origin,
+            "summary": result.summary,
+            "restart_would_help": result.restart_would_help,
+            "restart_reasoning": result.restart_reasoning,
+            "recommended_action": result.recommended_action,
+        })
+        return
+
+    # 3b. Evaluate with AI
     model = container_cfg.model_override or cfg.ollama.default_model
 
     baseline = None

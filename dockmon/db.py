@@ -41,6 +41,18 @@ CREATE TABLE IF NOT EXISTS baselines (
 CREATE INDEX IF NOT EXISTS idx_events_container ON events(container);
 CREATE INDEX IF NOT EXISTS idx_events_timestamp ON events(timestamp);
 CREATE INDEX IF NOT EXISTS idx_events_type ON events(event_type);
+
+CREATE TABLE IF NOT EXISTS digests (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    date TEXT NOT NULL,
+    generated_at TEXT NOT NULL DEFAULT (datetime('now')),
+    overall_health TEXT,
+    headline TEXT,
+    digest_json TEXT NOT NULL,
+    formatted_text TEXT
+);
+
+CREATE INDEX IF NOT EXISTS idx_digests_date ON digests(date);
 """
 
 

@@ -1,0 +1,185 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Dockmon — Settings</title>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/alpinejs/3.13.5/cdn.min.js" defer></script>
+<style>
+:root {
+  --bg: #0f1117; --surface: #1a1d27; --surface2: #242834;
+  --border: #2e3345; --text: #e4e6ed; --text-dim: #8b8fa3;
+  --green: #22c55e; --yellow: #eab308; --red: #ef4444; --blue: #3b82f6;
+}
+* { margin:0; padding:0; box-sizing:border-box; }
+body { background:var(--bg); color:var(--text); font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif; }
+.header { padding:1.5rem 2rem; border-bottom:1px solid var(--border); display:flex; justify-content:space-between; align-items:center; }
+.header h1 { font-size:1.4rem; font-weight:600; }
+.header h1 span { color:var(--blue); }
+nav { padding:0.75rem 2rem; border-bottom:1px solid var(--border); display:flex; gap:1rem; }
+nav a { color:var(--text-dim); text-decoration:none; padding:0.4rem 0.8rem; border-radius:6px; font-size:0.85rem; }
+nav a.active, nav a:hover { color:var(--text); background:var(--surface2); }
+
+.content { max-width:720px; margin:0 auto; padding:2rem; }
+.section { background:var(--surface); border:1px solid var(--border); border-radius:10px; padding:1.5rem; margin-bottom:1.5rem; }
+.section h2 { font-size:1.1rem; margin-bottom:0.5rem; }
+.section p.desc { color:var(--text-dim); font-size:0.85rem; margin-bottom:1.25rem; line-height:1.5; }
+
+.url-list { display:flex; flex-direction:column; gap:0.5rem; margin-bottom:1rem; }
+.url-row { display:flex; gap:0.5rem; align-items:center; }
+.url-row input { flex:1; background:var(--surface2); border:1px solid var(--border); border-radius:6px; padding:0.5rem 0.75rem; color:var(--text); font-size:0.85rem; font-family:monospace; }
+.url-row input:focus { outline:none; border-color:var(--blue); }
+.url-row input::placeholder { color:var(--text-dim); }
+.btn-icon { background:none; border:1px solid var(--border); border-radius:6px; padding:0.4rem 0.6rem; color:var(--text-dim); cursor:pointer; font-size:0.85rem; }
+.btn-icon:hover { color:var(--red); border-color:var(--red); }
+
+.btn-row { display:flex; gap:0.75rem; flex-wrap:wrap; }
+.btn { padding:0.5rem 1rem; border-radius:6px; border:1px solid var(--border); background:var(--surface2); color:var(--text); font-size:0.85rem; cursor:pointer; }
+.btn:hover { background:var(--border); }
+.btn-primary { background:var(--blue); border-color:var(--blue); color:#fff; }
+.btn-primary:hover { opacity:0.9; }
+.btn-secondary { border-color:var(--text-dim); }
+.btn-test { border-color:var(--green); color:var(--green); }
+.btn-test:hover { background:#22c55e22; }
+
+.toast { position:fixed; bottom:2rem; right:2rem; padding:0.75rem 1.25rem; border-radius:8px; font-size:0.85rem; z-index:100; transition:opacity 0.3s; }
+.toast-success { background:#22c55e22; border:1px solid var(--green); color:var(--green); }
+.toast-error { background:#ef444422; border:1px solid var(--red); color:var(--red); }
+.toast-info { background:#3b82f622; border:1px solid var(--blue); color:var(--blue); }
+
+.help-box { background:var(--surface2); border-radius:8px; padding:1rem; margin-top:1rem; font-size:0.8rem; line-height:1.6; }
+.help-box code { background:var(--bg); padding:0.15rem 0.4rem; border-radius:3px; font-size:0.8rem; color:var(--blue); }
+.help-box h4 { margin-bottom:0.5rem; font-size:0.85rem; }
+
+.status-bar { display:flex; align-items:center; gap:0.5rem; margin-bottom:1rem; font-size:0.85rem; }
+.status-dot { width:8px; height:8px; border-radius:50%; }
+.status-active { background:var(--green); box-shadow:0 0 6px var(--green); }
+.status-inactive { background:var(--text-dim); }
+</style>
+</head>
+<body x-data="settingsApp()">
+<div class="header">
+  <h1>Dock<span>mon</span></h1>
+</div>
+
+<nav>
+  <a href="/">Dashboard</a>
+  <a href="/explorer.html">Log Explorer</a>
+  <a href="/digest.html">Digest</a>
+  <a href="/settings.html" class="active">Settings</a>
+</nav>
+
+<div class="content">
+  <!-- Notifications Section -->
+  <div class="section">
+    <h2>Notifications</h2>
+    <p class="desc">Configure where Dockmon sends alerts when containers are unhealthy, restarted, or enter escalation mode. Uses <a href="https://github.com/caronc/apprise" target="_blank" style="color:var(--blue)">Apprise</a> — supports 80+ notification services.</p>
+
+    <div class="status-bar">
+      <div class="status-dot" :class="urls.length > 0 ? 'status-active' : 'status-inactive'"></div>
+      <span x-text="urls.length > 0 ? urls.length + ' target(s) configured' : 'No notifications configured'"></span>
+    </div>
+
+    <div class="url-list">
+      <template x-for="(url, index) in urls" :key="index">
+        <div class="url-row">
+          <input type="text" x-model="urls[index]" placeholder="pover://user_key@api_token" @keydown.enter="save()">
+          <button class="btn-icon" @click="urls.splice(index, 1)" title="Remove">&times;</button>
+        </div>
+      </template>
+    </div>
+
+    <div class="btn-row">
+      <button class="btn btn-secondary" @click="urls.push('')">+ Add URL</button>
+      <button class="btn btn-primary" @click="save()" :disabled="saving">
+        <span x-text="saving ? 'Saving...' : 'Save'"></span>
+      </button>
+      <button class="btn btn-test" @click="testNotification()" :disabled="urls.length === 0 || testing">
+        <span x-text="testing ? 'Sending...' : 'Send Test'"></span>
+      </button>
+    </div>
+
+    <div class="help-box">
+      <h4>Common URL formats</h4>
+      <strong>Pushover:</strong> <code>pover://user_key@api_token</code><br>
+      <strong>Discord:</strong> <code>discord://webhook_id/webhook_token</code><br>
+      <strong>Gotify:</strong> <code>gotify://hostname/token</code><br>
+      <strong>Slack:</strong> <code>slack://token_a/token_b/token_c/#channel</code><br>
+      <strong>Telegram:</strong> <code>tgram://bot_token/chat_id</code><br>
+      <strong>Email:</strong> <code>mailto://user:pass@gmail.com</code><br>
+      <br>
+      See <a href="https://github.com/caronc/apprise/wiki" target="_blank" style="color:var(--blue)">Apprise wiki</a> for all supported services.
+      <br><br>
+      <em style="color:var(--text-dim)">Note: Changes apply immediately but are not persisted to config.yaml. Add URLs to your config file to make them permanent across restarts.</em>
+    </div>
+  </div>
+</div>
+
+<!-- Toast -->
+<div class="toast" :class="toast.class" x-show="toast.show" x-transition.opacity x-text="toast.message"></div>
+
+<script>
+function settingsApp() {
+  return {
+    urls: [],
+    saving: false,
+    testing: false,
+    toast: { show: false, message: '', class: 'toast-info' },
+
+    async init() {
+      try {
+        const resp = await fetch('/api/alerts');
+        const data = await resp.json();
+        this.urls = data.urls || [];
+      } catch (e) {
+        this.showToast('Failed to load alert config', 'toast-error');
+      }
+    },
+
+    async save() {
+      this.saving = true;
+      // Filter out empty strings
+      const cleanUrls = this.urls.filter(u => u.trim() !== '');
+      try {
+        const resp = await fetch('/api/alerts', {
+          method: 'PUT',
+          headers: {'Content-Type': 'application/json'},
+          body: JSON.stringify({ urls: cleanUrls }),
+        });
+        if (!resp.ok) throw new Error('Save failed');
+        this.urls = cleanUrls;
+        this.showToast('Saved — ' + cleanUrls.length + ' target(s) active', 'toast-success');
+      } catch (e) {
+        this.showToast('Failed to save: ' + e.message, 'toast-error');
+      }
+      this.saving = false;
+    },
+
+    async testNotification() {
+      this.testing = true;
+      try {
+        const resp = await fetch('/api/alerts/test', { method: 'POST' });
+        const data = await resp.json();
+        if (resp.ok && data.success) {
+          this.showToast('Test notification sent!', 'toast-success');
+        } else if (resp.ok && !data.success) {
+          this.showToast('Notification delivery failed — check URLs', 'toast-error');
+        } else {
+          const err = data.detail || 'Unknown error';
+          this.showToast(err, 'toast-error');
+        }
+      } catch (e) {
+        this.showToast('Request failed: ' + e.message, 'toast-error');
+      }
+      this.testing = false;
+    },
+
+    showToast(message, cls) {
+      this.toast = { show: true, message, class: cls };
+      setTimeout(() => { this.toast.show = false; }, 3500);
+    }
+  };
+}
+</script>
+</body>
+</html>

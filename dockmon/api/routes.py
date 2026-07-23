@@ -382,3 +382,104 @@ async def health_check():
 
     all_ok = all(checks.values())
     return {"healthy": all_ok, "checks": checks}
+
+# --- Alert management ---
+
+class AlertConfig(BaseModel):
+    urls: list[str]
+
+
+@router.get("/alerts")
+async def get_alerts():
+    """Get current alert configuration."""
+    cfg = _get_cfg()
+    return {"urls": cfg.alerts.urls}
+
+
+@router.put("/alerts")
+async def update_alerts(alert_cfg: AlertConfig):
+    """Update alert URLs (runtime only — does not persist to config file)."""
+    cfg = _get_cfg()
+    cfg.alerts.urls = alert_cfg.urls
+    from dockmon.alerts import init_alerts
+    init_alerts(alert_cfg.urls)
+    return {"status": "ok", "count": len(alert_cfg.urls)}
+
+
+@router.post("/alerts/test")
+async def test_alerts():
+    """Send a test notification to all configured alert targets."""
+    cfg = _get_cfg()
+    if not cfg.alerts.urls:
+        raise HTTPException(400, "No alert URLs configured")
+    from dockmon.alerts import _send
+    import apprise
+    success = _send(
+        "Dockmon Test Notification",
+        "This is a test notification from Dockmon. If you see this, notifications are working!",
+        apprise.NotifyType.INFO,
+    )
+    return {"success": success, "targets": len(cfg.alerts.urls)}
+
+
+# --- Digest history ---
+
+@router.get("/digests/latest")
+async def get_latest_digest():
+    """Get the most recent digest."""
+    cfg = _get_cfg()
+    conn = init_db(cfg.monitoring.db_path)
+    try:
+        row = conn.execute(
+            "SELECT id, date, generated_at, overall_health, headline, digest_json, formatted_text "
+            "FROM digests ORDER BY id DESC LIMIT 1"
+        ).fetchone()
+        if not row:
+            raise HTTPException(404, "No digests generated yet")
+        import json as _json
+        return {
+            "id": row[0], "date": row[1], "generated_at": row[2],
+            "overall_health": row[3], "headline": row[4],
+            "digest": _json.loads(row[5]), "formatted_text": row[6],
+        }
+    finally:
+        conn.close()
+
+
+@router.get("/digests/{date}")
+async def get_digest_by_date(date: str):
+    """Get digest for a specific date (YYYY-MM-DD)."""
+    cfg = _get_cfg()
+    conn = init_db(cfg.monitoring.db_path)
+    try:
+        row = conn.execute(
+            "SELECT id, date, generated_at, overall_health, headline, digest_json, formatted_text "
+            "FROM digests WHERE date = ? ORDER BY id DESC LIMIT 1",
+            (date,),
+        ).fetchone()
+        if not row:
+            raise HTTPException(404, f"No digest for {date}")
+        import json as _json
+        return {
+            "id": row[0], "date": row[1], "generated_at": row[2],
+            "overall_health": row[3], "headline": row[4],
+            "digest": _json.loads(row[5]), "formatted_text": row[6],
+        }
+    finally:
+        conn.close()
+
+
+@router.get("/digests")
+async def list_digests(limit: int = Query(30, ge=1, le=365)):
+    """List available digest dates."""
+    cfg = _get_cfg()
+    conn = init_db(cfg.monitoring.db_path)
+    try:
+        rows = conn.execute(
+            "SELECT id, date, overall_health, headline FROM digests ORDER BY id DESC LIMIT ?",
+            (limit,),
+        ).fetchall()
+        return [{"id": r[0], "date": r[1], "overall_health": r[2], "headline": r[3]} for r in rows]
+    finally:
+        conn.close()
+

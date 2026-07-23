@@ -95,6 +95,26 @@ def _query_period_stats(conn: sqlite3.Connection, hours: int = 24) -> dict[str, 
     }
 
 
+
+def _extract_json(text: str) -> dict:
+    """Extract first JSON object from text, tolerating thinking tokens or preamble."""
+    # Try direct parse first
+    text = text.strip()
+    try:
+        return json.loads(text)
+    except json.JSONDecodeError:
+        pass
+    # Find first { and last } — extract the JSON object
+    start = text.find("{")
+    end = text.rfind("}")
+    if start != -1 and end > start:
+        try:
+            return json.loads(text[start:end + 1])
+        except json.JSONDecodeError:
+            pass
+    logger.warning("Could not parse LLM digest response: %s", text[:200])
+    return {"overall_health": "unknown", "headline": "Digest LLM returned unparseable response."}
+
 async def generate_digest(cfg: DockmonConfig, conn: sqlite3.Connection) -> dict[str, Any]:
     """Generate a daily digest via the configured LLM."""
     stats = _query_period_stats(conn)
@@ -133,7 +153,7 @@ async def generate_digest(cfg: DockmonConfig, conn: sqlite3.Connection) -> dict[
         "system": system_prompt,
         "stream": False,
         "format": "json",
-        "options": {"temperature": 0.2, "num_predict": 600},
+        "options": {"temperature": 0.2, "num_predict": 2048, "think": False},
     }
 
     try:
@@ -141,7 +161,8 @@ async def generate_digest(cfg: DockmonConfig, conn: sqlite3.Connection) -> dict[
             resp = await client.post(f"{cfg.ollama.base_url}/api/generate", json=payload)
             resp.raise_for_status()
             raw = resp.json().get("response", "{}")
-            digest = json.loads(raw)
+            # gemma4 sometimes wraps JSON in thinking tokens — extract first JSON object
+            digest = _extract_json(raw)
     except Exception:
         logger.exception("Digest generation failed")
         digest = {
@@ -192,11 +213,25 @@ def format_digest_text(digest: dict) -> str:
 
 
 async def send_digest(cfg: DockmonConfig, conn: sqlite3.Connection) -> dict:
-    """Generate and send the daily digest."""
+    """Generate, store, and send the daily digest."""
     digest = await generate_digest(cfg, conn)
     text = format_digest_text(digest)
 
     logger.info("Digest generated:\n%s", text)
+
+    # Store in DB
+    today = datetime.now(timezone.utc).strftime("%Y-%m-%d")
+    try:
+        conn.execute(
+            """INSERT INTO digests (date, overall_health, headline, digest_json, formatted_text)
+               VALUES (?, ?, ?, ?, ?)""",
+            (today, digest.get("overall_health", "unknown"),
+             digest.get("headline", ""), json.dumps(digest), text),
+        )
+        conn.commit()
+        logger.info("Digest stored in DB for %s", today)
+    except Exception:
+        logger.exception("Failed to store digest in DB")
 
     if cfg.alerts.urls:
         _send("Dockmon Daily Digest", text)
