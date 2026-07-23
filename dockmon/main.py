@@ -78,6 +78,18 @@ def startup_check(cfg: DockmonConfig) -> None:
     if pruned:
         vacuum_db(conn)
         logger.info("DB maintenance: pruned %d old events, vacuumed", pruned)
+    # Load persisted alert URLs from DB, merge with config
+    from dockmon.alerts import load_alert_urls
+    db_urls = load_alert_urls(conn)
+    config_urls = cfg.alerts.urls or []
+    # Merge: DB URLs take priority, config URLs added if not already present
+    merged_urls = list(db_urls)
+    for u in config_urls:
+        if u not in merged_urls:
+            merged_urls.append(u)
+    if merged_urls != config_urls:
+        cfg.alerts.urls = merged_urls
+    init_alerts(merged_urls)
     conn.close()
 
     client = get_client()
@@ -101,18 +113,6 @@ def startup_check(cfg: DockmonConfig) -> None:
     except Exception as e:
         logger.warning("Ollama unreachable at %s: %s (will retry during monitoring)", cfg.ollama.base_url, e)
 
-    # Load persisted alert URLs from DB, merge with config
-    from dockmon.alerts import load_alert_urls
-    db_urls = load_alert_urls(conn)
-    config_urls = cfg.alerts.urls or []
-    # Merge: DB URLs take priority, config URLs added if not already present
-    merged_urls = list(db_urls)
-    for u in config_urls:
-        if u not in merged_urls:
-            merged_urls.append(u)
-    if merged_urls != config_urls:
-        cfg.alerts.urls = merged_urls
-    init_alerts(merged_urls)
 
     logger.info("Mode: %s", "DRY RUN" if cfg.monitoring.dry_run else "LIVE")
     logger.info("Poll interval: %ds", cfg.monitoring.poll_interval_seconds)
