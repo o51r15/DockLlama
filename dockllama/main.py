@@ -14,7 +14,7 @@ from fastapi import FastAPI
 from fastapi.staticfiles import StaticFiles
 
 from dockllama.config import load_config, DockLlamaConfig
-from dockllama.db import init_db, get_container_prompt, verify_tables, prune_old_events, vacuum_db
+from dockllama.db import init_db, save_container_stats, prune_container_stats, get_container_prompt, verify_tables, prune_old_events, vacuum_db
 from dockllama.docker_client import get_client, get_logs, list_containers, get_container_stats
 from dockllama.log_pipeline import process_logs
 from dockllama.log_analyzer import analyze_logs
@@ -75,6 +75,7 @@ def startup_check(cfg: DockLlamaConfig) -> None:
     tables = verify_tables(conn)
     logger.info("Database OK: %s", tables)
     pruned = prune_old_events(conn, cfg.monitoring.retention_days)
+    prune_container_stats(conn, cfg.monitoring.stats_retention_days)
     if pruned:
         vacuum_db(conn)
         logger.info("DB maintenance: pruned %d old events, vacuumed", pruned)
@@ -162,6 +163,18 @@ async def _process_container(container_cfg, container, cfg: DockLlamaConfig, con
     metrics = get_container_stats(container)
     summary.cpu_percent = metrics["cpu_percent"]
     summary.mem_percent = metrics["mem_percent"]
+
+    # Persist stats snapshot (Phase 7B)
+    try:
+        conn_stats = init_db(cfg.monitoring.db_path)
+        save_container_stats(
+            conn_stats, container_cfg.name,
+            metrics["cpu_percent"], metrics["mem_percent"],
+            metrics.get("mem_usage_mb"), metrics.get("net_rx_bytes"), metrics.get("net_tx_bytes"),
+        )
+        conn_stats.close()
+    except Exception as e:
+        logger.debug("Failed to save stats for %s: %s", container_cfg.name, e)
 
     # Also run old filter for backward compat (log snapshot, baseline)
     batch = process_logs(
@@ -449,6 +462,7 @@ async def run(cfg: DockLlamaConfig) -> None:
                 digest = await send_digest(cfg, conn)
                 # Daily maintenance after digest
                 pruned = prune_old_events(conn, cfg.monitoring.retention_days)
+                prune_container_stats(conn, cfg.monitoring.stats_retention_days)
                 if pruned:
                     vacuum_db(conn)
                 conn.close()

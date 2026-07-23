@@ -870,6 +870,106 @@ async def update_interval(req: IntervalUpdateRequest):
     }
 
 
+
+# --- Stats History (Phase 7B) ---
+
+@router.get("/containers/{container_name:path}/stats")
+async def get_container_stats_history(container_name: str, range: str = "24h"):
+    """Get historical stats for a container. Range: 1h, 24h, 7d, 30d."""
+    cfg = _get_cfg()
+    conn = init_db(cfg.monitoring.db_path)
+    try:
+        hours = {"1h": 1, "24h": 24, "7d": 168, "30d": 720}.get(range, 24)
+        cutoff = (
+            __import__("datetime").datetime.now(__import__("datetime").timezone.utc)
+            - __import__("datetime").timedelta(hours=hours)
+        ).strftime("%Y-%m-%d %H:%M:%S")
+
+        rows = conn.execute(
+            "SELECT timestamp, cpu_percent, mem_percent, mem_usage_mb, net_rx_bytes, net_tx_bytes "
+            "FROM container_stats WHERE container = ? AND timestamp >= ? ORDER BY timestamp",
+            (container_name, cutoff),
+        ).fetchall()
+
+        points = [
+            {"t": r[0], "cpu": r[1], "mem": r[2], "mem_mb": r[3], "rx": r[4], "tx": r[5]}
+            for r in rows
+        ]
+
+        # Downsample for longer ranges
+        max_points = {"1h": 60, "24h": 288, "7d": 336, "30d": 360}.get(range, 288)
+        if len(points) > max_points:
+            step = len(points) / max_points
+            downsampled = []
+            i = 0.0
+            while int(i) < len(points):
+                idx = int(i)
+                downsampled.append(points[idx])
+                i += step
+            points = downsampled
+
+        return {"container": container_name, "range": range, "count": len(points), "data": points}
+    finally:
+        conn.close()
+
+
+@router.get("/stats/fleet")
+async def get_fleet_stats(range: str = "24h"):
+    """Get aggregate fleet stats (total CPU/RAM across all containers)."""
+    cfg = _get_cfg()
+    conn = init_db(cfg.monitoring.db_path)
+    try:
+        hours = {"1h": 1, "24h": 24, "7d": 168, "30d": 720}.get(range, 24)
+        cutoff = (
+            __import__("datetime").datetime.now(__import__("datetime").timezone.utc)
+            - __import__("datetime").timedelta(hours=hours)
+        ).strftime("%Y-%m-%d %H:%M:%S")
+
+        # Group by timestamp (rounded to minute), sum CPU/RAM across containers
+        rows = conn.execute(
+            "SELECT strftime('%%Y-%%m-%%d %%H:%%M', timestamp) as ts, "
+            "SUM(cpu_percent) as total_cpu, SUM(mem_usage_mb) as total_mem_mb, "
+            "COUNT(DISTINCT container) as container_count "
+            "FROM container_stats WHERE timestamp >= ? "
+            "GROUP BY ts ORDER BY ts",
+            (cutoff,),
+        ).fetchall()
+
+        points = [
+            {"t": r[0], "cpu": round(r[1], 1) if r[1] else 0, "mem_mb": round(r[2], 1) if r[2] else 0, "containers": r[3]}
+            for r in rows
+        ]
+
+        # Downsample
+        max_points = {"1h": 60, "24h": 288, "7d": 336, "30d": 360}.get(range, 288)
+        if len(points) > max_points:
+            step = len(points) / max_points
+            downsampled = []
+            i = 0.0
+            while int(i) < len(points):
+                downsampled.append(points[int(i)])
+                i += step
+            points = downsampled
+
+        # Current snapshot (latest per container)
+        latest = conn.execute(
+            "SELECT container, cpu_percent, mem_percent, mem_usage_mb "
+            "FROM container_stats WHERE id IN ("
+            "  SELECT MAX(id) FROM container_stats GROUP BY container"
+            ")"
+        ).fetchall()
+
+        current = {
+            "total_cpu": round(sum(r[1] or 0 for r in latest), 1),
+            "total_mem_mb": round(sum(r[3] or 0 for r in latest), 1),
+            "container_count": len(latest),
+        }
+
+        return {"range": range, "count": len(points), "current": current, "data": points}
+    finally:
+        conn.close()
+
+
 # --- Alert management ---
 
 class AlertConfig(BaseModel):

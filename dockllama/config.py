@@ -23,6 +23,7 @@ class MonitoringConfig(BaseModel):
     dry_run: bool = True
     db_path: str = "/app/data/dockllama.db"
     retention_days: int = 90
+    stats_retention_days: int = 7
 
 
 class ContainerConfig(BaseModel):

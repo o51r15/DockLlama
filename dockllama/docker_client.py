@@ -64,9 +64,29 @@ def get_container_stats(container: Container) -> dict[str, float | None]:
             )
             cpu_percent = round((cpu_delta / system_delta) * num_cpus * 100.0, 1)
 
-        return {"cpu_percent": cpu_percent, "mem_percent": mem_percent}
+        # Memory usage in MB
+        mem_usage_mb = None
+        if mem_usage is not None:
+            cache = mem_stats.get("stats", {}).get("cache", 0)
+            mem_usage_mb = round((mem_usage - cache) / (1024 * 1024), 1)
+
+        # Network I/O
+        net_rx_bytes = None
+        net_tx_bytes = None
+        networks = stats.get("networks", {})
+        if networks:
+            net_rx_bytes = sum(n.get("rx_bytes", 0) for n in networks.values())
+            net_tx_bytes = sum(n.get("tx_bytes", 0) for n in networks.values())
+
+        return {
+            "cpu_percent": cpu_percent,
+            "mem_percent": mem_percent,
+            "mem_usage_mb": mem_usage_mb,
+            "net_rx_bytes": net_rx_bytes,
+            "net_tx_bytes": net_tx_bytes,
+        }
     except Exception:
-        return {"cpu_percent": None, "mem_percent": None}
+        return {"cpu_percent": None, "mem_percent": None, "mem_usage_mb": None, "net_rx_bytes": None, "net_tx_bytes": None}
 
 if __name__ == "__main__":
     client = get_client()

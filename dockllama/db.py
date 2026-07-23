@@ -70,6 +70,19 @@ CREATE TABLE IF NOT EXISTS tested_models (
     results_json TEXT
 );
 
+
+CREATE TABLE IF NOT EXISTS container_stats (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    container TEXT NOT NULL,
+    timestamp TEXT NOT NULL DEFAULT (datetime('now')),
+    cpu_percent REAL,
+    mem_percent REAL,
+    mem_usage_mb REAL,
+    net_rx_bytes INTEGER,
+    net_tx_bytes INTEGER
+);
+
+CREATE INDEX IF NOT EXISTS idx_stats_container_time ON container_stats(container, timestamp);
 CREATE TABLE IF NOT EXISTS container_prompts (
     container TEXT PRIMARY KEY,
     context_prompt TEXT,
@@ -221,6 +234,29 @@ def save_tested_model(conn, model: str, healthy_pass: bool, failing_pass: bool,
         (model, now, int(healthy_pass), int(failing_pass), avg_response_ms, status, results_json),
     )
     conn.commit()
+
+
+def save_container_stats(conn, container: str, cpu_percent, mem_percent,
+                         mem_usage_mb, net_rx_bytes, net_tx_bytes) -> None:
+    """Record one stats snapshot for a container."""
+    from datetime import datetime, timezone
+    now = datetime.now(timezone.utc).strftime("%Y-%m-%d %H:%M:%S")
+    conn.execute(
+        "INSERT INTO container_stats (container, timestamp, cpu_percent, mem_percent, mem_usage_mb, net_rx_bytes, net_tx_bytes) "
+        "VALUES (?, ?, ?, ?, ?, ?, ?)",
+        (container, now, cpu_percent, mem_percent, mem_usage_mb, net_rx_bytes, net_tx_bytes),
+    )
+    conn.commit()
+
+
+def prune_container_stats(conn, retention_days: int = 7) -> int:
+    """Delete stats older than retention_days. Returns rows deleted."""
+    from datetime import datetime, timedelta, timezone
+    cutoff = (datetime.now(timezone.utc) - timedelta(days=retention_days)).strftime("%Y-%m-%d %H:%M:%S")
+    cursor = conn.execute("DELETE FROM container_stats WHERE timestamp < ?", (cutoff,))
+    conn.commit()
+    return cursor.rowcount
+
 
 def prune_old_events(conn, retention_days=90):
     """Delete events older than retention_days. Returns rows deleted."""
