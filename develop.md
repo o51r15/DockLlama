@@ -333,6 +333,31 @@ Key commits: rename (32 files), Phase 7 metrics pipeline, Phase 8 context inject
 
 ## Known Issues
 
-1. **karakeep_chrome** scores DEGRADED (60) despite all errors being routine headless Chromium noise. Phase 8.1-8.3 context injection implemented but small LLMs can't override severity count anchoring. See BUG_karakeep_chrome_scoring.md for full analysis. Best fix: reclassify routine-tagged lines as INFO in preprocessor.
+1. **karakeep_chrome scores DEGRADED (60) despite being healthy** — OPEN BUG
+
+   **Problem:** karakeep_chrome is a headless Chromium container. It logs 18 ERROR and 15 WARN lines at every startup — all normal artifacts of running without D-Bus, Bluetooth, audio, or a desktop. After ignore_pattern filtering, 37 lines survive with 0 INFO, 15 WARN, 18 ERROR. The LLM can't score this healthy because it sees 100% error/warning content.
+
+   **What we tried (in order):**
+   - Heavy ignore_patterns (22 patterns → auto-healthy): Worked but user rejected — "teach the AI, don't hide data"
+   - Rolled back to 1 ignore_pattern (config_dir_policy_loader spam only)
+   - context_prompt explaining every error type is normal + explicit scoring rules: LLM acknowledges context but still scores low
+   - Few-shot example (normal Chromium startup scored 95/healthy): Helps but doesn't override severity counts
+   - known_patterns with [ROUTINE:] tags on all 4 major error types: Tags visible but LLM still weighs raw counts
+   - Switched qwen2.5:7b-instruct → llama3.1:8b: Improved 35→60 but still not 80+
+   - Added preprocessing explanation to base prompt (v5_evaluate.txt): Marginal improvement
+   - Added routine_counts to severity display (`18 (18 routine) ERROR`): LLM sees 0 real errors mathematically but still anchors on the raw count
+
+   **Root cause:** Small LLMs (7-8B) have strong priors that errors=bad. When the severity header shows `18 ERROR`, no amount of in-context instruction fully overrides that anchor — especially when there are 0 INFO lines to provide a "healthy" signal.
+
+   **Best fix candidates (for future sessions):**
+   1. **Reclassify routine-tagged lines as INFO in preprocessor** — after tagging `[ROUTINE:]`, change the line's severity from ERROR→INFO. Counts become `33 INFO, 0 WARN, 0 ERROR`. Original severity preserved in line text. One-line change, stays true to "teach don't hide."
+   2. **Extend auto-healthy fast path** — trigger when ALL error/warn lines are tagged ROUTINE (not just when all lines match ignore_patterns). Skip LLM entirely.
+   3. **Larger model** — 13B+ models may handle context override better.
+
+   **Relevant config (as of Session 4):**
+   - 1 ignore_pattern: `config_dir_policy_loader`
+   - Full context_prompt explaining all Chromium noise
+   - 1 few-shot example (normal startup → 95/healthy)
+   - 4 known_patterns with [ROUTINE:] tags (D-Bus, Bluetooth, sandbox, bluez)
 2. **Docker image tag mismatch** — docker-compose.yml references `:latest` but active container runs `:dev`. Next GitHub Release will sync.
 3. **Docker volume vs host DB** — container uses `dockllama-data:/app/data`. Host path `/home/o51r15/scripts/dockmon/data/dockllama.db` is separate. Don't confuse them.
