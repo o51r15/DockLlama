@@ -1,9 +1,9 @@
 # DockLlama — Developer Log & Handoff
 
-**Last updated:** July 24, 2026 (Session 7)
+**Last updated:** July 25, 2026 (Session 8)
 **Repository:** https://github.com/o51r15/DockLlama (renamed from DockLlama)
-**Status:** Running in dry-run mode as Docker container, monitoring 20 production containers
-**Latest commit:** `1a116a6` — Add first-run setup wizard (Phase 9.5)
+**Status:** Running in dry-run mode as Docker container, monitoring 20 production containers, 1 HTTP health check configured
+**Latest commit:** `d1f453e` — Fix: add health check poller to asyncio.gather
 
 ## FIRST TASK: Complete Rename ✅ DONE (Session 4)
 Renamed dockmon → dockllama across 32 files including Python package dir, imports, Docker image, CI/CD, compose, all user-facing strings.
@@ -123,6 +123,7 @@ dockmon/
 │   ├── actions.py           # Restart/dry-run logic + cooldown system + compose group restarts
 │   ├── alerts.py            # Apprise notification layer + DB persistence (load_alert_urls, save_alert_urls)
 │   ├── digest.py            # Daily digest generation (gemma4) + DB storage
+│   ├── health_checker.py    # Background HTTP health check poller
 │   ├── trends.py            # 7d/30d health trend calculations
 │   ├── prompts/
 │   │   ├── v5_evaluate.txt  # Current eval prompt (structured input from log_analyzer)
@@ -216,6 +217,13 @@ alert_urls (id, url UNIQUE, added_at)
 
 container_prompts (container TEXT PK, context_prompt TEXT, examples TEXT,
                    known_patterns TEXT, updated_at TEXT)
+
+health_checks (container TEXT PK, url TEXT, method TEXT, expected_status INT,
+               interval_seconds INT, timeout_seconds INT, failure_threshold INT,
+               enabled INT)
+
+health_check_results (id INT PK, container TEXT, timestamp TEXT,
+                      status_code INT, response_ms INT, success INT, error TEXT)
 ```
 
 ---
@@ -243,6 +251,11 @@ container_prompts (container TEXT PK, context_prompt TEXT, examples TEXT,
 | PUT | /api/containers/{name}/prompt | Save prompt config to DB |
 | DELETE | /api/containers/{name}/prompt | Revert to config.yaml defaults |
 | POST | /api/containers/{name}/test-prompt | Test prompt against current logs without saving |
+| GET | /api/containers/{name}/healthcheck | Get health check config |
+| PUT | /api/containers/{name}/healthcheck | Configure health check |
+| DELETE | /api/containers/{name}/healthcheck | Remove health check |
+| GET | /api/containers/{name}/healthcheck/history | Health check result history |
+| GET | /api/healthchecks | List all health checks with last result |
 
 ---
 
@@ -357,6 +370,16 @@ The dashboard (`index.html`) checks `GET /api/setup/status` on load — if `need
 All wizard steps reuse existing API endpoints — no duplicate backend logic. New endpoints added: `GET /api/setup/status` (setup state check) and `PUT /api/setup/ollama-url` (URL update with connectivity validation).
 
 Key commit: 1a116a6.
+
+**Phase 6.5: HTTP Health Checks** (`e00623f`, `d1f453e`): Added external HTTP endpoint monitoring as a complement to AI-driven log evaluation. Components:
+- `health_checks` and `health_check_results` DB tables with full CRUD in db.py
+- API endpoints: `GET/PUT/DELETE /api/containers/{name}/healthcheck`, `GET /api/containers/{name}/healthcheck/history`, `GET /api/healthchecks`
+- Background async poller (`health_checker.py`) with in-memory state tracking (healthy/degraded/failing/unknown), configurable intervals, timeouts, and failure thresholds
+- Settings page: full Health Checks management section with add/edit/delete forms and status badges
+- Dashboard: health check status dot (green/yellow/red) on container cards alongside the AI health score dot
+- Poller runs as additional task in `asyncio.gather()` alongside monitor, digest scheduler, and web server
+
+Key commits: e00623f, d1f453e.
 
 ### Session 7 — Code Audit, Bug Fixes, Dashboard Performance & Duplication Regression (July 24, 2026)
 

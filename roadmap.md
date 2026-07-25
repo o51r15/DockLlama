@@ -70,7 +70,7 @@ Renamed across 32 files — Python package dir, imports, Docker image, CI/CD, co
 
 ## Upcoming
 
-**Recommended execution order across phases:** Phase 7 (telemetry, read-only enrichment) → Phase 8.1–8.3 (context injection, prompt-level) → Phase 6.2 (dependency groups, touches restart logic) → Phase 8.4 (prompt UI) → Phase 9 (model validation) → Phase 7B (stats history) → Phase 6.5-6.6 (health checks, blackout windows) → Phase 10+ (learning mode, fleet, UI improvements).
+**Recommended execution order across phases:** Phase 7 (telemetry, read-only enrichment) → Phase 8.1–8.3 (context injection, prompt-level) → Phase 6.2 (dependency groups, touches restart logic) → Phase 8.4 (prompt UI) → Phase 9 (model validation) → Phase 7B (stats history) → Phase 6.5 ✅ → Phase 6.6 (blackout windows) → Phase 10+ (learning mode, fleet, UI improvements).
 
 ### Phase 6 — Advanced Remediation & Alerting
 
@@ -112,7 +112,7 @@ Expand the LLM schema beyond `recommended_action: "restart" | "none"`.
 Detect containers failing within 60s of each other and surface correlated failures in the dashboard and digest.
 
 
-#### 6.5 HTTP Health Checks *(inspired by darthnorse/dockmon)*
+#### 6.5 HTTP Health Checks ✅ DONE (Session 8) *(inspired by darthnorse/dockmon)*
 
 External endpoint monitoring — complementary to our AI-driven log evaluation. Some containers expose `/health` or `/api/status` endpoints that definitively answer "is this service working?" without needing log analysis.
 
@@ -124,7 +124,7 @@ External endpoint monitoring — complementary to our AI-driven log evaluation. 
 - **DockLlama twist:** Feed health check failures INTO the AI eval context: "HTTP health check at /health returned 503 (3 consecutive failures)" — the AI sees both logs AND endpoint status
 
 
-#### 6.6 Blackout Windows (Maintenance Schedules) *(inspired by darthnorse/dockmon)*
+#### 6.6 Blackout Windows (Maintenance Schedules) *(inspired by darthnorse/dockmon)* ⬅️ START HERE
 
 Suppress alerts and auto-restarts during scheduled maintenance periods.
 
