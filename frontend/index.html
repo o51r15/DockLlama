@@ -83,6 +83,20 @@ nav a.active, nav a:hover { color:var(--text); background:var(--surface2); }
 .hc-dot-green { background:var(--green); box-shadow:0 0 4px var(--green); }
 .hc-dot-yellow { background:var(--yellow); box-shadow:0 0 4px var(--yellow); }
 .hc-dot-red { background:var(--red); box-shadow:0 0 4px var(--red); }
+
+.blackout-banner {
+  background: rgba(234,179,8,0.15);
+  border: 1px solid var(--yellow);
+  border-radius: 8px;
+  padding: 0.5rem 1rem;
+  margin-bottom: 1rem;
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  font-size: 0.85rem;
+  color: var(--yellow);
+}
+.blackout-banner .bo-icon { font-size: 1.1rem; }
 .loading { text-align:center; padding:3rem; color:var(--text-dim); }
 </style>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/Chart.js/4.4.1/chart.umd.min.js"></script>
@@ -107,7 +121,13 @@ nav a.active, nav a:hover { color:var(--text); background:var(--surface2); }
 </nav>
 
 <template x-if="loading">
-  <div class="loading">Loading containers...</div>
+  <div class="blackout-banner" x-show="blackout" x-cloak>
+          <span class="bo-icon">&#9888;</span>
+          <span>Maintenance window active: <strong x-text="blackout ? blackout.name : ''"></strong>
+            (<span x-text="blackout ? blackout.start_time + ' — ' + blackout.end_time : ''"></span>)
+            — alerts and auto-restarts are suppressed</span>
+        </div>
+        <div class="loading">Loading containers...</div>
 </template>
 
 <div class="fleet-bar" x-show="!loading && fleetData">
@@ -220,6 +240,7 @@ function dashboard() {
     fleetData: null,
     config: null,
     loading: true,
+      blackout: null,
     evaluating: null,
     eventSource: null,
 
@@ -232,6 +253,15 @@ function dashboard() {
           if (sd.needs_setup) { window.location.href = '/setup.html'; return; }
         }
       } catch (e) { /* setup endpoint missing = skip redirect */ }
+
+    // Check for active blackout
+    try {
+      const br = await fetch('/api/blackouts/active');
+      if (br.ok) {
+        const bd = await br.json();
+        this.blackout = bd.active ? bd.window : null;
+      }
+    } catch (e) { /* blackout endpoint missing = ignore */ }
       await Promise.all([this.fetchContainers(), this.fetchConfig()]);
       this.loading = false;
       this.connectSSE();

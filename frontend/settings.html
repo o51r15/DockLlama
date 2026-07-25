@@ -239,6 +239,83 @@ label { display:block; font-size:0.85rem; color:var(--text-dim); margin-bottom:0
             <em style="color:var(--text-dim)">Note: Changes apply immediately but are not persisted to config.yaml. Add URLs to your config file to make them permanent across restarts.</em>
           </div>
         </div>
+
+        <div class="section" style="margin-top:2rem;">
+          <h2>Blackout Windows</h2>
+          <p class="desc">Suppress alerts and auto-restarts during scheduled maintenance periods. AI evaluations still run (data collection continues) but actions are deferred.</p>
+
+          <div x-show="boLoading" style="color:var(--text-dim);font-size:0.85rem;padding:1rem 0;">Loading...</div>
+
+          <div x-show="!boLoading">
+            <template x-for="bw in blackoutWindows" :key="bw.id">
+              <div class="hc-card">
+                <div class="hc-header">
+                  <span class="hc-name" x-text="bw.name"></span>
+                  <span class="hc-status-badge" :class="bw.enabled ? 'hc-healthy' : 'hc-unknown'"
+                        x-text="bw.enabled ? 'Enabled' : 'Disabled'"></span>
+                </div>
+                <div class="hc-meta">
+                  <span x-text="bw.days.map(d => ['Mon','Tue','Wed','Thu','Fri','Sat','Sun'][d]).join(', ')"></span>
+                  <span x-text="bw.start_time + ' — ' + bw.end_time"></span>
+                </div>
+                <div class="hc-actions">
+                  <button class="btn" style="font-size:0.75rem;" @click="editBlackout(bw)">Edit</button>
+                  <button class="btn" style="font-size:0.75rem;color:var(--red);" @click="deleteBlackout(bw.id)">Delete</button>
+                </div>
+              </div>
+            </template>
+
+            <div x-show="blackoutWindows.length === 0 && !boLoading" style="color:var(--text-dim);font-size:0.85rem;padding:1rem 0;">
+              No blackout windows configured.
+            </div>
+
+            <!-- Add/Edit form -->
+            <div style="margin-top:1.5rem;">
+              <h3 x-text="boForm.editing ? 'Edit Blackout Window' : 'Add Blackout Window'" style="font-size:1rem;margin-bottom:0.75rem;"></h3>
+              <div class="form-row">
+                <div class="form-field" style="flex:2;">
+                  <label>Name</label>
+                  <input type="text" x-model="boForm.name" placeholder="e.g. Weekly maintenance"
+                         style="width:100%;padding:0.5rem;background:var(--surface2);border:1px solid var(--border);border-radius:4px;color:var(--text);">
+                </div>
+                <div class="form-field">
+                  <label>Start Time</label>
+                  <input type="time" x-model="boForm.start_time"
+                         style="width:100%;padding:0.5rem;background:var(--surface2);border:1px solid var(--border);border-radius:4px;color:var(--text);">
+                </div>
+                <div class="form-field">
+                  <label>End Time</label>
+                  <input type="time" x-model="boForm.end_time"
+                         style="width:100%;padding:0.5rem;background:var(--surface2);border:1px solid var(--border);border-radius:4px;color:var(--text);">
+                </div>
+              </div>
+              <div style="margin-top:0.5rem;">
+                <label style="font-size:0.75rem;color:var(--text-dim);display:block;margin-bottom:0.25rem;">Days</label>
+                <div style="display:flex;gap:0.5rem;flex-wrap:wrap;">
+                  <template x-for="(day, i) in ['Mon','Tue','Wed','Thu','Fri','Sat','Sun']" :key="i">
+                    <label style="display:flex;align-items:center;gap:0.25rem;font-size:0.85rem;cursor:pointer;">
+                      <input type="checkbox" :checked="boForm.days.includes(i)"
+                             @change="$event.target.checked ? boForm.days.push(i) : boForm.days.splice(boForm.days.indexOf(i), 1)"
+                             style="accent-color:var(--blue);">
+                      <span x-text="day"></span>
+                    </label>
+                  </template>
+                </div>
+              </div>
+              <div style="margin-top:0.75rem;display:flex;align-items:center;gap:1rem;">
+                <label style="display:flex;align-items:center;gap:0.4rem;font-size:0.85rem;">
+                  <input type="checkbox" x-model="boForm.enabled" style="accent-color:var(--blue);">
+                  Enabled
+                </label>
+                <button class="btn btn-primary" @click="saveBlackout()" :disabled="!boForm.name || boForm.days.length === 0 || boSaving">
+                  <span x-text="boSaving ? 'Saving...' : (boForm.editing ? 'Update' : 'Add')"></span>
+                </button>
+                <button class="btn" x-show="boForm.editing" @click="resetBoForm()">Cancel</button>
+              </div>
+            </div>
+          </div>
+        </div>
+
       </div>
     </div>
 
@@ -666,6 +743,12 @@ function settingsApp() {
     hcForm: { container: '', url: '', method: 'GET', expected_status: 200, interval_seconds: 60, timeout_seconds: 10, failure_threshold: 3, enabled: true, editing: false },
     monitoredContainers: [],
 
+
+    // Blackout Windows
+    blackoutWindows: [],
+    boLoading: false,
+    boSaving: false,
+    boForm: { name: '', days: [], start_time: '00:00', end_time: '06:00', enabled: true, editing: false, id: null },
     view: 'notifications',
     dockerContainers: [],
     loadingContainers: false,
@@ -705,6 +788,9 @@ function settingsApp() {
       if (params.get('view')) this.view = params.get('view');
       if (this.view === 'models') this.loadModels();
       if (this.view === 'containers') this.loadDockerContainers();
+
+      // Load blackout windows
+      this.loadBlackouts();
 
       // Load notifications
       try {
@@ -786,6 +872,56 @@ function settingsApp() {
       } catch (e) {
         this.showToast('Error: ' + e.message, 'error');
       }
+    },
+
+
+    async loadBlackouts() {
+      this.boLoading = true;
+      try {
+        const r = await fetch('/api/blackouts');
+        const d = await r.json();
+        this.blackoutWindows = d.windows || [];
+      } catch (e) { this.showToast('Failed to load blackout windows', 'error'); }
+      this.boLoading = false;
+    },
+
+    editBlackout(bw) {
+      this.boForm = { name: bw.name, days: [...bw.days], start_time: bw.start_time, end_time: bw.end_time, enabled: bw.enabled, editing: true, id: bw.id };
+    },
+
+    resetBoForm() {
+      this.boForm = { name: '', days: [], start_time: '00:00', end_time: '06:00', enabled: true, editing: false, id: null };
+    },
+
+    async saveBlackout() {
+      this.boSaving = true;
+      try {
+        const url = this.boForm.editing ? '/api/blackouts/' + this.boForm.id : '/api/blackouts';
+        const method = this.boForm.editing ? 'PUT' : 'POST';
+        const r = await fetch(url, {
+          method, headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            name: this.boForm.name, days: this.boForm.days.sort(),
+            start_time: this.boForm.start_time, end_time: this.boForm.end_time,
+            enabled: this.boForm.enabled,
+          }),
+        });
+        if (r.ok) {
+          this.showToast('Blackout window saved', 'success');
+          this.resetBoForm();
+          await this.loadBlackouts();
+        } else { this.showToast('Failed to save', 'error'); }
+      } catch (e) { this.showToast('Error: ' + e.message, 'error'); }
+      this.boSaving = false;
+    },
+
+    async deleteBlackout(id) {
+      if (!confirm('Delete this blackout window?')) return;
+      try {
+        await fetch('/api/blackouts/' + id, { method: 'DELETE' });
+        this.showToast('Blackout window deleted', 'success');
+        await this.loadBlackouts();
+      } catch (e) { this.showToast('Error: ' + e.message, 'error'); }
     },
 
     setView(v) {

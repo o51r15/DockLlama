@@ -20,6 +20,7 @@ from dockllama.log_pipeline import process_logs
 from dockllama.log_analyzer import analyze_logs
 from dockllama.ai_engine import evaluate, EvaluationContext, EvaluationResult
 from dockllama.actions import execute_action, resolve_dependency_group
+from dockllama.db import is_blackout_active
 from dockllama.alerts import (
     init_alerts, alert_restart, alert_dry_run, alert_escalation,
     alert_cooldown_skip, alert_error,
@@ -335,51 +336,56 @@ async def _process_container(container_cfg, container, cfg: DockLlamaConfig, con
     })
 
     # 6. Execute action
-    # Resolve compose group members
-    group = container_cfg.compose_group
-    group_names = None
-    if group:
-        group_names = [c.name for c in cfg.containers if c.enabled and c.compose_group == group]
+    # Check for active blackout window
+    blackout = is_blackout_active(conn)
+    if blackout:
+        logger.info("[%s] Blackout active ('%s') — skipping actions and alerts", container_cfg.name, blackout["name"])
+    else:
+        # Resolve compose group members
+        group = container_cfg.compose_group
+        group_names = None
+        if group:
+            group_names = [c.name for c in cfg.containers if c.enabled and c.compose_group == group]
 
-    # Resolve dependency group (takes precedence over compose group for restart ordering)
-    dep_group_name, dep_group_members = resolve_dependency_group(
-        container_cfg.name, cfg.dependency_groups
-    )
+        # Resolve dependency group (takes precedence over compose group for restart ordering)
+        dep_group_name, dep_group_members = resolve_dependency_group(
+            container_cfg.name, cfg.dependency_groups
+        )
 
-    action = execute_action(
-        result=result, container=container, conn=conn,
-        cooldown_cfg=cfg.cooldowns, dry_run=cfg.monitoring.dry_run,
-        log_snapshot=log_snapshot,
-        compose_group=group,
-        group_container_names=group_names,
-        dependency_group_name=dep_group_name,
-        dependency_group_members=dep_group_members,
-    )
+        action = execute_action(
+            result=result, container=container, conn=conn,
+            cooldown_cfg=cfg.cooldowns, dry_run=cfg.monitoring.dry_run,
+            log_snapshot=log_snapshot,
+            compose_group=group,
+            group_container_names=group_names,
+            dependency_group_name=dep_group_name,
+            dependency_group_members=dep_group_members,
+        )
 
-    if action.action_taken != "none":
-        logger.info("[%s] Action: %s -- %s", container_cfg.name, action.action_taken, action.message)
+        if action.action_taken != "none":
+            logger.info("[%s] Action: %s -- %s", container_cfg.name, action.action_taken, action.message)
 
-        publish("action", {
-            "container": container_cfg.name,
-            "action": action.action_taken,
-            "success": action.success,
-            "message": action.message,
-        })
+            publish("action", {
+                "container": container_cfg.name,
+                "action": action.action_taken,
+                "success": action.success,
+                "message": action.message,
+            })
 
-    # 7. Send alerts
-    if action.action_taken == "restart":
-        alert_restart(container_cfg.name, result, action)
-    elif action.action_taken == "dry_run_restart":
-        alert_dry_run(container_cfg.name, result)
-    elif action.action_taken == "alert_only":
-        alert_escalation(container_cfg.name,
-                         conn.execute("SELECT consecutive_restarts FROM cooldowns WHERE container = ?",
-                                      (container_cfg.name,)).fetchone()[0])
-    elif action.action_taken == "cooldown_skip":
-        alert_cooldown_skip(container_cfg.name, 0)
+        # 7. Send alerts
+        if action.action_taken == "restart":
+            alert_restart(container_cfg.name, result, action)
+        elif action.action_taken == "dry_run_restart":
+            alert_dry_run(container_cfg.name, result)
+        elif action.action_taken == "alert_only":
+            alert_escalation(container_cfg.name,
+                             conn.execute("SELECT consecutive_restarts FROM cooldowns WHERE container = ?",
+                                          (container_cfg.name,)).fetchone()[0])
+        elif action.action_taken == "cooldown_skip":
+            alert_cooldown_skip(container_cfg.name, 0)
 
     # 8. Store action event
-    if action.action_taken != "none":
+    if not blackout and action.action_taken != "none":
         conn.execute(
             """INSERT INTO events
                (container, event_type, ai_status, confidence, root_cause_category,

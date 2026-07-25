@@ -15,6 +15,7 @@ from dockllama.docker_client import get_client, get_logs, list_containers
 from dockllama.log_pipeline import process_logs
 from dockllama.ai_engine import evaluate, EvaluationContext
 from dockllama.health_checker import get_hc_status, get_all_hc_statuses
+from dockllama.db import get_all_blackout_windows, get_blackout_window, save_blackout_window, delete_blackout_window, is_blackout_active
 
 router = APIRouter(prefix="/api")
 
@@ -1169,6 +1170,14 @@ async def get_fleet_stats(range: str = "24h"):
 
 # --- Health Checks (Phase 6.5) ---
 
+class BlackoutWindowConfig(BaseModel):
+    name: str
+    days: list[int]  # 0=Mon, 6=Sun
+    start_time: str = "00:00"
+    end_time: str = "23:59"
+    enabled: bool = True
+
+
 class HealthCheckConfig(BaseModel):
     url: str
     method: str = "GET"
@@ -1445,3 +1454,77 @@ async def list_digests(limit: int = Query(30, ge=1, le=365)):
     finally:
         conn.close()
 
+
+
+# ─── Blackout Windows ─────────────────────────────────────────────
+
+@router.get("/blackouts")
+async def list_blackouts():
+    """List all blackout windows."""
+    cfg = _get_cfg()
+    conn = init_db(cfg.monitoring.db_path)
+    try:
+        windows = get_all_blackout_windows(conn)
+        return {"windows": windows}
+    finally:
+        conn.close()
+
+
+@router.get("/blackouts/active")
+async def get_active_blackout():
+    """Check if a blackout window is currently active."""
+    cfg = _get_cfg()
+    conn = init_db(cfg.monitoring.db_path)
+    try:
+        active = is_blackout_active(conn)
+        return {"active": active is not None, "window": active}
+    finally:
+        conn.close()
+
+
+@router.post("/blackouts")
+async def create_blackout(bw: BlackoutWindowConfig):
+    """Create a new blackout window."""
+    cfg = _get_cfg()
+    conn = init_db(cfg.monitoring.db_path)
+    try:
+        wid = save_blackout_window(
+            conn, name=bw.name, days=bw.days,
+            start_time=bw.start_time, end_time=bw.end_time, enabled=bw.enabled,
+        )
+        return {"status": "ok", "id": wid}
+    finally:
+        conn.close()
+
+
+@router.put("/blackouts/{window_id}")
+async def update_blackout(window_id: int, bw: BlackoutWindowConfig):
+    """Update an existing blackout window."""
+    cfg = _get_cfg()
+    conn = init_db(cfg.monitoring.db_path)
+    try:
+        existing = get_blackout_window(conn, window_id)
+        if not existing:
+            raise HTTPException(404, f"Blackout window {window_id} not found")
+        save_blackout_window(
+            conn, name=bw.name, days=bw.days,
+            start_time=bw.start_time, end_time=bw.end_time, enabled=bw.enabled,
+            window_id=window_id,
+        )
+        return {"status": "ok", "id": window_id}
+    finally:
+        conn.close()
+
+
+@router.delete("/blackouts/{window_id}")
+async def remove_blackout(window_id: int):
+    """Delete a blackout window."""
+    cfg = _get_cfg()
+    conn = init_db(cfg.monitoring.db_path)
+    try:
+        deleted = delete_blackout_window(conn, window_id)
+        if not deleted:
+            raise HTTPException(404, f"Blackout window {window_id} not found")
+        return {"status": "ok"}
+    finally:
+        conn.close()

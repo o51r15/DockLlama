@@ -94,7 +94,15 @@ async def _check_one(hc: dict, cfg: DockLlamaConfig) -> None:
         logger.error("[HC] %s: FAILED %d consecutive checks — threshold reached", container, threshold)
         try:
             from dockllama.alerts import alert_error
-            alert_error(container, f"Health check failed {threshold} times: {error}")
+            from dockllama.db import is_blackout_active as _is_bo
+            _bo_conn = init_db(cfg.monitoring.db_path)
+            try:
+                if not _is_bo(_bo_conn):
+                    alert_error(f"Health check failed for {container}: {threshold} consecutive failures — {error}")
+                else:
+                    logger.info("[HC] %s: threshold reached but blackout active — alert suppressed", container)
+            finally:
+                _bo_conn.close()
         except Exception:
             pass
 

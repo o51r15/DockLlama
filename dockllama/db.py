@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import json
 import sqlite3
 from pathlib import Path
 
@@ -113,6 +114,15 @@ CREATE TABLE IF NOT EXISTS health_check_results (
 );
 
 CREATE INDEX IF NOT EXISTS idx_hc_results_container_time ON health_check_results(container, timestamp);
+
+CREATE TABLE IF NOT EXISTS blackout_windows (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    name TEXT NOT NULL,
+    days TEXT NOT NULL DEFAULT '[]',
+    start_time TEXT NOT NULL DEFAULT '00:00',
+    end_time TEXT NOT NULL DEFAULT '23:59',
+    enabled INTEGER NOT NULL DEFAULT 1
+);
 
 CREATE TABLE IF NOT EXISTS container_config_archive (
     container TEXT PRIMARY KEY,
@@ -458,3 +468,87 @@ def get_health_check_history(conn, container: str, limit: int = 20) -> list[dict
          "success": bool(r[3]), "error": r[4]}
         for r in rows
     ]
+
+
+# ─── Blackout Windows ─────────────────────────────────────────────
+
+def get_all_blackout_windows(conn) -> list[dict]:
+    """Get all blackout windows."""
+    rows = conn.execute("SELECT id, name, days, start_time, end_time, enabled FROM blackout_windows ORDER BY name").fetchall()
+    return [
+        {"id": r[0], "name": r[1], "days": json.loads(r[2]), "start_time": r[3], "end_time": r[4], "enabled": bool(r[5])}
+        for r in rows
+    ]
+
+
+def get_blackout_window(conn, window_id: int) -> dict | None:
+    """Get a single blackout window by ID."""
+    r = conn.execute("SELECT id, name, days, start_time, end_time, enabled FROM blackout_windows WHERE id = ?", (window_id,)).fetchone()
+    if not r:
+        return None
+    return {"id": r[0], "name": r[1], "days": json.loads(r[2]), "start_time": r[3], "end_time": r[4], "enabled": bool(r[5])}
+
+
+def save_blackout_window(conn, name: str, days: list[int], start_time: str, end_time: str,
+                         enabled: bool = True, window_id: int | None = None) -> int:
+    """Create or update a blackout window. Returns the window ID."""
+    days_json = json.dumps(days)
+    if window_id:
+        conn.execute(
+            "UPDATE blackout_windows SET name=?, days=?, start_time=?, end_time=?, enabled=? WHERE id=?",
+            (name, days_json, start_time, end_time, int(enabled), window_id),
+        )
+        conn.commit()
+        return window_id
+    else:
+        cursor = conn.execute(
+            "INSERT INTO blackout_windows (name, days, start_time, end_time, enabled) VALUES (?, ?, ?, ?, ?)",
+            (name, days_json, start_time, end_time, int(enabled)),
+        )
+        conn.commit()
+        return cursor.lastrowid
+
+
+def delete_blackout_window(conn, window_id: int) -> bool:
+    """Delete a blackout window. Returns True if deleted."""
+    cursor = conn.execute("DELETE FROM blackout_windows WHERE id = ?", (window_id,))
+    conn.commit()
+    return cursor.rowcount > 0
+
+
+def is_blackout_active(conn, now: datetime | None = None) -> dict | None:
+    """Check if any blackout window is currently active.
+    Returns the active window dict, or None if no blackout is active.
+    Supports overnight spans (start_time > end_time, e.g. 22:00-06:00).
+    Days are weekday ints: 0=Monday, 6=Sunday.
+    """
+    if now is None:
+        now = datetime.now()
+
+    current_day = now.weekday()  # 0=Monday
+    current_time = now.time()
+
+    windows = conn.execute(
+        "SELECT id, name, days, start_time, end_time FROM blackout_windows WHERE enabled = 1"
+    ).fetchall()
+
+    for row in windows:
+        wid, name, days_json, start_str, end_str = row
+        days = json.loads(days_json)
+        start = dtime.fromisoformat(start_str)
+        end = dtime.fromisoformat(end_str)
+
+        if start <= end:
+            # Same-day window: e.g. 02:00-06:00
+            if current_day in days and start <= current_time <= end:
+                return {"id": wid, "name": name, "days": days, "start_time": start_str, "end_time": end_str}
+        else:
+            # Overnight window: e.g. 22:00-06:00
+            # Active if: (today in days AND time >= start) OR (yesterday in days AND time <= end)
+            if current_day in days and current_time >= start:
+                return {"id": wid, "name": name, "days": days, "start_time": start_str, "end_time": end_str}
+            yesterday = (current_day - 1) % 7
+            if yesterday in days and current_time <= end:
+                return {"id": wid, "name": name, "days": days, "start_time": start_str, "end_time": end_str}
+
+    return None
