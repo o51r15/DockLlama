@@ -91,6 +91,29 @@ CREATE TABLE IF NOT EXISTS container_prompts (
     updated_at TEXT NOT NULL DEFAULT (datetime('now'))
 );
 
+CREATE TABLE IF NOT EXISTS health_checks (
+    container TEXT PRIMARY KEY,
+    url TEXT NOT NULL,
+    method TEXT NOT NULL DEFAULT 'GET',
+    expected_status INTEGER NOT NULL DEFAULT 200,
+    interval_seconds INTEGER NOT NULL DEFAULT 60,
+    timeout_seconds INTEGER NOT NULL DEFAULT 10,
+    failure_threshold INTEGER NOT NULL DEFAULT 3,
+    enabled INTEGER NOT NULL DEFAULT 0
+);
+
+CREATE TABLE IF NOT EXISTS health_check_results (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    container TEXT NOT NULL,
+    timestamp TEXT NOT NULL DEFAULT (datetime('now')),
+    status_code INTEGER,
+    response_ms INTEGER,
+    success INTEGER NOT NULL DEFAULT 0,
+    error TEXT
+);
+
+CREATE INDEX IF NOT EXISTS idx_hc_results_container_time ON health_check_results(container, timestamp);
+
 CREATE TABLE IF NOT EXISTS container_config_archive (
     container TEXT PRIMARY KEY,
     ignore_patterns TEXT,
@@ -345,3 +368,93 @@ def prune_old_events(conn, retention_days=90):
 def vacuum_db(conn):
     """Reclaim space after pruning."""
     conn.execute("VACUUM")
+
+
+# --- Health Check CRUD ---
+
+def get_health_check(conn, container: str) -> dict | None:
+    """Get health check config for a container."""
+    row = conn.execute(
+        "SELECT container, url, method, expected_status, interval_seconds, "
+        "timeout_seconds, failure_threshold, enabled FROM health_checks WHERE container = ?",
+        (container,),
+    ).fetchone()
+    if not row:
+        return None
+    return {
+        "container": row[0], "url": row[1], "method": row[2],
+        "expected_status": row[3], "interval_seconds": row[4],
+        "timeout_seconds": row[5], "failure_threshold": row[6],
+        "enabled": bool(row[7]),
+    }
+
+
+def get_all_health_checks(conn) -> list[dict]:
+    """Get all enabled health check configs."""
+    rows = conn.execute(
+        "SELECT container, url, method, expected_status, interval_seconds, "
+        "timeout_seconds, failure_threshold, enabled FROM health_checks WHERE enabled = 1"
+    ).fetchall()
+    return [
+        {"container": r[0], "url": r[1], "method": r[2],
+         "expected_status": r[3], "interval_seconds": r[4],
+         "timeout_seconds": r[5], "failure_threshold": r[6],
+         "enabled": bool(r[7])}
+        for r in rows
+    ]
+
+
+def save_health_check(conn, container: str, url: str, method: str = "GET",
+                       expected_status: int = 200, interval_seconds: int = 60,
+                       timeout_seconds: int = 10, failure_threshold: int = 3,
+                       enabled: bool = False) -> None:
+    """Save or update a health check config."""
+    conn.execute(
+        """INSERT INTO health_checks
+           (container, url, method, expected_status, interval_seconds, timeout_seconds, failure_threshold, enabled)
+           VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+           ON CONFLICT(container) DO UPDATE SET
+             url = excluded.url, method = excluded.method,
+             expected_status = excluded.expected_status,
+             interval_seconds = excluded.interval_seconds,
+             timeout_seconds = excluded.timeout_seconds,
+             failure_threshold = excluded.failure_threshold,
+             enabled = excluded.enabled""",
+        (container, url, method, expected_status, interval_seconds, timeout_seconds,
+         failure_threshold, int(enabled)),
+    )
+    conn.commit()
+
+
+def delete_health_check(conn, container: str) -> bool:
+    """Delete health check config. Returns True if deleted."""
+    cursor = conn.execute("DELETE FROM health_checks WHERE container = ?", (container,))
+    conn.commit()
+    return cursor.rowcount > 0
+
+
+def save_health_check_result(conn, container: str, status_code: int | None,
+                              response_ms: int, success: bool, error: str | None = None) -> None:
+    """Record a single health check result."""
+    from datetime import datetime, timezone
+    now = datetime.now(timezone.utc).strftime("%Y-%m-%d %H:%M:%S")
+    conn.execute(
+        "INSERT INTO health_check_results (container, timestamp, status_code, response_ms, success, error) "
+        "VALUES (?, ?, ?, ?, ?, ?)",
+        (container, now, status_code, response_ms, int(success), error),
+    )
+    conn.commit()
+
+
+def get_health_check_history(conn, container: str, limit: int = 20) -> list[dict]:
+    """Get recent health check results for a container."""
+    rows = conn.execute(
+        "SELECT timestamp, status_code, response_ms, success, error "
+        "FROM health_check_results WHERE container = ? ORDER BY id DESC LIMIT ?",
+        (container, limit),
+    ).fetchall()
+    return [
+        {"timestamp": r[0], "status_code": r[1], "response_ms": r[2],
+         "success": bool(r[3]), "error": r[4]}
+        for r in rows
+    ]

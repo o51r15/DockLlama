@@ -26,6 +26,7 @@ from dockllama.alerts import (
 )
 from dockllama.api.routes import router as api_router, set_config
 from dockllama.api.events import router as sse_router, publish
+from dockllama.health_checker import run_health_checks
 from dockllama.digest import send_digest
 
 logging.basicConfig(

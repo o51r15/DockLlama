@@ -10,10 +10,11 @@ from fastapi import APIRouter, Query, HTTPException
 from pydantic import BaseModel
 
 from dockllama.config import DockLlamaConfig, ContainerConfig, save_poll_interval, save_default_model, save_containers_to_config
-from dockllama.db import init_db, archive_container_config, restore_container_config, purge_container_data, get_container_prompt, save_container_prompt, delete_container_prompt, get_tested_models, save_tested_model
+from dockllama.db import init_db, archive_container_config, restore_container_config, purge_container_data, get_container_prompt, save_container_prompt, delete_container_prompt, get_tested_models, save_tested_model, get_health_check, get_all_health_checks, save_health_check, delete_health_check, get_health_check_history, save_health_check_result
 from dockllama.docker_client import get_client, get_logs, list_containers
 from dockllama.log_pipeline import process_logs
 from dockllama.ai_engine import evaluate, EvaluationContext
+from dockllama.health_checker import get_hc_status, get_all_hc_statuses
 
 router = APIRouter(prefix="/api")
 
@@ -40,6 +41,7 @@ class ContainerStatus(BaseModel):
     image: str
     status: str
     last_evaluation: Optional[dict] = None
+    health_check: Optional[dict] = None
 
 
 class PromptConfig(BaseModel):
@@ -146,12 +148,25 @@ async def get_containers() -> list[ContainerStatus]:
                 "health_score": row[7],
             }
 
+        # Health check status
+        hc_st = get_hc_status(container_cfg.name)
+        hc_data = None
+        if hc_st.get("status") != "unknown":
+            hc_data = {
+                "status": hc_st.get("status"),
+                "consecutive_failures": hc_st.get("consecutive_failures", 0),
+                "last_status_code": hc_st.get("last_status_code"),
+                "last_response_ms": hc_st.get("last_response_ms"),
+                "last_error": hc_st.get("last_error"),
+            }
+
         result.append(ContainerStatus(
             name=container_cfg.name,
             running=is_running,
             image=image,
             status=container_status,
             last_evaluation=last_eval,
+            health_check=hc_data,
         ))
 
     conn.close()
@@ -1146,6 +1161,93 @@ async def get_fleet_stats(range: str = "24h"):
         }
 
         return {"range": range, "count": len(points), "current": current, "data": points}
+    finally:
+        conn.close()
+
+
+
+
+# --- Health Checks (Phase 6.5) ---
+
+class HealthCheckConfig(BaseModel):
+    url: str
+    method: str = "GET"
+    expected_status: int = 200
+    interval_seconds: int = 60
+    timeout_seconds: int = 10
+    failure_threshold: int = 3
+    enabled: bool = False
+
+
+@router.get("/containers/{name}/healthcheck")
+async def get_healthcheck(name: str):
+    """Get health check config for a container."""
+    cfg = _get_cfg()
+    conn = init_db(cfg.monitoring.db_path)
+    try:
+        hc = get_health_check(conn, name)
+        if not hc:
+            return {"container": name, "configured": False}
+        hc["configured"] = True
+        return hc
+    finally:
+        conn.close()
+
+
+@router.put("/containers/{name}/healthcheck")
+async def update_healthcheck(name: str, hc: HealthCheckConfig):
+    """Configure health check for a container."""
+    cfg = _get_cfg()
+    conn = init_db(cfg.monitoring.db_path)
+    try:
+        save_health_check(
+            conn, name, url=hc.url, method=hc.method,
+            expected_status=hc.expected_status, interval_seconds=hc.interval_seconds,
+            timeout_seconds=hc.timeout_seconds, failure_threshold=hc.failure_threshold,
+            enabled=hc.enabled,
+        )
+        return {"status": "ok", "container": name}
+    finally:
+        conn.close()
+
+
+@router.delete("/containers/{name}/healthcheck")
+async def remove_healthcheck(name: str):
+    """Remove health check config for a container."""
+    cfg = _get_cfg()
+    conn = init_db(cfg.monitoring.db_path)
+    try:
+        deleted = delete_health_check(conn, name)
+        if not deleted:
+            raise HTTPException(404, f"No health check for '{name}'")
+        return {"status": "ok", "container": name}
+    finally:
+        conn.close()
+
+
+@router.get("/containers/{name}/healthcheck/history")
+async def get_healthcheck_history(name: str, limit: int = Query(20, ge=1, le=100)):
+    """Get recent health check results."""
+    cfg = _get_cfg()
+    conn = init_db(cfg.monitoring.db_path)
+    try:
+        return {"container": name, "results": get_health_check_history(conn, name, limit)}
+    finally:
+        conn.close()
+
+
+@router.get("/healthchecks")
+async def list_healthchecks():
+    """List all health check configs with their current status."""
+    cfg = _get_cfg()
+    conn = init_db(cfg.monitoring.db_path)
+    try:
+        checks = get_all_health_checks(conn)
+        # Add latest result for each
+        for hc in checks:
+            history = get_health_check_history(conn, hc["container"], limit=1)
+            hc["last_result"] = history[0] if history else None
+        return {"checks": checks}
     finally:
         conn.close()
 

@@ -157,6 +157,19 @@ label { display:block; font-size:0.85rem; color:var(--text-dim); margin-bottom:0
 .toast-success { background:#22c55e22; border:1px solid var(--green); color:var(--green); }
 .toast-error { background:#ef444422; border:1px solid var(--red); color:var(--red); }
 .toast-info { background:#3b82f622; border:1px solid var(--blue); color:var(--blue); }
+
+.hc-card { background:var(--surface2); border:1px solid var(--border); border-radius:8px; padding:0.75rem 1rem; margin-bottom:0.5rem; }
+.hc-header { display:flex; justify-content:space-between; align-items:center; margin-bottom:0.25rem; }
+.hc-name { font-weight:600; font-size:0.9rem; }
+.hc-status-badge { font-size:0.7rem; padding:0.15rem 0.5rem; border-radius:4px; font-weight:600; }
+.hc-healthy { background:rgba(34,197,94,0.15); color:var(--green); }
+.hc-failing { background:rgba(239,68,68,0.15); color:var(--red); }
+.hc-unknown { background:rgba(234,179,8,0.15); color:var(--yellow); }
+.hc-meta { display:flex; gap:1rem; font-size:0.75rem; color:var(--text-dim); margin-top:0.25rem; }
+.hc-actions { display:flex; gap:0.5rem; margin-top:0.5rem; }
+.form-row { display:flex; gap:0.75rem; flex-wrap:wrap; }
+.form-field { flex:1; min-width:100px; }
+.form-field label { display:block; font-size:0.75rem; color:var(--text-dim); margin-bottom:0.25rem; }
 </style>
 </head>
 <body x-data="settingsApp()" x-init="init()">
@@ -177,6 +190,7 @@ label { display:block; font-size:0.85rem; color:var(--text-dim); margin-bottom:0
     <a :class="view==='prompts' && 'active'" @click="setView('prompts')">Prompts</a>
     <a :class="view==='models' && 'active'" @click="setView('models')">Models</a>
     <a :class="view==='containers' && 'active'" @click="setView('containers')">Containers</a>
+    <a :class="view==='healthchecks' && 'active'" @click="setView('healthchecks')">Health Checks</a>
   </div>
 
   <div class="main">
@@ -483,6 +497,113 @@ label { display:block; font-size:0.85rem; color:var(--text-dim); margin-bottom:0
       </div>
     </div>
 
+
+    <!-- ═══ HEALTH CHECKS ═══ -->
+    <div x-show="view==='healthchecks'" x-cloak>
+      <div class="content">
+        <div class="section">
+          <h2>HTTP Health Checks</h2>
+          <p class="desc">Configure endpoint monitoring for containers that expose health URLs. Failures are fed into the AI evaluation context and trigger alerts after the configured threshold.</p>
+
+          <div x-show="hcLoading" style="color:var(--text-dim);font-size:0.85rem;padding:1rem 0;">Loading...</div>
+
+          <div x-show="!hcLoading">
+            <!-- Existing checks -->
+            <template x-for="hc in healthChecks" :key="hc.container">
+              <div class="hc-card">
+                <div class="hc-header">
+                  <span class="hc-name" x-text="hc.container"></span>
+                  <span class="hc-status-badge" :class="{
+                    'hc-healthy': hc.last_result && hc.last_result.success,
+                    'hc-failing': hc.last_result && !hc.last_result.success,
+                    'hc-unknown': !hc.last_result
+                  }" x-text="hc.last_result ? (hc.last_result.success ? 'Healthy' : 'Failing') : 'Pending'"></span>
+                </div>
+                <div class="hc-details">
+                  <span x-text="hc.method + ' ' + hc.url" style="font-size:0.8rem;color:var(--text-dim);word-break:break-all;"></span>
+                </div>
+                <div class="hc-meta">
+                  <span>Every <span x-text="hc.interval_seconds"></span>s</span>
+                  <span>Expect <span x-text="hc.expected_status"></span></span>
+                  <span>Threshold: <span x-text="hc.failure_threshold"></span></span>
+                  <template x-if="hc.last_result">
+                    <span x-text="hc.last_result.response_ms + 'ms'"></span>
+                  </template>
+                </div>
+                <div class="hc-actions">
+                  <button class="btn" style="font-size:0.75rem;" @click="editHealthCheck(hc)">Edit</button>
+                  <button class="btn" style="font-size:0.75rem;color:var(--red);" @click="deleteHealthCheck(hc.container)">Delete</button>
+                </div>
+              </div>
+            </template>
+
+            <div x-show="healthChecks.length === 0 && !hcLoading" style="color:var(--text-dim);font-size:0.85rem;padding:1rem 0;">
+              No health checks configured. Add one below.
+            </div>
+
+            <!-- Add/Edit form -->
+            <div class="hc-form" style="margin-top:1.5rem;">
+              <h3 x-text="hcForm.editing ? 'Edit Health Check' : 'Add Health Check'" style="font-size:1rem;margin-bottom:0.75rem;"></h3>
+              <div class="form-row">
+                <div class="form-field" style="flex:2;">
+                  <label>Container</label>
+                  <select x-model="hcForm.container" :disabled="hcForm.editing" style="width:100%;padding:0.5rem;background:var(--surface2);border:1px solid var(--border);border-radius:4px;color:var(--text);">
+                    <option value="">Select container...</option>
+                    <template x-for="c in monitoredContainers" :key="c">
+                      <option :value="c" x-text="c"></option>
+                    </template>
+                  </select>
+                </div>
+                <div class="form-field" style="flex:3;">
+                  <label>URL</label>
+                  <input type="text" x-model="hcForm.url" placeholder="http://container:8080/health"
+                         style="width:100%;padding:0.5rem;background:var(--surface2);border:1px solid var(--border);border-radius:4px;color:var(--text);">
+                </div>
+              </div>
+              <div class="form-row" style="margin-top:0.5rem;">
+                <div class="form-field">
+                  <label>Method</label>
+                  <select x-model="hcForm.method" style="width:100%;padding:0.5rem;background:var(--surface2);border:1px solid var(--border);border-radius:4px;color:var(--text);">
+                    <option>GET</option><option>HEAD</option><option>POST</option>
+                  </select>
+                </div>
+                <div class="form-field">
+                  <label>Expected Status</label>
+                  <input type="number" x-model.number="hcForm.expected_status"
+                         style="width:100%;padding:0.5rem;background:var(--surface2);border:1px solid var(--border);border-radius:4px;color:var(--text);">
+                </div>
+                <div class="form-field">
+                  <label>Interval (s)</label>
+                  <input type="number" x-model.number="hcForm.interval_seconds" min="10" max="3600"
+                         style="width:100%;padding:0.5rem;background:var(--surface2);border:1px solid var(--border);border-radius:4px;color:var(--text);">
+                </div>
+                <div class="form-field">
+                  <label>Timeout (s)</label>
+                  <input type="number" x-model.number="hcForm.timeout_seconds" min="1" max="60"
+                         style="width:100%;padding:0.5rem;background:var(--surface2);border:1px solid var(--border);border-radius:4px;color:var(--text);">
+                </div>
+                <div class="form-field">
+                  <label>Fail Threshold</label>
+                  <input type="number" x-model.number="hcForm.failure_threshold" min="1" max="20"
+                         style="width:100%;padding:0.5rem;background:var(--surface2);border:1px solid var(--border);border-radius:4px;color:var(--text);">
+                </div>
+              </div>
+              <div style="margin-top:0.75rem;display:flex;align-items:center;gap:1rem;">
+                <label style="display:flex;align-items:center;gap:0.4rem;font-size:0.85rem;">
+                  <input type="checkbox" x-model="hcForm.enabled" style="accent-color:var(--blue);">
+                  Enabled
+                </label>
+                <button class="btn btn-primary" @click="saveHealthCheck()" :disabled="!hcForm.container || !hcForm.url || hcSaving">
+                  <span x-text="hcSaving ? 'Saving...' : (hcForm.editing ? 'Update' : 'Add')"></span>
+                </button>
+                <button class="btn" x-show="hcForm.editing" @click="resetHcForm()">Cancel</button>
+              </div>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+
     <!-- ═══ CONTAINERS ═══ -->
     <div x-show="view==='containers'" x-cloak>
       <div class="content">
@@ -538,6 +659,13 @@ label { display:block; font-size:0.85rem; color:var(--text-dim); margin-bottom:0
 <script>
 function settingsApp() {
   return {
+    // Health Checks
+    healthChecks: [],
+    hcLoading: false,
+    hcSaving: false,
+    hcForm: { container: '', url: '', method: 'GET', expected_status: 200, interval_seconds: 60, timeout_seconds: 10, failure_threshold: 3, enabled: true, editing: false },
+    monitoredContainers: [],
+
     view: 'notifications',
     dockerContainers: [],
     loadingContainers: false,
@@ -594,10 +722,77 @@ function settingsApp() {
       this.loadingContainers = false;
     },
 
+
+    async loadHealthChecks() {
+      this.hcLoading = true;
+      try {
+        const [hcResp, cResp] = await Promise.all([
+          fetch('/api/healthchecks'),
+          fetch('/api/containers'),
+        ]);
+        const hcData = await hcResp.json();
+        this.healthChecks = hcData.checks || [];
+        const cData = await cResp.json();
+        this.monitoredContainers = cData.map(c => c.name);
+      } catch (e) {
+        this.showToast('Failed to load health checks', 'error');
+      }
+      this.hcLoading = false;
+    },
+
+    editHealthCheck(hc) {
+      this.hcForm = { ...hc, editing: true };
+    },
+
+    resetHcForm() {
+      this.hcForm = { container: '', url: '', method: 'GET', expected_status: 200, interval_seconds: 60, timeout_seconds: 10, failure_threshold: 3, enabled: true, editing: false };
+    },
+
+    async saveHealthCheck() {
+      this.hcSaving = true;
+      try {
+        const r = await fetch('/api/containers/' + encodeURIComponent(this.hcForm.container) + '/healthcheck', {
+          method: 'PUT',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            url: this.hcForm.url,
+            method: this.hcForm.method,
+            expected_status: this.hcForm.expected_status,
+            interval_seconds: this.hcForm.interval_seconds,
+            timeout_seconds: this.hcForm.timeout_seconds,
+            failure_threshold: this.hcForm.failure_threshold,
+            enabled: this.hcForm.enabled,
+          }),
+        });
+        if (r.ok) {
+          this.showToast('Health check saved', 'success');
+          this.resetHcForm();
+          await this.loadHealthChecks();
+        } else {
+          this.showToast('Failed to save', 'error');
+        }
+      } catch (e) {
+        this.showToast('Error: ' + e.message, 'error');
+      }
+      this.hcSaving = false;
+    },
+
+    async deleteHealthCheck(container) {
+      if (!confirm('Delete health check for ' + container + '?')) return;
+      try {
+        await fetch('/api/containers/' + encodeURIComponent(container) + '/healthcheck', { method: 'DELETE' });
+        this.showToast('Health check deleted', 'success');
+        await this.loadHealthChecks();
+      } catch (e) {
+        this.showToast('Error: ' + e.message, 'error');
+      }
+    },
+
     setView(v) {
       this.view = v;
       if (v === 'models' && this.models.length === 0) this.loadModels();
       if (v === 'containers') this.loadDockerContainers();
+      if (v === 'healthchecks') this.loadHealthChecks();
       history.replaceState(null, '', '/settings.html?view=' + v);
     },
 
