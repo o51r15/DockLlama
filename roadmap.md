@@ -363,7 +363,7 @@ Instead of requiring manual `context_prompt` configuration, detect common worklo
 
 ### Phase 9 — Model Validation & Hardware-Aware Scheduling
 
-**Status:** 9.1-9.5 COMPLETE (Sessions 5-8)
+**Status:** 9.1-9.5 COMPLETE (Sessions 5-8), 6.5-6.6 COMPLETE (Session 8)
 **Objective:** Eliminate guesswork from model selection and poll interval configuration. The settings page should validate that a model actually works before allowing it, benchmark its speed on the user's hardware, and calculate a safe poll interval automatically.
 
 #### 9.1 Model Discovery & Selection UI ✅

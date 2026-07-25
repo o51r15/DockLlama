@@ -2,8 +2,8 @@
 
 **Last updated:** July 25, 2026 (Session 8)
 **Repository:** https://github.com/o51r15/DockLlama (renamed from DockLlama)
-**Status:** Running in dry-run mode as Docker container, monitoring 20 production containers, 1 HTTP health check configured
-**Latest commit:** `bb3e7af` — Fix: add datetime import to db.py (Phase 6.6)
+**Status:** Running in dry-run mode as Docker container, monitoring 20 production containers, 5 HTTP health checks configured
+**Latest commit:** `0a55d4f` — Update docs for Phase 6.6 (Blackout Windows)
 
 ## FIRST TASK: Complete Rename ✅ DONE (Session 4)
 Renamed dockmon → dockllama across 32 files including Python package dir, imports, Docker image, CI/CD, compose, all user-facing strings.
@@ -190,7 +190,9 @@ main.py: _process_container()
 
 **config.yaml** (gitignored, on server): 15 containers, `poll_interval_seconds: 412`, `timeout_seconds: 300`, `base_url: "http://192.168.1.125:11434"`, `default_model: "llama3.1:8b"` (was briefly qwen2.5:7b-instruct, reverted) (was briefly qwen2.5:7b-instruct, reverted), `digest_model: "gemma4:latest"`, `dry_run: true`.
 
-**Monitored containers (15):** gluetun, bitmagnet, bitmagnet-postgres, qbittorrent, kometa, audiobookshelf, pinchfork, pinchfork-db, jellyfin, karakeep, karakeep_chrome, karakeep_meilisearch, memos, tautulli, seerr
+**Monitored containers (20):** gluetun, bitmagnet, bitmagnet-postgres, qbittorrent, kometa, audiobookshelf, pinchfork, pinchfork-db, jellyfin, karakeep, karakeep_chrome, karakeep_meilisearch, memos, tautulli, seerr
+
+**Health-checked containers (5):** jellyfin, tautulli, seerr, audiobookshelf, memos (via HTTP endpoint polling)
 
 **Compose groups** (restart together): bitmagnet (bitmagnet + bitmagnet-postgres), pinchfork (pinchfork + pinchfork-db), karakeep (karakeep + karakeep_chrome + karakeep_meilisearch)
 
@@ -365,7 +367,7 @@ Key commits: ad8df22, 851c8bc, 487f205, 98c4eb9, 7487933.
 
 
 
-### Session 8 — First-Run Setup Wizard (July 25, 2026)
+### Session 8 — Setup Wizard, Health Checks & Blackout Windows (July 25, 2026)
 
 **Phase 9.5: First-Run Setup Wizard** (`1a116a6`): Added a guided multi-step setup wizard at `/setup.html` for new installations. The wizard walks users through:
 1. **Ollama connection** — enter URL, test connectivity (with `PUT /api/setup/ollama-url` that validates and persists)
