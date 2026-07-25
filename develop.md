@@ -3,7 +3,7 @@
 **Last updated:** July 25, 2026 (Session 8)
 **Repository:** https://github.com/o51r15/DockLlama (renamed from DockLlama)
 **Status:** Running in dry-run mode as Docker container, monitoring 20 production containers, 5 HTTP health checks configured
-**Latest commit:** `0a55d4f` — Update docs for Phase 6.6 (Blackout Windows)
+**Latest commit:** `f93c5e8` — Update develop log: Session 8 final
 
 ## FIRST TASK: Complete Rename ✅ DONE (Session 4)
 Renamed dockmon → dockllama across 32 files including Python package dir, imports, Docker image, CI/CD, compose, all user-facing strings.
@@ -428,6 +428,106 @@ Key commits: c012c32, 9bec74f, d597415, f7e71db, 72e2c45, 8a72f4b.
 - **Account for cold model load time.** Set timeout_seconds: 300.
 - **PowerShell mangles special chars.** Write Python scripts, pscp to server, execute remotely.
 - **Separate local config from git.** config.yaml is gitignored.
+
+
+---
+
+## Project Review & Ideas 7-25-2026
+
+Full code review of all backend Python files and frontend HTML/JS, plus live API timing tests.
+
+### Bugs (code will break under specific conditions)
+
+1. **`ai_engine.py`: Missing `import asyncio`** — `await asyncio.sleep(5)` is used in the Ollama error retry logic but `asyncio` is never imported. Will raise `NameError` on the first Ollama connection error or timeout. Silent until Ollama goes down.
+
+2. **`actions.py`: Blocking `time.sleep()` in async context** — `time.sleep(10)` and `time.sleep(20)` in restart verification block the entire asyncio event loop for 30 seconds total. During a container restart, all other coroutines (web server, SSE, health checks, other evals) are frozen. Should use `await asyncio.sleep()`.
+
+3. **`main.py`: `action` variable undefined when blackout active** — In `_process_container()`, when `blackout=True`, the code skips action execution (where `action` is assigned) but then checks `if not blackout and action.action_taken != "none"`. Safe only because Python short-circuits `and` — but if the condition is ever refactored (e.g., to `if action.action_taken != "none" and not blackout`), it raises `NameError`. Should initialize `action = None` before the blackout check.
+
+4. **`index.html`: Blackout banner inside loading template** — The blackout warning banner (`<div class="blackout-banner">`) is nested inside `<template x-if="loading">`, so it only renders while the dashboard is loading and disappears once `loading = false`. The banner should be moved outside the loading template so it persists on the dashboard.
+
+5. **`settings.html`: `loadingContainers` declared twice** — The Alpine component declares `loadingContainers: false` (for the docker containers section) and later `loadingContainers: true` (for the prompts section). The second declaration wins in JavaScript object literals, so the containers section may show a false "loading" state. Use separate variable names (e.g., `loadingDocker` and `loadingPromptContainers`).
+
+6. **`settings.html`: Health checks view doesn't auto-load on direct URL** — `init()` checks for `?view=models` and `?view=containers` to auto-load data, but not `?view=healthchecks`. Navigating directly to `settings.html?view=healthchecks` shows an empty page until the user clicks away and back.
+
+### Code Quality & Optimization
+
+7. **`db.py`: Redundant local imports** — At least 6 functions contain `from datetime import datetime, timezone` and/or `import json` despite both being imported at module level. Adds unnecessary overhead and makes the code harder to follow.
+
+8. **`db.py`: `if __name__ == "__main__"` test block in the middle of the file** — Around line 245, a test/debug block sits between function definitions. Should be moved to the end of the file.
+
+9. **`db.py`: `get_all_health_checks()` only returns enabled checks** — The function uses `WHERE enabled = 1` despite the name suggesting it returns all checks. Either rename to `get_enabled_health_checks()` or add an optional parameter.
+
+10. **`health_checker.py`: New DB connection per result save** — Each health check result opens and closes a new SQLite connection. With 5 checks at 60s intervals, that's 5 connections/minute. Should reuse a single connection or use a connection pool.
+
+11. **`health_checker.py`: New `httpx.AsyncClient` per check** — A new HTTP client is created for every health check instead of reusing one. Loses connection pooling, TLS session reuse, and adds overhead.
+
+12. **`health_checker.py`: No shutdown mechanism** — `run_health_checks()` uses `while True` with no way to gracefully stop (unlike the main monitor loop which has shutdown signaling). Could orphan the coroutine on shutdown.
+
+13. **`main.py`: Separate `conn_stats` DB connection per container** — In the monitor loop, a new SQLite connection is opened and closed for each container just to save stats. Should batch or reuse.
+
+14. **`main.py`: Split import of `is_blackout_active`** — Imported on a separate line from other `db` imports. Minor but should consolidate.
+
+15. **`actions.py`: Creates new `docker.from_env()` for group restarts** — `execute_action()` receives a Docker client parameter but creates a brand-new one for compose/dependency group restarts. Should reuse the passed-in client.
+
+### Frontend / UX Issues
+
+16. **Monolithic `settings.html` (1265 lines)** — All 5+ settings views (Notifications, Prompts, Models, Health Checks, Containers, Blackout Windows) live in a single Alpine.js component with one massive `settingsApp()` function. Hard to maintain and debug. Consider splitting into separate components or at least separate JS files.
+
+17. **No mobile responsiveness** — Sidebar navigation uses a fixed 200px width with no media queries. On mobile/tablet screens, the sidebar takes disproportionate space and content overflows. Dashboard card grid also has no mobile breakpoint.
+
+18. **No offline/error indicator** — If the DockLlama server goes down, SSE silently reconnects every 5 seconds but the user sees stale data with no visual indication that the connection is lost. Should show a disconnected banner.
+
+19. **No pagination on events table** — Insights → Recent Events is hardcoded to 20 events with no pagination, "load more," or date filtering. Users can't view historical events.
+
+20. **CSS duplicated across all HTML files** — The same color variables, header, nav, sidebar, and button styles are copy-pasted into all 4 HTML files (~150 lines each). A shared CSS file would reduce maintenance burden and ensure consistency.
+
+21. **Dashboard sparklines fire N parallel requests** — On load, `loadSparklines()` fires one `/api/containers/{name}/stats` request per container simultaneously (20 requests). Should batch or stagger.
+
+22. **No favicon** — Browser tab shows the generic document icon. A simple llama SVG favicon would improve branding.
+
+23. **SSE event handler reconnects on ANY error** — `eventSource.onerror` reconnects after 5s regardless of error type. No exponential backoff, no max retry limit, no user notification.
+
+24. **No keyboard accessibility** — Sidebar navigation items use `<a>` tags with `@click` but no `href`, making them inaccessible to keyboard navigation and screen readers.
+
+### API Performance (measured from host, July 25 2026)
+
+| Endpoint | Response Time | Notes |
+|---|---|---|
+| `/api/config` | 2ms | Fast (file read) |
+| `/api/blackouts/active` | 2ms | Fast |
+| `/api/blackouts` | 2ms | Fast |
+| `/api/alerts` | 2ms | Fast |
+| `/api/events?limit=20` | 3ms | Fast |
+| `/api/stats/fleet?range=1h` | 3ms | Fast |
+| `/api/digests?limit=90` | 3ms | Fast |
+| `/api/healthchecks` | 5ms | Fast |
+| `/api/models` | 22ms | Hits Ollama API |
+| `/api/containers` | 216ms | Docker SDK + cache |
+| `/api/setup/status` | 254ms | Hits Docker + Ollama |
+| `/api/trends` | 363ms | Complex SQL aggregation |
+| Container stats (1h) | 3ms | Fast (8 data points) |
+
+**Dashboard initial load** makes 4 parallel API calls: `/api/setup/status` (254ms), `/api/blackouts/active` (2ms), `/api/containers` (216ms), `/api/config` (2ms). The setup status check is the bottleneck — it runs every page load even after setup is complete. Could cache or skip when setup is done.
+
+**Trends endpoint (363ms)** is the slowest — does window-based aggregation across all containers for 7d and 30d periods. Consider pre-computing or caching with a short TTL.
+
+### Ideas for Future Development
+
+- **Shared CSS file** — Extract common styles into `common.css` to eliminate ~600 lines of duplication across 4 HTML files
+- **WebSocket upgrade** — Replace SSE with WebSocket for bidirectional communication (e.g., cancel evaluation, real-time log streaming)
+- **Dark/light theme toggle** — Currently hardcoded dark theme only
+- **Export digest as PDF or email** — Users may want to share daily digests with team members
+- **Container grouping/tagging** — Dashboard could group containers by service type (media, infrastructure, databases) for better organization at scale
+- **Notification history page** — No way to see past alerts; only the current state is visible
+- **Health check response time charts** — Plot health check latency over time to catch degradation trends
+- **Search/filter on events** — Events table needs text search and date range filtering
+- **Bulk actions** — "Evaluate All" button, group restart from dashboard
+- **Pre-compute trends** — Cache the `/api/trends` result with a 5-minute TTL to cut the 363ms query on every Insights page load
+- **Skip setup check after first run** — `/api/setup/status` hits both Docker and Ollama APIs (254ms) on every page load. Cache the result or set a flag after first successful setup
+- **Connection pool for SQLite** — Many functions open/close individual connections. A shared connection or pool would reduce overhead
+- **Graceful shutdown** — Health checker and SSE connections have no clean shutdown path. Add asyncio cancellation support
+- **Rate-limit sparkline requests** — Stagger or batch the 20 parallel stats requests on dashboard load
 
 ---
 
