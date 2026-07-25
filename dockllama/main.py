@@ -482,7 +482,7 @@ async def run(cfg: DockLlamaConfig) -> None:
         logger.info("Digest scheduler stopped.")
 
     logger.info("Web UI: http://0.0.0.0:8556")
-    await asyncio.gather(run_server(), run_monitor(), run_digest_scheduler())
+    await asyncio.gather(run_server(), run_monitor(), run_digest_scheduler(), run_health_checks(cfg))
     logger.info("DockLlama stopped.")
 
 
