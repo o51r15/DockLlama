@@ -3,7 +3,7 @@
 **Last updated:** July 25, 2026 (Session 8)
 **Repository:** https://github.com/o51r15/DockLlama (renamed from DockLlama)
 **Status:** Running in dry-run mode as Docker container, monitoring 20 production containers, 1 HTTP health check configured
-**Latest commit:** `d1f453e` — Fix: add health check poller to asyncio.gather
+**Latest commit:** `bb3e7af` — Fix: add datetime import to db.py (Phase 6.6)
 
 ## FIRST TASK: Complete Rename ✅ DONE (Session 4)
 Renamed dockmon → dockllama across 32 files including Python package dir, imports, Docker image, CI/CD, compose, all user-facing strings.
@@ -222,6 +222,9 @@ health_checks (container TEXT PK, url TEXT, method TEXT, expected_status INT,
                interval_seconds INT, timeout_seconds INT, failure_threshold INT,
                enabled INT)
 
+blackout_windows (id INT PK, name TEXT, days TEXT JSON, start_time TEXT,
+                  end_time TEXT, enabled INT)
+
 health_check_results (id INT PK, container TEXT, timestamp TEXT,
                       status_code INT, response_ms INT, success INT, error TEXT)
 ```
@@ -256,6 +259,11 @@ health_check_results (id INT PK, container TEXT, timestamp TEXT,
 | DELETE | /api/containers/{name}/healthcheck | Remove health check |
 | GET | /api/containers/{name}/healthcheck/history | Health check result history |
 | GET | /api/healthchecks | List all health checks with last result |
+| GET | /api/blackouts | List all blackout windows |
+| POST | /api/blackouts | Create a blackout window |
+| PUT | /api/blackouts/{id} | Update a blackout window |
+| DELETE | /api/blackouts/{id} | Delete a blackout window |
+| GET | /api/blackouts/active | Check if blackout is currently active |
 
 ---
 
@@ -380,6 +388,16 @@ Key commit: 1a116a6.
 - Poller runs as additional task in `asyncio.gather()` alongside monitor, digest scheduler, and web server
 
 Key commits: e00623f, d1f453e.
+
+**Phase 6.6: Blackout Windows / Maintenance Schedules** (`318629d`, `bb3e7af`): Added the ability to schedule maintenance windows that suppress alerts and auto-restarts while still running AI evaluations (data collection continues). Components:
+- `blackout_windows` DB table with CRUD functions and `is_blackout_active()` supporting overnight spans (e.g. 22:00-06:00) and weekday selection (0=Mon, 6=Sun)
+- API endpoints: `GET/POST /api/blackouts`, `PUT/DELETE /api/blackouts/{id}`, `GET /api/blackouts/active`
+- Blackout check in `_process_container()` — when active, skips action execution and alert sending but still runs evals and stores events
+- Blackout check in health_checker.py — suppresses threshold-breach alerts during maintenance
+- Settings page: Blackout Windows management section under Notifications with day checkboxes, time pickers, and enable/disable toggle
+- Dashboard: yellow warning banner when a blackout window is active showing the window name and time range
+
+Key commits: 318629d, bb3e7af.
 
 ### Session 7 — Code Audit, Bug Fixes, Dashboard Performance & Duplication Regression (July 24, 2026)
 

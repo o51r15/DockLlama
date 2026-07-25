@@ -124,7 +124,7 @@ External endpoint monitoring — complementary to our AI-driven log evaluation. 
 - **DockLlama twist:** Feed health check failures INTO the AI eval context: "HTTP health check at /health returned 503 (3 consecutive failures)" — the AI sees both logs AND endpoint status
 
 
-#### 6.6 Blackout Windows (Maintenance Schedules) *(inspired by darthnorse/dockmon)* ⬅️ START HERE
+#### 6.6 Blackout Windows (Maintenance Schedules) ✅ DONE (Session 8) *(inspired by darthnorse/dockmon)*
 
 Suppress alerts and auto-restarts during scheduled maintenance periods.
 
