@@ -219,6 +219,14 @@ function dashboard() {
     eventSource: null,
 
     async init() {
+      // Check if first-run setup is needed
+      try {
+        const sr = await fetch('/api/setup/status');
+        if (sr.ok) {
+          const sd = await sr.json();
+          if (sd.needs_setup) { window.location.href = '/setup.html'; return; }
+        }
+      } catch (e) { /* setup endpoint missing = skip redirect */ }
       await Promise.all([this.fetchContainers(), this.fetchConfig()]);
       this.loading = false;
       this.connectSSE();

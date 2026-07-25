@@ -1150,6 +1150,88 @@ async def get_fleet_stats(range: str = "24h"):
         conn.close()
 
 
+
+# --- Setup Wizard (Phase 9.5) ---
+
+@router.get("/setup/status")
+async def setup_status():
+    """Check if first-run setup is needed."""
+    cfg = _get_cfg()
+    has_containers = len([c for c in cfg.containers if c.enabled]) > 0
+    has_ollama = False
+    ollama_url = cfg.ollama.base_url
+    default_model = cfg.ollama.default_model
+
+    try:
+        import httpx
+        async with httpx.AsyncClient(timeout=5) as http:
+            r = await http.get(f"{ollama_url}/api/tags")
+            has_ollama = r.status_code == 200
+    except Exception:
+        pass
+
+    has_docker = False
+    try:
+        client = get_client()
+        client.ping()
+        has_docker = True
+    except Exception:
+        pass
+
+    # Check if any model has been tested
+    conn = init_db(cfg.monitoring.db_path)
+    try:
+        tested = get_tested_models(conn)
+        has_tested_model = any(m["status"] == "supported" for m in tested)
+    finally:
+        conn.close()
+
+    needs_setup = not has_containers or not has_ollama or not has_tested_model
+    return {
+        "needs_setup": needs_setup,
+        "has_containers": has_containers,
+        "has_ollama": has_ollama,
+        "has_docker": has_docker,
+        "has_tested_model": has_tested_model,
+        "ollama_url": ollama_url,
+        "default_model": default_model,
+        "container_count": len([c for c in cfg.containers if c.enabled]),
+    }
+
+
+class OllamaUrlRequest(BaseModel):
+    base_url: str
+
+
+@router.put("/setup/ollama-url")
+async def update_ollama_url(req: OllamaUrlRequest):
+    """Update the Ollama base URL and persist to config.yaml."""
+    cfg = _get_cfg()
+    old = cfg.ollama.base_url
+    cfg.ollama.base_url = req.base_url.rstrip("/")
+
+    # Test connectivity
+    connected = False
+    try:
+        import httpx
+        async with httpx.AsyncClient(timeout=5) as http:
+            r = await http.get(f"{cfg.ollama.base_url}/api/tags")
+            connected = r.status_code == 200
+    except Exception:
+        pass
+
+    if not connected:
+        cfg.ollama.base_url = old
+        raise HTTPException(400, f"Cannot connect to Ollama at {req.base_url}")
+
+    # Persist to config.yaml
+    from dockllama.config import _update_yaml_field
+    _update_yaml_field("base_url", cfg.ollama.base_url)
+
+    return {"status": "ok", "base_url": cfg.ollama.base_url, "connected": True}
+
+
+
 # --- Alert management ---
 
 class AlertConfig(BaseModel):

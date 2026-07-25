@@ -1,0 +1,619 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>DockLlama — Setup</title>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/alpinejs/3.13.5/cdn.min.js" defer></script>
+<style>
+:root {
+  --bg: #0f1117; --surface: #1a1d27; --surface2: #242834;
+  --border: #2e3345; --text: #e4e6ed; --text-dim: #8b8fa3;
+  --green: #22c55e; --yellow: #eab308; --red: #ef4444; --blue: #3b82f6;
+}
+* { margin:0; padding:0; box-sizing:border-box; }
+body { background:var(--bg); color:var(--text); font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif; min-height:100vh; display:flex; flex-direction:column; align-items:center; }
+.setup-header { text-align:center; padding:3rem 2rem 1rem; }
+.setup-header h1 { font-size:2rem; font-weight:700; margin-bottom:0.5rem; }
+.setup-header h1 span { color:var(--blue); }
+.setup-header p { color:var(--text-dim); font-size:0.95rem; }
+
+/* Steps indicator */
+.steps { display:flex; gap:0; margin:2rem auto 2rem; max-width:600px; width:100%; padding:0 2rem; }
+.step-item { flex:1; text-align:center; position:relative; }
+.step-dot { width:32px; height:32px; border-radius:50%; border:2px solid var(--border); background:var(--surface); display:inline-flex; align-items:center; justify-content:center; font-size:0.8rem; font-weight:600; color:var(--text-dim); position:relative; z-index:1; transition:all 0.3s; }
+.step-item.active .step-dot { border-color:var(--blue); color:var(--blue); background:rgba(59,130,246,0.15); }
+.step-item.done .step-dot { border-color:var(--green); background:var(--green); color:white; }
+.step-label { font-size:0.7rem; color:var(--text-dim); margin-top:0.4rem; }
+.step-item.active .step-label { color:var(--text); }
+.step-item.done .step-label { color:var(--green); }
+.step-line { position:absolute; top:15px; left:50%; right:-50%; height:2px; background:var(--border); z-index:0; }
+.step-item.done .step-line { background:var(--green); }
+.step-item:last-child .step-line { display:none; }
+
+/* Content */
+.wizard { max-width:640px; width:100%; padding:0 2rem 3rem; }
+.panel { background:var(--surface); border:1px solid var(--border); border-radius:12px; padding:2rem; }
+.panel h2 { font-size:1.2rem; margin-bottom:0.25rem; }
+.panel p.sub { color:var(--text-dim); font-size:0.85rem; margin-bottom:1.5rem; }
+
+/* Forms */
+.field { margin-bottom:1.25rem; }
+.field label { display:block; font-size:0.8rem; color:var(--text-dim); margin-bottom:0.4rem; font-weight:500; }
+.field input, .field select { width:100%; padding:0.6rem 0.8rem; background:var(--surface2); border:1px solid var(--border); border-radius:6px; color:var(--text); font-size:0.9rem; outline:none; }
+.field input:focus, .field select:focus { border-color:var(--blue); }
+
+/* Buttons */
+.btn { padding:0.55rem 1.2rem; border-radius:6px; border:1px solid var(--border); background:var(--surface2); color:var(--text); font-size:0.85rem; cursor:pointer; font-weight:500; transition:all 0.15s; }
+.btn:hover { background:var(--border); }
+.btn:disabled { opacity:0.4; cursor:not-allowed; }
+.btn-primary { background:var(--blue); border-color:var(--blue); color:white; }
+.btn-primary:hover { background:#2563eb; }
+.btn-primary:disabled { background:var(--blue); opacity:0.4; }
+.btn-green { background:var(--green); border-color:var(--green); color:white; }
+.btn-green:hover { background:#16a34a; }
+.actions { display:flex; justify-content:space-between; margin-top:1.5rem; }
+
+/* Status indicators */
+.status-row { display:flex; align-items:center; gap:0.5rem; padding:0.5rem 0; font-size:0.85rem; }
+.status-icon { font-size:1rem; }
+.status-ok { color:var(--green); }
+.status-fail { color:var(--red); }
+.status-wait { color:var(--yellow); }
+.spinner { display:inline-block; width:16px; height:16px; border:2px solid var(--border); border-top-color:var(--blue); border-radius:50%; animation:spin 0.6s linear infinite; }
+@keyframes spin { to { transform:rotate(360deg); } }
+
+/* Container list */
+.container-list { max-height:340px; overflow-y:auto; border:1px solid var(--border); border-radius:6px; }
+.container-row { display:flex; align-items:center; gap:0.75rem; padding:0.6rem 0.8rem; border-bottom:1px solid var(--border); font-size:0.85rem; }
+.container-row:last-child { border-bottom:none; }
+.container-row input[type=checkbox] { accent-color:var(--blue); width:16px; height:16px; }
+.container-row .c-name { font-weight:500; flex:1; }
+.container-row .c-image { color:var(--text-dim); font-size:0.75rem; max-width:200px; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
+.container-row .c-status { font-size:0.7rem; padding:0.15rem 0.5rem; border-radius:4px; }
+.c-running { background:rgba(34,197,94,0.15); color:var(--green); }
+.c-stopped { background:rgba(239,68,68,0.15); color:var(--red); }
+
+/* Model cards */
+.model-list { display:flex; flex-direction:column; gap:0.5rem; max-height:220px; overflow-y:auto; }
+.model-card { display:flex; align-items:center; gap:0.75rem; padding:0.6rem 0.8rem; background:var(--surface2); border:1px solid var(--border); border-radius:6px; cursor:pointer; font-size:0.85rem; transition:border-color 0.15s; }
+.model-card:hover { border-color:var(--text-dim); }
+.model-card.selected { border-color:var(--blue); background:rgba(59,130,246,0.08); }
+.model-card .m-name { font-weight:500; flex:1; }
+.model-card .m-size { color:var(--text-dim); font-size:0.75rem; }
+.model-card .m-status { font-size:0.7rem; padding:0.15rem 0.5rem; border-radius:4px; }
+.m-supported { background:rgba(34,197,94,0.15); color:var(--green); }
+.m-untested { background:rgba(234,179,8,0.15); color:var(--yellow); }
+.m-failed { background:rgba(239,68,68,0.15); color:var(--red); }
+
+/* Test results */
+.test-result { background:var(--surface2); border-radius:6px; padding:0.75rem; margin-top:0.75rem; font-size:0.8rem; line-height:1.6; }
+.test-result .pass { color:var(--green); }
+.test-result .fail { color:var(--red); }
+
+/* Interval slider */
+.interval-display { text-align:center; margin:1rem 0; }
+.interval-display .big { font-size:2rem; font-weight:700; }
+.interval-display .unit { font-size:0.9rem; color:var(--text-dim); }
+input[type=range] { width:100%; accent-color:var(--blue); margin:0.5rem 0; }
+.zone-labels { display:flex; justify-content:space-between; font-size:0.7rem; color:var(--text-dim); }
+.zone-bar { height:6px; border-radius:3px; display:flex; overflow:hidden; margin-bottom:0.25rem; }
+.zone-red { background:var(--red); }
+.zone-yellow { background:var(--yellow); }
+.zone-green { background:var(--green); }
+
+/* Toast */
+.toast { position:fixed; bottom:2rem; left:50%; transform:translateX(-50%); padding:0.6rem 1.2rem; border-radius:8px; font-size:0.85rem; z-index:200; animation:fadeup 0.3s; }
+.toast-success { background:var(--green); color:white; }
+.toast-error { background:var(--red); color:white; }
+@keyframes fadeup { from { opacity:0; transform:translateX(-50%) translateY(10px); } to { opacity:1; transform:translateX(-50%) translateY(0); } }
+
+/* Complete screen */
+.complete-screen { text-align:center; }
+.complete-screen .big-icon { font-size:3rem; margin-bottom:1rem; }
+.complete-screen h2 { font-size:1.4rem; margin-bottom:0.5rem; }
+.complete-screen p { color:var(--text-dim); margin-bottom:1.5rem; }
+.summary-grid { display:grid; grid-template-columns:1fr 1fr; gap:0.75rem; text-align:left; margin-bottom:1.5rem; }
+.summary-item { background:var(--surface2); border-radius:6px; padding:0.6rem 0.8rem; }
+.summary-item .s-label { font-size:0.7rem; color:var(--text-dim); }
+.summary-item .s-value { font-size:0.95rem; font-weight:600; }
+</style>
+</head>
+<body x-data="setupWizard()" x-init="init()">
+
+<div class="setup-header">
+  <h1>dock<span>Llama</span></h1>
+  <p>Let's get your container monitoring set up</p>
+</div>
+
+<!-- Steps -->
+<div class="steps">
+  <template x-for="(s, i) in stepNames" :key="i">
+    <div class="step-item" :class="{ active: step === i, done: step > i }">
+      <div class="step-line"></div>
+      <div class="step-dot" x-text="step > i ? '&#10003;' : (i+1)"></div>
+      <div class="step-label" x-text="s"></div>
+    </div>
+  </template>
+</div>
+
+<div class="wizard">
+
+  <!-- Step 0: Ollama Connection -->
+  <div class="panel" x-show="step === 0" x-cloak>
+    <h2>Connect to Ollama</h2>
+    <p class="sub">Enter the URL where your Ollama instance is running</p>
+
+    <div class="field">
+      <label>Ollama URL</label>
+      <input type="text" x-model="ollamaUrl" placeholder="http://192.168.1.125:11434"
+             @keydown.enter="testOllama()">
+    </div>
+
+    <div class="status-row" x-show="ollamaStatus !== null">
+      <template x-if="ollamaTesting"><span class="spinner"></span></template>
+      <template x-if="ollamaStatus === true"><span class="status-icon status-ok">&#10004;</span></template>
+      <template x-if="ollamaStatus === false"><span class="status-icon status-fail">&#10008;</span></template>
+      <span x-text="ollamaMsg"></span>
+    </div>
+
+    <div class="status-row">
+      <template x-if="dockerOk === true"><span class="status-icon status-ok">&#10004;</span></template>
+      <template x-if="dockerOk === false"><span class="status-icon status-fail">&#10008;</span></template>
+      <template x-if="dockerOk === null"><span class="status-icon status-wait">&#x25CB;</span></template>
+      <span x-text="dockerOk === true ? 'Docker connected' : dockerOk === false ? 'Docker not available' : 'Checking Docker...'"></span>
+    </div>
+
+    <div class="actions">
+      <div></div>
+      <div style="display:flex;gap:0.5rem;">
+        <button class="btn" @click="testOllama()" :disabled="ollamaTesting || !ollamaUrl">Test</button>
+        <button class="btn btn-primary" @click="saveOllamaAndNext()" :disabled="ollamaStatus !== true">Next &#8594;</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- Step 1: Model Selection -->
+  <div class="panel" x-show="step === 1" x-cloak>
+    <h2>Select a Model</h2>
+    <p class="sub">Choose an AI model for container health evaluation</p>
+
+    <template x-if="modelsLoading">
+      <div style="text-align:center;padding:1rem;"><span class="spinner"></span> Loading models...</div>
+    </template>
+
+    <div class="model-list" x-show="!modelsLoading">
+      <template x-for="m in models" :key="m.name">
+        <div class="model-card" :class="{ selected: selectedModel === m.name }"
+             @click="selectedModel = m.name">
+          <input type="radio" :checked="selectedModel === m.name" style="accent-color:var(--blue);">
+          <span class="m-name" x-text="m.name"></span>
+          <span class="m-size" x-text="m.size_gb + ' GB'"></span>
+          <span class="m-status" :class="m.test_status === 'supported' ? 'm-supported' : m.test_status === 'failed' ? 'm-failed' : 'm-untested'"
+                x-text="m.test_status"></span>
+        </div>
+      </template>
+    </div>
+
+    <template x-if="modelTesting">
+      <div style="text-align:center;padding:1rem;margin-top:0.75rem;">
+        <span class="spinner"></span> Validating <span x-text="selectedModel"></span>... this may take a minute
+      </div>
+    </template>
+
+    <template x-if="testResults">
+      <div class="test-result">
+        <div>
+          <span :class="testResults.results.healthy?.passed ? 'pass' : 'fail'">
+            <span x-text="testResults.results.healthy?.passed ? '&#10004;' : '&#10008;'"></span> Healthy fixture
+          </span>
+          — score <span x-text="testResults.results.healthy?.health_score ?? 'N/A'"></span>
+          (<span x-text="testResults.results.healthy?.response_ms ?? 0"></span>ms)
+        </div>
+        <div>
+          <span :class="testResults.results.failing?.passed ? 'pass' : 'fail'">
+            <span x-text="testResults.results.failing?.passed ? '&#10004;' : '&#10008;'"></span> Failing fixture
+          </span>
+          — score <span x-text="testResults.results.failing?.health_score ?? 'N/A'"></span>
+          (<span x-text="testResults.results.failing?.response_ms ?? 0"></span>ms)
+        </div>
+        <div style="margin-top:0.5rem;font-weight:600;" :class="testResults.passed ? 'pass' : 'fail'"
+             x-text="testResults.passed ? 'Model validated successfully!' : 'Model failed validation. Try a different model.'"></div>
+      </div>
+    </template>
+
+    <div class="actions">
+      <button class="btn" @click="step = 0">&#8592; Back</button>
+      <div style="display:flex;gap:0.5rem;">
+        <button class="btn" @click="testModel()" :disabled="!selectedModel || modelTesting">
+          <span x-text="modelTesting ? 'Testing...' : 'Validate'"></span>
+        </button>
+        <button class="btn btn-primary" @click="saveModelAndNext()"
+                :disabled="!modelValidated">Next &#8594;</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- Step 2: Container Selection -->
+  <div class="panel" x-show="step === 2" x-cloak>
+    <h2>Select Containers</h2>
+    <p class="sub">Choose which Docker containers to monitor</p>
+
+    <div style="margin-bottom:0.75rem;display:flex;justify-content:space-between;align-items:center;">
+      <span style="font-size:0.8rem;color:var(--text-dim);" x-text="selectedContainers.length + ' selected'"></span>
+      <div style="display:flex;gap:0.5rem;">
+        <button class="btn" style="font-size:0.75rem;padding:0.3rem 0.6rem;" @click="selectAllRunning()">All Running</button>
+        <button class="btn" style="font-size:0.75rem;padding:0.3rem 0.6rem;" @click="selectedContainers = []">None</button>
+      </div>
+    </div>
+
+    <div class="container-list">
+      <template x-for="dc in dockerContainers" :key="dc.name">
+        <label class="container-row" style="cursor:pointer;">
+          <input type="checkbox" :value="dc.name"
+                 :checked="selectedContainers.includes(dc.name)"
+                 @change="toggleContainer(dc.name)">
+          <span class="c-name" x-text="dc.name"></span>
+          <span class="c-image" x-text="dc.image"></span>
+          <span class="c-status" :class="dc.running ? 'c-running' : 'c-stopped'"
+                x-text="dc.status"></span>
+        </label>
+      </template>
+    </div>
+
+    <div class="actions">
+      <button class="btn" @click="step = 1">&#8592; Back</button>
+      <button class="btn btn-primary" @click="saveContainersAndNext()"
+              :disabled="selectedContainers.length === 0 || savingContainers">
+        <span x-text="savingContainers ? 'Saving...' : 'Next &#8594;'"></span>
+      </button>
+    </div>
+  </div>
+
+  <!-- Step 3: Interval -->
+  <div class="panel" x-show="step === 3" x-cloak>
+    <h2>Poll Interval</h2>
+    <p class="sub">How often should DockLlama evaluate your containers?</p>
+
+    <template x-if="intervalData">
+      <div>
+        <div class="interval-display">
+          <span class="big" x-text="formatInterval(chosenInterval)"></span>
+        </div>
+
+        <div class="zone-bar">
+          <div class="zone-red" :style="'flex:' + (intervalData.zones.red_max || 1)"></div>
+          <div class="zone-yellow" :style="'flex:' + ((intervalData.zones.yellow_max || 2) - (intervalData.zones.red_max || 1))"></div>
+          <div class="zone-green" :style="'flex:' + Math.max((intervalData.zones.green_start || 3) - (intervalData.zones.yellow_max || 2), intervalData.zones.green_start || 3)"></div>
+        </div>
+
+        <input type="range" :min="Math.max(60, intervalData.zones.red_max || 60)"
+               :max="Math.max(1800, (intervalData.zones.green_start || 300) * 2)"
+               x-model.number="chosenInterval"
+               :style="intervalColor()">
+
+        <div class="zone-labels">
+          <span>&#x1F534; Too fast</span>
+          <span>&#x1F7E1; Tight</span>
+          <span>&#x1F7E2; Recommended</span>
+        </div>
+
+        <div style="margin-top:1rem;font-size:0.8rem;color:var(--text-dim);line-height:1.6;">
+          <div>Model avg response: <strong x-text="intervalData.avg_response_ms + 'ms'"></strong></div>
+          <div>Containers: <strong x-text="intervalData.container_count"></strong></div>
+          <div>Total eval cycle: <strong x-text="intervalData.total_work_seconds + 's'"></strong></div>
+        </div>
+      </div>
+    </template>
+
+    <template x-if="!intervalData">
+      <div style="text-align:center;padding:1rem;"><span class="spinner"></span> Calculating...</div>
+    </template>
+
+    <div class="actions">
+      <button class="btn" @click="step = 2">&#8592; Back</button>
+      <button class="btn btn-primary" @click="saveIntervalAndFinish()" :disabled="!intervalData || savingInterval">
+        <span x-text="savingInterval ? 'Saving...' : 'Finish Setup'"></span>
+      </button>
+    </div>
+  </div>
+
+  <!-- Step 4: Complete -->
+  <div class="panel complete-screen" x-show="step === 4" x-cloak>
+    <div class="big-icon">&#x1F389;</div>
+    <h2>You're all set!</h2>
+    <p>DockLlama is now monitoring your containers</p>
+
+    <div class="summary-grid">
+      <div class="summary-item">
+        <div class="s-label">Ollama</div>
+        <div class="s-value" x-text="ollamaUrl"></div>
+      </div>
+      <div class="summary-item">
+        <div class="s-label">Model</div>
+        <div class="s-value" x-text="selectedModel"></div>
+      </div>
+      <div class="summary-item">
+        <div class="s-label">Containers</div>
+        <div class="s-value" x-text="selectedContainers.length"></div>
+      </div>
+      <div class="summary-item">
+        <div class="s-label">Interval</div>
+        <div class="s-value" x-text="formatInterval(chosenInterval)"></div>
+      </div>
+    </div>
+
+    <a href="/" class="btn btn-green" style="text-decoration:none;display:inline-block;">Open Dashboard</a>
+  </div>
+
+</div>
+
+<!-- Toast -->
+<div class="toast" :class="toast.type === 'error' ? 'toast-error' : 'toast-success'"
+     x-show="toast.show" x-text="toast.msg"
+     x-transition.opacity></div>
+
+<script>
+function setupWizard() {
+  return {
+    step: 0,
+    stepNames: ['Ollama', 'Model', 'Containers', 'Interval'],
+
+    // Step 0
+    ollamaUrl: '',
+    ollamaStatus: null,
+    ollamaTesting: false,
+    ollamaMsg: '',
+    dockerOk: null,
+
+    // Step 1
+    models: [],
+    modelsLoading: false,
+    selectedModel: '',
+    modelTesting: false,
+    modelValidated: false,
+    testResults: null,
+
+    // Step 2
+    dockerContainers: [],
+    selectedContainers: [],
+    savingContainers: false,
+
+    // Step 3
+    intervalData: null,
+    chosenInterval: 300,
+    savingInterval: false,
+
+    // Toast
+    toast: { show: false, msg: '', type: 'success' },
+
+    async init() {
+      // Check current status
+      try {
+        const r = await fetch('/api/setup/status');
+        const d = await r.json();
+        this.ollamaUrl = d.ollama_url || 'http://ollama:11434';
+        this.dockerOk = d.has_docker;
+        if (d.has_ollama) {
+          this.ollamaStatus = true;
+          this.ollamaMsg = 'Connected to Ollama';
+        }
+        if (!d.needs_setup) {
+          // Already configured — redirect to dashboard
+          window.location.href = '/';
+          return;
+        }
+        // Skip ahead if parts are already done
+        if (d.has_ollama && d.has_tested_model && d.has_containers) {
+          this.step = 3; // just need interval
+        } else if (d.has_ollama && d.has_tested_model) {
+          this.step = 2;
+          this.selectedModel = d.default_model;
+          this.modelValidated = true;
+          this.loadDockerContainers();
+        } else if (d.has_ollama) {
+          this.step = 1;
+          this.loadModels();
+        }
+      } catch (e) {
+        console.error('Setup status check failed:', e);
+      }
+    },
+
+    showToast(msg, type = 'success') {
+      this.toast = { show: true, msg, type };
+      setTimeout(() => this.toast.show = false, 3000);
+    },
+
+    async testOllama() {
+      this.ollamaTesting = true;
+      this.ollamaStatus = null;
+      this.ollamaMsg = 'Testing connection...';
+      try {
+        const r = await fetch('/api/setup/ollama-url', {
+          method: 'PUT',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ base_url: this.ollamaUrl }),
+        });
+        if (r.ok) {
+          this.ollamaStatus = true;
+          this.ollamaMsg = 'Connected to Ollama';
+        } else {
+          const d = await r.json();
+          this.ollamaStatus = false;
+          this.ollamaMsg = d.detail || 'Connection failed';
+        }
+      } catch (e) {
+        this.ollamaStatus = false;
+        this.ollamaMsg = 'Network error: ' + e.message;
+      }
+      this.ollamaTesting = false;
+    },
+
+    async saveOllamaAndNext() {
+      this.step = 1;
+      this.loadModels();
+    },
+
+    async loadModels() {
+      this.modelsLoading = true;
+      try {
+        const r = await fetch('/api/models');
+        const d = await r.json();
+        this.models = d.models || [];
+        // Pre-select current default if set
+        if (d.current_default) {
+          this.selectedModel = d.current_default;
+          // Check if already validated
+          const m = this.models.find(m => m.name === d.current_default);
+          if (m && m.test_status === 'supported') this.modelValidated = true;
+        }
+      } catch (e) {
+        this.showToast('Failed to load models', 'error');
+      }
+      this.modelsLoading = false;
+    },
+
+    async testModel() {
+      this.modelTesting = true;
+      this.testResults = null;
+      this.modelValidated = false;
+      try {
+        const r = await fetch('/api/models/test', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ model: this.selectedModel }),
+        });
+        const d = await r.json();
+        this.testResults = d;
+        this.modelValidated = d.passed === true;
+        // Update model status in list
+        const m = this.models.find(m => m.name === this.selectedModel);
+        if (m) m.test_status = d.passed ? 'supported' : 'failed';
+      } catch (e) {
+        this.showToast('Model test failed: ' + e.message, 'error');
+      }
+      this.modelTesting = false;
+    },
+
+    async saveModelAndNext() {
+      // Set as default
+      try {
+        await fetch('/api/models/default', {
+          method: 'PUT',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ model: this.selectedModel, role: 'eval' }),
+        });
+      } catch (e) {
+        this.showToast('Failed to save model', 'error');
+        return;
+      }
+      this.step = 2;
+      this.loadDockerContainers();
+    },
+
+    async loadDockerContainers() {
+      try {
+        const r = await fetch('/api/docker/containers');
+        const d = await r.json();
+        this.dockerContainers = d;
+        // Pre-select already monitored
+        this.selectedContainers = d.filter(c => c.monitored).map(c => c.name);
+      } catch (e) {
+        this.showToast('Failed to load containers', 'error');
+      }
+    },
+
+    toggleContainer(name) {
+      const i = this.selectedContainers.indexOf(name);
+      if (i >= 0) this.selectedContainers.splice(i, 1);
+      else this.selectedContainers.push(name);
+    },
+
+    selectAllRunning() {
+      this.selectedContainers = this.dockerContainers.filter(c => c.running).map(c => c.name);
+    },
+
+    async saveContainersAndNext() {
+      this.savingContainers = true;
+      // Get currently monitored names
+      const monitored = new Set(this.dockerContainers.filter(c => c.monitored).map(c => c.name));
+      const selected = new Set(this.selectedContainers);
+
+      // Add new ones
+      for (const name of selected) {
+        if (!monitored.has(name)) {
+          try {
+            await fetch('/api/containers/add', {
+              method: 'POST',
+              headers: { 'Content-Type': 'application/json' },
+              body: JSON.stringify({ name }),
+            });
+          } catch (e) {
+            console.error('Failed to add', name, e);
+          }
+        }
+      }
+      // Remove deselected
+      for (const name of monitored) {
+        if (!selected.has(name)) {
+          try {
+            await fetch('/api/containers/' + encodeURIComponent(name), { method: 'DELETE' });
+          } catch (e) {
+            console.error('Failed to remove', name, e);
+          }
+        }
+      }
+
+      this.savingContainers = false;
+      this.step = 3;
+      this.loadInterval();
+    },
+
+    async loadInterval() {
+      try {
+        const r = await fetch('/api/models/interval-calc');
+        const d = await r.json();
+        this.intervalData = d;
+        this.chosenInterval = d.recommended_interval || d.current_interval || 300;
+      } catch (e) {
+        this.showToast('Failed to calculate interval', 'error');
+      }
+    },
+
+    formatInterval(s) {
+      if (s >= 60) {
+        const m = Math.floor(s / 60);
+        const sec = s % 60;
+        return sec ? m + 'm ' + sec + 's' : m + 'm';
+      }
+      return s + 's';
+    },
+
+    intervalColor() {
+      if (!this.intervalData) return '';
+      const z = this.intervalData.zones;
+      if (this.chosenInterval < (z.red_max || 0)) return 'accent-color:var(--red)';
+      if (this.chosenInterval < (z.yellow_max || 0)) return 'accent-color:var(--yellow)';
+      return 'accent-color:var(--green)';
+    },
+
+    async saveIntervalAndFinish() {
+      this.savingInterval = true;
+      try {
+        await fetch('/api/config/interval', {
+          method: 'PUT',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ poll_interval_seconds: this.chosenInterval }),
+        });
+        this.step = 4;
+      } catch (e) {
+        this.showToast('Failed to save interval', 'error');
+      }
+      this.savingInterval = false;
+    },
+  };
+}
+</script>
+</body>
+</html>
