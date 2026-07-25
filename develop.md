@@ -2,8 +2,8 @@
 
 **Last updated:** July 24, 2026 (Session 7)
 **Repository:** https://github.com/o51r15/DockLlama (renamed from DockLlama)
-**Status:** Running in dry-run mode as Docker container, monitoring 18 production containers
-**Latest commit:** `8a72f4b` — Fix container-list duplication in save_containers_to_config
+**Status:** Running in dry-run mode as Docker container, monitoring 20 production containers
+**Latest commit:** `1a116a6` — Add first-run setup wizard (Phase 9.5)
 
 ## FIRST TASK: Complete Rename ✅ DONE (Session 4)
 Renamed dockmon → dockllama across 32 files including Python package dir, imports, Docker image, CI/CD, compose, all user-facing strings.
@@ -342,6 +342,21 @@ Key commits: ad8df22, 851c8bc, 487f205, 98c4eb9, 7487933.
 
 ---
 
+
+
+### Session 8 — First-Run Setup Wizard (July 25, 2026)
+
+**Phase 9.5: First-Run Setup Wizard** (`1a116a6`): Added a guided multi-step setup wizard at `/setup.html` for new installations. The wizard walks users through:
+1. **Ollama connection** — enter URL, test connectivity (with `PUT /api/setup/ollama-url` that validates and persists)
+2. **Model selection** — list available models from Ollama, run validation tests (reuses Phase 9.2 test fixtures)
+3. **Container selection** — show all Docker containers with checkboxes, add/remove from monitoring (reuses Phase 9.4 endpoints)
+4. **Interval recommendation** — auto-calculate safe poll interval with color-coded slider (reuses Phase 9.3 calculator)
+
+The dashboard (`index.html`) checks `GET /api/setup/status` on load — if `needs_setup` is true (no containers, no Ollama, or no validated model), it redirects to the wizard. For existing installations, the check returns false and the dashboard loads normally. The wizard is also accessible directly at `/setup.html` for reconfiguration.
+
+All wizard steps reuse existing API endpoints — no duplicate backend logic. New endpoints added: `GET /api/setup/status` (setup state check) and `PUT /api/setup/ollama-url` (URL update with connectivity validation).
+
+Key commit: 1a116a6.
 
 ### Session 7 — Code Audit, Bug Fixes, Dashboard Performance & Duplication Regression (July 24, 2026)
 

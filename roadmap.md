@@ -363,7 +363,7 @@ Instead of requiring manual `context_prompt` configuration, detect common worklo
 
 ### Phase 9 — Model Validation & Hardware-Aware Scheduling
 
-**Status:** 9.1-9.4 COMPLETE (Sessions 5-7), 9.5 NOT STARTED ⬅️ START HERE
+**Status:** 9.1-9.5 COMPLETE (Sessions 5-8)
 **Objective:** Eliminate guesswork from model selection and poll interval configuration. The settings page should validate that a model actually works before allowing it, benchmark its speed on the user's hardware, and calculate a safe poll interval automatically.
 
 #### 9.1 Model Discovery & Selection UI ✅
@@ -423,7 +423,7 @@ New "Containers" section on the Settings page for adding/removing monitored cont
 - Display a banner: "Container count changed — recommended interval updated to Xm Ys"
 - Store interval calculation inputs in DB so they survive restarts: `(model, avg_ms, container_count, calculated_interval, user_override, updated_at)`
 
-#### 9.5 First-Run Setup Wizard (Stretch) ⬅️ START HERE
+#### 9.5 First-Run Setup Wizard (Stretch) ✅ DONE (Session 8)
 
 Optional guided setup shown when DockLlama starts with no config or an empty container list:
 
