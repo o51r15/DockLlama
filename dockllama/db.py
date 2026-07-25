@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import json
 import sqlite3
+from datetime import datetime, time as dtime
 from pathlib import Path
 
 DEFAULT_DB_PATH = "/app/data/dockllama.db"
