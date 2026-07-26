@@ -51,7 +51,7 @@
 <body x-data="dashboard()" x-init="init()">
 
 <div class="header">
-  <h1>dock<span>Llama</span></h1>
+  <a href="/" style="display:flex;align-items:center;text-decoration:none;"><img src="/logo.svg" alt="dockLlama" height="32"></a>
   <div class="header-right">
     <template x-if="config">
       <span class="badge" :class="config.monitoring.dry_run ? 'badge-dry' : 'badge-live'"

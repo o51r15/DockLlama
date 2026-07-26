@@ -1,0 +1,107 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 680 170" width="680" height="170">
+<style>
+  .water { fill: #D6EEFF; }
+  .dock-wood { fill: #C49A3C; stroke: #A07820; }
+  .dock-post { fill: #B08828; stroke: #8A6818; }
+  .llama-body { fill: #F5E6C8; }
+  .llama-light { fill: #FFF3E0; }
+  .llama-shade { fill: #D4B88A; }
+  .llama-dark { fill: #B89868; }
+  .rope-line { stroke: #A08030; }
+  .container1 { fill: #3A9EC4; stroke: #2A7EA4; }
+  .container2 { fill: #E05A40; stroke: #C04030; }
+  .container3 { fill: #4AAE6C; stroke: #3A8E5C; }
+  .wave { fill: #A8D4F0; }
+  .logo-text { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif; font-size: 42px; fill: #1a1a2e; letter-spacing: -1px; }
+  .tagline { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif; font-size: 13px; fill: #666; letter-spacing: 0.5px; }
+  @media (prefers-color-scheme: dark) {
+    .water { fill: #1a3a5c; }
+    .dock-wood { fill: #8B6914; stroke: #6B4F10; }
+    .dock-post { fill: #7A5C10; stroke: #5A4210; }
+    .rope-line { stroke: #C4A45A; }
+    .container1 { fill: #2E7D9E; stroke: #1E5D7E; }
+    .container2 { fill: #D4543A; stroke: #B4342A; }
+    .container3 { fill: #3A8E5C; stroke: #2A6E4C; }
+    .wave { fill: #2A5A8C; }
+    .logo-text { fill: #e0e0e0; }
+    .tagline { fill: #999; }
+  }
+</style>
+
+<!-- Water background -->
+<rect x="40" y="110" width="600" height="50" rx="4" class="water" opacity="0.5"/>
+<path d="M40 130 Q80 122 120 130 Q160 138 200 130 Q240 122 280 130 Q320 138 360 130 Q400 122 440 130 Q480 138 520 130 Q560 122 600 130 Q620 138 640 130 V160 H40 Z" class="wave" opacity="0.3"/>
+
+<!-- Dock platform -->
+<rect x="55" y="98" width="210" height="14" rx="2" class="dock-wood" stroke-width="1"/>
+<line x1="90" y1="98" x2="90" y2="112" class="dock-wood" stroke-width="0.5" opacity="0.5"/>
+<line x1="130" y1="98" x2="130" y2="112" class="dock-wood" stroke-width="0.5" opacity="0.5"/>
+<line x1="170" y1="98" x2="170" y2="112" class="dock-wood" stroke-width="0.5" opacity="0.5"/>
+<line x1="210" y1="98" x2="210" y2="112" class="dock-wood" stroke-width="0.5" opacity="0.5"/>
+
+<!-- Dock posts -->
+<rect x="68" y="105" width="8" height="35" rx="1" class="dock-post" stroke-width="0.5"/>
+<rect x="248" y="105" width="8" height="35" rx="1" class="dock-post" stroke-width="0.5"/>
+
+<!-- Rope coil -->
+<ellipse cx="240" cy="94" rx="8" ry="5" fill="none" class="rope-line" stroke-width="1.5"/>
+<path d="M234 92 Q236 88 240 88 Q244 88 246 92" fill="none" class="rope-line" stroke-width="1.5"/>
+
+<!-- Shipping containers -->
+<rect x="58" y="72" width="32" height="26" rx="2" class="container1" stroke-width="1"/>
+<rect x="94" y="78" width="32" height="20" rx="2" class="container2" stroke-width="1"/>
+<rect x="58" y="52" width="32" height="18" rx="2" class="container3" stroke-width="1"/>
+<line x1="66" y1="72" x2="66" y2="98" stroke-width="0.3" opacity="0.3" stroke="white"/>
+<line x1="74" y1="72" x2="74" y2="98" stroke-width="0.3" opacity="0.3" stroke="white"/>
+<line x1="82" y1="72" x2="82" y2="98" stroke-width="0.3" opacity="0.3" stroke="white"/>
+<line x1="102" y1="78" x2="102" y2="98" stroke-width="0.3" opacity="0.3" stroke="white"/>
+<line x1="110" y1="78" x2="110" y2="98" stroke-width="0.3" opacity="0.3" stroke="white"/>
+<line x1="118" y1="78" x2="118" y2="98" stroke-width="0.3" opacity="0.3" stroke="white"/>
+
+<!-- Llama -->
+<g transform="translate(150, 0)">
+  <!-- Back legs -->
+  <path d="M62 74 L64 96 L68 96 L66 74" class="llama-shade" stroke="none"/>
+  <path d="M70 76 L72 96 L76 96 L74 76" class="llama-shade" stroke="none"/>
+  <!-- Body -->
+  <ellipse cx="52" cy="68" rx="28" ry="16" class="llama-body" stroke="none"/>
+  <!-- Fluffy texture -->
+  <path d="M26 62 Q28 58 32 60 Q34 56 38 59 Q40 55 44 58" class="llama-light" stroke="none"/>
+  <path d="M50 54 Q54 50 58 53 Q62 49 66 52 Q70 48 74 52" class="llama-light" stroke="none"/>
+  <path d="M68 60 Q72 56 76 60 Q78 58 80 62" class="llama-light" stroke="none"/>
+  <!-- Front legs -->
+  <path d="M32 74 L30 96 L34 96 L36 74" class="llama-body" stroke="none"/>
+  <path d="M40 76 L38 96 L42 96 L44 76" class="llama-shade" stroke="none"/>
+  <!-- Hooves -->
+  <rect x="29" y="94" width="6" height="4" rx="1" class="llama-dark"/>
+  <rect x="37" y="94" width="6" height="4" rx="1" class="llama-dark"/>
+  <rect x="63" y="94" width="6" height="4" rx="1" class="llama-dark"/>
+  <rect x="71" y="94" width="6" height="4" rx="1" class="llama-dark"/>
+  <!-- Neck -->
+  <path d="M34 60 Q32 40 34 22 Q36 18 40 18 Q44 18 46 22 Q48 40 44 60" class="llama-body" stroke="none"/>
+  <path d="M33 55 Q30 52 32 48 Q29 45 31 42 Q28 38 30 34 Q28 30 30 26" fill="none" class="llama-shade" stroke-width="2" opacity="0.5"/>
+  <!-- Head -->
+  <ellipse cx="42" cy="16" rx="12" ry="8" class="llama-body" stroke="none"/>
+  <ellipse cx="54" cy="18" rx="7" ry="5" class="llama-light" stroke="none"/>
+  <ellipse cx="58" cy="17" rx="2" ry="1.5" class="llama-dark" stroke="none"/>
+  <path d="M56 20 Q58 22 60 20" fill="none" class="llama-dark" stroke-width="0.7"/>
+  <circle cx="46" cy="14" r="2.5" fill="#3A2A1A"/>
+  <circle cx="47" cy="13" r="0.8" fill="white"/>
+  <!-- Ears -->
+  <path d="M36 10 Q33 -2 30 -6 Q32 -8 34 -6 Q37 -1 38 8" class="llama-body" stroke="none"/>
+  <path d="M33 -4 Q34 -6 35 -3" class="llama-shade" stroke="none" opacity="0.7"/>
+  <path d="M42 8 Q44 -4 46 -8 Q48 -10 50 -8 Q49 -3 46 6" class="llama-body" stroke="none"/>
+  <path d="M47 -6 Q48 -8 49 -5" class="llama-shade" stroke="none" opacity="0.7"/>
+  <!-- Tail -->
+  <circle cx="80" cy="58" r="6" class="llama-light" stroke="none"/>
+  <circle cx="82" cy="56" r="4" class="llama-body" stroke="none"/>
+</g>
+
+<!-- Logo text -->
+<text x="310" y="78" class="logo-text">
+  <tspan style="font-weight: 400;">dock</tspan><tspan style="font-weight: 500; fill: #3A9EC4;">Llama</tspan>
+</text>
+
+<!-- Tagline -->
+<text x="312" y="100" class="tagline">container orchestration, no drama</text>
+</svg>

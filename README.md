@@ -1,6 +1,6 @@
 <div align="center">
 
-# dockLlama
+<img src="assets/banner.svg" alt="dockLlama banner" width="600">
 
 **AI-powered Docker container health monitoring with local LLMs.**
 
