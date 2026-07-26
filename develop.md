@@ -572,3 +572,63 @@ Full code review of all backend Python files and frontend HTML/JS, plus live API
 12. **Dashboard multi-minute load / spinner** — RESOLVED (Session 7, f7e71db + 72e2c45). The eval loop's synchronous Docker SDK calls (get_logs, get_container_stats) blocked the asyncio event loop for the whole ~3-minute cycle, and `/api/containers` made 19 more Docker calls per request (1 list + 18 per-container image inspects) that queued behind the eval loop's stats saturation. Fix: (a) wrapped all blocking Docker/preprocessor calls in `asyncio.to_thread()` and yield between containers; (b) start the web server before startup_check; (c) cache the container snapshot (8s TTL) so the dashboard reads from memory, offload the single refresh list call to a thread, and read image names from already-loaded attrs instead of per-container image inspects. Dashboard now serves in 7-10ms mid-eval.
 13. **Ollama model changed to phi4-mini via UI** — INFO, not a bug. During testing the default model was switched to `phi4-mini:latest` and poll interval to 345s. These persisted correctly to config.yaml (config persistence working as designed).
 14. **Container list duplicated → dashboard cards never render** — RESOLVED (Session 7, 8a72f4b). The comment-preserving `save_containers_to_config` (fix for #8) detected the end of the `containers:` block by looking for the next line starting at column 0 with a colon — but YAML list items (`- name: x`) also start at column 0, so it stopped at the first entry and replaced only the `containers:` header, leaving the old entries in place. Every save doubled the list (18 → 36). Duplicate `name` values collided on Alpine's `x-for :key="c.name"`, which makes Alpine silently refuse to render the entire list — so the dashboard showed "loading" forever with no cards. Fix: exclude dash-prefixed lines from top-level-key detection. Live config de-duplicated back to 18 and container restarted.
+
+
+---
+
+## Model Benchmark Methodology (v2.0)
+
+### Overview
+
+The benchmark system tests Ollama models against 8 synthetic container health scenarios using DockLlama's own `evaluate()` pipeline — the same code path used in production evaluations. This ensures benchmark results accurately predict real-world model performance.
+
+### Architecture
+
+- **Hidden admin endpoints** at `/api/admin/benchmark*` (not linked from navigation)
+- **Pause/resume eval cycle** via `POST /admin/eval/pause` and `/admin/eval/resume` to prevent Ollama model-swap contention during benchmarking
+- **Single-scenario endpoint** `POST /admin/benchmark-scenario/{scenario_id}/{model}` runs one scenario at a time
+- **Full benchmark endpoint** `POST /admin/benchmark/{model}` runs all 8 scenarios sequentially
+- **Results persisted** in `benchmark_results` SQLite table with full JSON scenario details
+- **Frontend** at `/admin-benchmark.html` (hidden, not in nav)
+
+### Scenarios
+
+Each scenario provides a synthetic `structured_summary` (the same format the preprocessor produces) to `EvaluationContext`, then scores the model's JSON response.
+
+| ID | Name | Difficulty | Expected Status | Score Range | Key Challenge |
+|----|------|-----------|----------------|-------------|---------------|
+| S1 | Clean Healthy Container | Easy | healthy | 85-100 | Baseline: should score high on boring logs |
+| S2 | OOM Crash Loop | Easy | critical | 0-15 | Obvious failure: OOM kills, high restart count |
+| S3 | Recovered After Errors | Medium | healthy | 80-100 | Past errors but current state is clean |
+| S4 | Routine Errors (Known Patterns) | Medium | healthy | 85-100 | DHT/tracker errors that are normal for BitTorrent |
+| S5 | Degraded Performance | Medium | degraded | 40-70 | Slow responses, not failing but not healthy |
+| S6 | Graceful Shutdown (FATAL is Normal) | Hard | healthy | 75-100 | PostgreSQL FATAL during planned restart |
+| S7 | High CPU Normal Workload | Hard | healthy | 85-100 | 94% CPU from transcoding — working, not broken |
+| S8 | External Dependency Failure | Hard | degraded | 30-65 | Stripe API down — container itself is fine |
+
+### Scoring Rubric (per scenario, 100 points max)
+
+- **Status correctness** (30 pts): exact match = 30, close match = 10-18, wrong = 0
+- **Health score in range** (30 pts): in expected range = 30, within 10 points = 15, far off = 0
+- **Action correctness** (20 pts): correct recommended_action = 20, wrong = 0
+- **Restart recommendation** (10 pts): correct restart_would_help = 10, wrong = 0
+- **Summary quality** (10 pts): non-trivial summary (>15 chars) = 10
+
+### Running Benchmarks
+
+1. Pause evaluations: `curl -X POST http://host:8556/api/admin/eval/pause`
+2. Run scenarios one at a time per model (avoids Ollama model-swap contention with the eval cycle)
+3. Results saved to `benchmark_results` DB table
+4. Resume evaluations: `curl -X POST http://host:8556/api/admin/eval/resume`
+
+The admin benchmark UI at `/admin-benchmark.html` provides a visual interface for running and viewing results.
+
+### Key Findings
+
+- **S4 (Routine Errors)** is the hardest differentiator — smaller models flag DHT/tracker noise as degraded
+- **S8 (External Dependency)** trips most models into "unhealthy" instead of "degraded" — they conflate the container's health with the external API's health
+- **S2 (OOM)** — all models correctly identify the crash but some miss the restart recommendation
+- **Thinking models** (qwen3, deepseek-r1) work correctly since `format: "json"` was removed from Ollama payloads; the app now uses regex-based JSON extraction that strips `<think>` tags
+- **phi4:latest** (14B) achieved near-perfect scores with 7/8 scenarios at 100 points
+- **qwen2.5:7b-instruct** (7B) outperformed most 14B models — the best value pick
+- **phi4-mini:latest** (3.8B) scored 91.5%, making it viable for resource-constrained setups
