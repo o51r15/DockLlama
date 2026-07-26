@@ -39,6 +39,10 @@ logger = logging.getLogger("dockllama")
 # Graceful shutdown
 _shutdown = asyncio.Event()
 
+# Pause evaluations (for benchmarking)
+eval_paused = asyncio.Event()  # NOT set = running, SET = paused
+
+
 
 def _handle_signal(sig, frame):
     logger.info("Received %s, shutting down...", signal.Signals(sig).name)
@@ -426,11 +430,14 @@ async def run(cfg: DockLlamaConfig) -> None:
         await asyncio.to_thread(startup_check, cfg)
         logger.info("Starting monitor loop...")
         while not _shutdown.is_set():
-            try:
-                await monitor_cycle(cfg)
-            except Exception:
-                logger.exception("Error in monitor cycle")
-                alert_error("Monitor cycle failed. Check logs for details.")
+            if eval_paused.is_set():
+                logger.info("Evaluations paused, skipping cycle...")
+            else:
+                try:
+                    await monitor_cycle(cfg)
+                except Exception:
+                    logger.exception("Error in monitor cycle")
+                    alert_error("Monitor cycle failed. Check logs for details.")
             try:
                 await asyncio.wait_for(_shutdown.wait(), timeout=cfg.monitoring.poll_interval_seconds)
                 break

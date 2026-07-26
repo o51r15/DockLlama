@@ -10,7 +10,7 @@ from fastapi import APIRouter, Query, HTTPException
 from pydantic import BaseModel
 
 from dockllama.config import DockLlamaConfig, ContainerConfig, save_poll_interval, save_default_model, save_containers_to_config
-from dockllama.db import init_db, archive_container_config, restore_container_config, purge_container_data, get_container_prompt, save_container_prompt, delete_container_prompt, get_tested_models, save_tested_model, get_health_check, get_all_health_checks, save_health_check, delete_health_check, get_health_check_history, save_health_check_result
+from dockllama.db import init_db, save_benchmark_result, get_benchmark_results, archive_container_config, restore_container_config, purge_container_data, get_container_prompt, save_container_prompt, delete_container_prompt, get_tested_models, save_tested_model, get_health_check, get_all_health_checks, save_health_check, delete_health_check, get_health_check_history, save_health_check_result
 from dockllama.docker_client import get_client, get_logs, list_containers
 from dockllama.log_pipeline import process_logs
 from dockllama.ai_engine import evaluate, EvaluationContext
@@ -1547,3 +1547,477 @@ async def remove_blackout(window_id: int):
         return {"status": "ok"}
     finally:
         conn.close()
+
+
+# ═══════════════════════════════════════════════════
+# Hidden Admin Benchmark System
+# ═══════════════════════════════════════════════════
+
+BENCHMARK_SCENARIOS = [
+    {
+        "id": "S1", "name": "Clean Healthy Container", "difficulty": "easy",
+        "summary": (
+            "Container: test-healthy-postgres\n"
+            "Time Window: 15 minutes\n"
+            "Resource Usage: CPU 2.1% | RAM 18.4%\n"
+            "Log Severities: 0 ERROR, 0 WARN, 12 INFO\n"
+            "Recent Tail (last 10 lines):\n"
+            "[1/10] LOG: checkpoint starting: time\n"
+            "[2/10] LOG: checkpoint complete: wrote 42 buffers (0.3%)\n"
+            "[3/10] LOG: automatic analyze of table \"public.users\" system usage is 1%\n"
+            "[4/10] LOG: checkpoint starting: time\n"
+            "[5/10] LOG: checkpoint complete: wrote 18 buffers (0.1%)\n"
+            "[6/10] LOG: connection received: host=172.19.0.3 port=54210\n"
+            "[7/10] LOG: connection authorized: user=app database=prod\n"
+            "[8/10] LOG: disconnection: session time: 0:00:02.104\n"
+            "[9/10] LOG: checkpoint starting: time\n"
+            "[10/10] LOG: checkpoint complete: wrote 5 buffers (0.0%)"
+        ),
+        "expect_status": "healthy", "score_min": 85, "score_max": 100,
+        "expect_action": "none", "expect_restart": False,
+    },
+    {
+        "id": "S2", "name": "OOM Crash Loop", "difficulty": "easy",
+        "summary": (
+            "Container: test-failing-worker\n"
+            "Time Window: 15 minutes\n"
+            "Resource Usage: CPU 99.8% | RAM 97.2%\n"
+            "Log Severities: 14 ERROR, 3 WARN, 0 INFO\n"
+            "Deduplicated Errors:\n"
+            "  \"Out of memory: Killed process 1842 (node)\" (x6)\n"
+            "  \"Container exceeded memory limit, OOM killed\" (x4)\n"
+            "  \"FATAL: the database system is shutting down\" (x2)\n"
+            "  \"panic: runtime error: invalid memory address\" (x2)\n"
+            "Recovery: No recovery detected - errors continue through most recent lines.\n"
+            "Restart Sequence: Detected - container restarting repeatedly.\n"
+            "Recent Tail (last 10 lines):\n"
+            "[1/10] ERROR: Out of memory: Killed process 1842 (node)\n"
+            "[2/10] ERROR: Container exceeded memory limit, OOM killed\n"
+            "[3/10] WARN: Container restart count: 5 in last 10 minutes\n"
+            "[4/10] ERROR: FATAL: the database system is shutting down\n"
+            "[5/10] ERROR: Out of memory: Killed process 1843 (node)\n"
+            "[6/10] ERROR: Container exceeded memory limit, OOM killed\n"
+            "[7/10] ERROR: panic: runtime error: invalid memory address\n"
+            "[8/10] WARN: process exited with code 137 (SIGKILL)\n"
+            "[9/10] ERROR: Out of memory: Killed process 1844 (node)\n"
+            "[10/10] ERROR: Container exceeded memory limit, OOM killed"
+        ),
+        "expect_status": "critical", "score_min": 0, "score_max": 15,
+        "expect_action": "restart", "expect_restart": True,
+    },
+    {
+        "id": "S3", "name": "Recovered After Errors", "difficulty": "medium",
+        "summary": (
+            "Container: test-api-gateway\n"
+            "Time Window: 15 minutes\n"
+            "Resource Usage: CPU 12.3% | RAM 45.1%\n"
+            "Log Severities: 5 ERROR, 2 WARN, 35 INFO\n"
+            "Deduplicated Errors:\n"
+            "  \"Connection refused to upstream backend:8080\" (x3, lines 2-8)\n"
+            "  \"Failed health check for service payments\" (x2, lines 5-9)\n"
+            "Recovery: YES - clean operation from line 15 onward, no errors in last 35 lines.\n"
+            "Recent Tail (last 10 lines):\n"
+            "[1/10] INFO: GET /api/users 200 12ms\n"
+            "[2/10] INFO: POST /api/orders 201 45ms\n"
+            "[3/10] INFO: GET /api/health 200 2ms\n"
+            "[4/10] INFO: GET /api/products 200 18ms\n"
+            "[5/10] INFO: POST /api/payments 201 89ms\n"
+            "[6/10] INFO: GET /api/users 200 11ms\n"
+            "[7/10] INFO: GET /api/health 200 1ms\n"
+            "[8/10] INFO: POST /api/orders 201 52ms\n"
+            "[9/10] INFO: GET /api/products 200 15ms\n"
+            "[10/10] INFO: GET /api/health 200 2ms"
+        ),
+        "expect_status": "healthy", "score_min": 80, "score_max": 100,
+        "expect_action": "none", "expect_restart": False,
+    },
+    {
+        "id": "S4", "name": "Routine Errors (Known Patterns)", "difficulty": "medium",
+        "summary": (
+            "Container: test-bitmagnet\n"
+            "Time Window: 15 minutes\n"
+            "Resource Usage: CPU 3.5% | RAM 22.8%\n"
+            "Log Severities: 18 (18 routine) ERROR, 15 (15 routine) WARN, 5 INFO\n"
+            "Container-Specific Context: BitTorrent indexer. DHT errors, tracker timeouts, peer resets are normal.\n"
+            "Deduplicated Errors:\n"
+            "  \"dial tcp 45.33.32.156:6881: i/o timeout\" (x8) [ROUTINE: DHT network timeout]\n"
+            "  \"tracker responded with 503\" (x5) [ROUTINE: tracker temporarily unavailable]\n"
+            "  \"peer connection reset by remote\" (x5) [ROUTINE: peer disconnected]\n"
+            "Recovery: N/A (all errors are routine)\n"
+            "Recent Tail (last 10 lines):\n"
+            "[1/10] INFO: indexed 142 new torrents in last 5m\n"
+            "[2/10] WARN: torrent metadata fetch timed out [ROUTINE: slow metadata]\n"
+            "[3/10] ERROR: dial tcp 91.121.59.153:6881: i/o timeout [ROUTINE: DHT network timeout]\n"
+            "[4/10] INFO: DHT nodes: 2847 active\n"
+            "[5/10] ERROR: tracker responded with 503 [ROUTINE: tracker temporarily unavailable]\n"
+            "[6/10] WARN: DHT node unresponsive [ROUTINE: DHT churn]\n"
+            "[7/10] INFO: indexed 138 new torrents in last 5m\n"
+            "[8/10] ERROR: peer connection reset by remote [ROUTINE: peer disconnected]\n"
+            "[9/10] INFO: processing queue: 45 pending\n"
+            "[10/10] WARN: torrent metadata fetch timed out [ROUTINE: slow metadata]"
+        ),
+        "expect_status": "healthy", "score_min": 85, "score_max": 100,
+        "expect_action": "none", "expect_restart": False,
+    },
+    {
+        "id": "S5", "name": "Degraded Performance", "difficulty": "medium",
+        "summary": (
+            "Container: test-web-frontend\n"
+            "Time Window: 15 minutes\n"
+            "Resource Usage: CPU 78.4% | RAM 71.2%\n"
+            "Log Severities: 3 ERROR, 12 WARN, 40 INFO\n"
+            "Deduplicated Errors:\n"
+            "  \"upstream response timeout (30s)\" (x3)\n"
+            "Deduplicated Warnings:\n"
+            "  \"request processing time exceeded 5s\" (x8)\n"
+            "  \"connection pool near capacity (45/50)\" (x4)\n"
+            "Recovery: UNCLEAR - slow responses intermittent throughout window.\n"
+            "Recent Tail (last 10 lines):\n"
+            "[1/10] INFO: GET /dashboard 200 3200ms\n"
+            "[2/10] WARN: request processing time exceeded 5s\n"
+            "[3/10] INFO: GET /api/data 200 1800ms\n"
+            "[4/10] INFO: GET /static/app.js 200 12ms\n"
+            "[5/10] WARN: connection pool near capacity (45/50)\n"
+            "[6/10] INFO: POST /api/submit 201 4200ms\n"
+            "[7/10] WARN: request processing time exceeded 5s\n"
+            "[8/10] INFO: GET /api/status 200 890ms\n"
+            "[9/10] INFO: GET /dashboard 200 2100ms\n"
+            "[10/10] WARN: request processing time exceeded 5s"
+        ),
+        "expect_status": "degraded", "score_min": 40, "score_max": 70,
+        "expect_action": "none", "expect_restart": False,
+    },
+    {
+        "id": "S6", "name": "Graceful Shutdown (FATAL is Normal)", "difficulty": "hard",
+        "summary": (
+            "Container: test-postgres-replica\n"
+            "Time Window: 15 minutes\n"
+            "Resource Usage: CPU 0.5% | RAM 12.3%\n"
+            "Log Severities: 6 ERROR, 0 WARN, 8 INFO\n"
+            "Deduplicated Errors:\n"
+            "  \"FATAL: the database system is shutting down\" (x3, lines 8-10)\n"
+            "  \"FATAL: terminating connection due to administrator command\" (x3, lines 8-12)\n"
+            "Recovery: YES - container restarted successfully, accepting connections.\n"
+            "Restart Sequence: Detected - single clean restart (not a loop).\n"
+            "Recent Tail (last 10 lines):\n"
+            "[1/10] LOG: received fast shutdown request\n"
+            "[2/10] LOG: aborting any active transactions\n"
+            "[3/10] FATAL: terminating connection due to administrator command\n"
+            "[4/10] FATAL: the database system is shutting down\n"
+            "[5/10] LOG: all server processes terminated; reinitializing\n"
+            "[6/10] LOG: database system was shut down at 2026-07-25 22:15:03 UTC\n"
+            "[7/10] LOG: database system is ready to accept connections\n"
+            "[8/10] LOG: checkpoint starting: time\n"
+            "[9/10] LOG: checkpoint complete: wrote 0 buffers (0.0%)\n"
+            "[10/10] LOG: connection received: host=172.19.0.5 port=43210"
+        ),
+        "expect_status": "healthy", "score_min": 75, "score_max": 100,
+        "expect_action": "none", "expect_restart": False,
+    },
+    {
+        "id": "S7", "name": "High CPU Normal Workload", "difficulty": "hard",
+        "summary": (
+            "Container: test-plex-transcoder\n"
+            "Time Window: 15 minutes\n"
+            "Resource Usage: CPU 95.2% | RAM 68.4%\n"
+            "Log Severities: 0 ERROR, 0 WARN, 28 INFO\n"
+            "Errors: NONE\n"
+            "Recovery: N/A (no errors detected)\n"
+            "Recent Tail (last 10 lines):\n"
+            "[1/10] INFO: Transcoding session started for user mike - 4K HEVC to 1080p H264\n"
+            "[2/10] INFO: Transcode speed: 2.1x realtime\n"
+            "[3/10] INFO: Transcoding session started for user sarah - 4K HDR to 720p\n"
+            "[4/10] INFO: Transcode speed: 1.8x realtime\n"
+            "[5/10] INFO: Direct play session for user john\n"
+            "[6/10] INFO: Transcode speed: 2.0x realtime\n"
+            "[7/10] INFO: Media analysis complete: /data/movies/new_release.mkv\n"
+            "[8/10] INFO: Transcode speed: 1.9x realtime\n"
+            "[9/10] INFO: Transcoding session started for user alex - 1080p to 480p\n"
+            "[10/10] INFO: Transcode speed: 4.2x realtime"
+        ),
+        "expect_status": "healthy", "score_min": 85, "score_max": 100,
+        "expect_action": "none", "expect_restart": False,
+    },
+    {
+        "id": "S8", "name": "External Dependency Failure", "difficulty": "hard",
+        "summary": (
+            "Container: test-payment-processor\n"
+            "Time Window: 15 minutes\n"
+            "Resource Usage: CPU 5.3% | RAM 28.1%\n"
+            "Log Severities: 10 ERROR, 8 WARN, 20 INFO\n"
+            "Deduplicated Errors:\n"
+            "  \"HTTP 503 from https://api.stripe.com/v1/charges\" (x5)\n"
+            "  \"HTTP 502 from https://api.stripe.com/v1/refunds\" (x3)\n"
+            "  \"Connection timed out: api.stripe.com:443\" (x2)\n"
+            "Deduplicated Warnings:\n"
+            "  \"Retry attempt 3/5 for payment charge\" (x5)\n"
+            "  \"Circuit breaker OPEN for stripe-api\" (x3)\n"
+            "Recovery: No recovery - external API still failing in most recent lines.\n"
+            "Recent Tail (last 10 lines):\n"
+            "[1/10] INFO: Processing payment request #98712\n"
+            "[2/10] ERROR: HTTP 503 from https://api.stripe.com/v1/charges\n"
+            "[3/10] WARN: Retry attempt 3/5 for payment charge\n"
+            "[4/10] ERROR: Connection timed out: api.stripe.com:443\n"
+            "[5/10] WARN: Circuit breaker OPEN for stripe-api\n"
+            "[6/10] INFO: Queued payment #98712 for later retry\n"
+            "[7/10] INFO: Processing payment request #98713\n"
+            "[8/10] ERROR: HTTP 503 from https://api.stripe.com/v1/charges\n"
+            "[9/10] WARN: Retry attempt 2/5 for payment charge\n"
+            "[10/10] INFO: Queued payment #98713 for later retry"
+        ),
+        "expect_status": "degraded", "score_min": 30, "score_max": 65,
+        "expect_action": "none", "expect_restart": False,
+    },
+]
+
+MODEL_TIERS = {
+    "high": ["qwen3:14b", "gemma4:latest", "phi4:latest", "deepseek-r1:14b"],
+    "standard": ["llama3.1:8b", "qwen2.5:7b-instruct", "mistral:7b", "gemma3:4b"],
+    "low": ["llama3.2:3b", "phi4-mini:latest"],
+}
+
+
+def _get_model_tier(model: str) -> str:
+    for tier, models in MODEL_TIERS.items():
+        if model in models:
+            return tier
+    return "unknown"
+
+
+def _score_scenario(sc, result):
+    """Score a single scenario result. Returns (points, notes_list)."""
+    pts = 0
+    notes = []
+
+    # Status correctness (30 pts)
+    if result.status == sc["expect_status"]:
+        pts += 30
+    elif sc["expect_status"] == "healthy" and result.status == "degraded":
+        pts += 12
+        notes.append(f"status: got {result.status}, expected {sc['expect_status']}")
+    elif sc["expect_status"] == "critical" and result.status == "unhealthy":
+        pts += 18
+        notes.append(f"status: got {result.status}, expected {sc['expect_status']}")
+    elif sc["expect_status"] == "degraded" and result.status in ("healthy", "unhealthy"):
+        pts += 10
+        notes.append(f"status: got {result.status}, expected {sc['expect_status']}")
+    else:
+        notes.append(f"status: got {result.status}, expected {sc['expect_status']}")
+
+    # Health score range (30 pts)
+    if sc["score_min"] <= result.health_score <= sc["score_max"]:
+        pts += 30
+    elif abs(result.health_score - sc["score_min"]) <= 10 or abs(result.health_score - sc["score_max"]) <= 10:
+        pts += 15
+        notes.append(f"score: {result.health_score}, expected {sc['score_min']}-{sc['score_max']}")
+    else:
+        notes.append(f"score: {result.health_score}, expected {sc['score_min']}-{sc['score_max']}")
+
+    # Action correctness (20 pts)
+    got_action = getattr(result, "recommended_action", "none") or "none"
+    if got_action == sc["expect_action"]:
+        pts += 20
+    else:
+        notes.append(f"action: got {got_action}, expected {sc['expect_action']}")
+
+    # Restart recommendation (10 pts)
+    got_restart = getattr(result, "restart_would_help", None)
+    if got_restart == sc["expect_restart"]:
+        pts += 10
+    elif got_restart is not None:
+        notes.append(f"restart: got {got_restart}, expected {sc['expect_restart']}")
+
+    # Summary quality (10 pts)
+    if result.summary and len(result.summary) > 15:
+        pts += 10
+    else:
+        notes.append("summary too short")
+
+    return pts, notes, got_action, got_restart
+
+
+@router.post("/admin/benchmark/{model_name:path}")
+async def run_benchmark(model_name: str):
+    """Run full benchmark suite against a model. Hidden admin endpoint."""
+    cfg = _get_cfg()
+    from dockllama.ai_engine import evaluate, EvaluationContext
+    import httpx as _httpx
+    import time as _time
+    import json as _json
+
+    # Warmup
+    try:
+        async with _httpx.AsyncClient(timeout=cfg.ollama.timeout_seconds) as wc:
+            await wc.post(
+                f"{cfg.ollama.base_url}/api/generate",
+                json={"model": model_name, "prompt": "Ready.", "stream": False,
+                      "options": {"num_predict": 1}},
+            )
+    except Exception:
+        pass
+
+    results = {}
+    times = []
+    total_score = 0
+    max_score = len(BENCHMARK_SCENARIOS) * 100
+
+    for sc in BENCHMARK_SCENARIOS:
+        sid = sc["id"]
+        ctx = EvaluationContext(
+            container_name=f"benchmark-{sid}",
+            filtered_lines=[],
+            structured_summary=sc["summary"],
+            model=model_name,
+        )
+        t0 = _time.time()
+        try:
+            result, _ = await evaluate(ctx, cfg.ollama)
+            ms = round((_time.time() - t0) * 1000)
+            times.append(ms)
+            pts, notes, got_action, got_restart = _score_scenario(sc, result)
+            total_score += pts
+            results[sid] = {
+                "name": sc["name"], "difficulty": sc["difficulty"],
+                "score": pts, "notes": "; ".join(notes) if notes else "Perfect",
+                "response_ms": ms,
+                "got_status": result.status, "got_score": result.health_score,
+                "got_action": got_action, "got_restart": got_restart,
+                "summary": (result.summary or "")[:200],
+                "expected_status": sc["expect_status"],
+                "expected_score_range": f"{sc['score_min']}-{sc['score_max']}",
+                "passed": pts >= 70,
+            }
+        except Exception as e:
+            results[sid] = {
+                "name": sc["name"], "difficulty": sc["difficulty"],
+                "score": 0, "notes": f"Error: {str(e)[:100]}",
+                "response_ms": round((_time.time() - t0) * 1000), "passed": False,
+            }
+
+    avg_ms = round(sum(times) / len(times)) if times else 0
+    pct = round(total_score / max_score * 100, 1) if max_score else 0
+    tier = _get_model_tier(model_name)
+
+    if pct >= 95: grade = "A+"
+    elif pct >= 90: grade = "A"
+    elif pct >= 80: grade = "B"
+    elif pct >= 70: grade = "C"
+    elif pct >= 60: grade = "D"
+    else: grade = "F"
+
+    # Save to DB
+    conn = init_db(cfg.monitoring.db_path)
+    try:
+        results_json = _json.dumps({
+            "benchmark_version": "2.0", "scenarios": results,
+            "total_score": total_score, "max_score": max_score,
+            "percentage": pct, "grade": grade, "avg_response_ms": avg_ms,
+        })
+        save_benchmark_result(conn, model_name, tier, total_score, max_score,
+                              pct, grade, avg_ms, results_json)
+    finally:
+        conn.close()
+
+    return {
+        "model": model_name, "tier": tier,
+        "total_score": total_score, "max_score": max_score,
+        "percentage": pct, "grade": grade,
+        "avg_response_ms": avg_ms, "results": results,
+    }
+
+
+
+
+
+@router.post("/admin/eval/pause")
+async def pause_eval():
+    """Pause the evaluation cycle (for benchmarking)."""
+    from dockllama.main import eval_paused
+    eval_paused.set()
+    return {"status": "paused"}
+
+
+@router.post("/admin/eval/resume")
+async def resume_eval():
+    """Resume the evaluation cycle."""
+    from dockllama.main import eval_paused
+    eval_paused.clear()
+    return {"status": "resumed"}
+
+
+@router.get("/admin/eval/status")
+async def eval_status():
+    """Check if evaluation cycle is paused."""
+    from dockllama.main import eval_paused
+    return {"paused": eval_paused.is_set()}
+
+
+@router.post("/admin/benchmark-scenario/{scenario_id}/{model_name:path}")
+async def run_benchmark_single(model_name: str, scenario_id: str):
+    """Run a single benchmark scenario against a model."""
+    cfg = _get_cfg()
+    from dockllama.ai_engine import evaluate, EvaluationContext
+    import httpx as _httpx
+    import time as _time
+    import json as _json
+
+    sc = None
+    for s in BENCHMARK_SCENARIOS:
+        if s["id"] == scenario_id:
+            sc = s
+            break
+    if not sc:
+        return {"error": f"Unknown scenario {scenario_id}"}
+
+    # Warmup
+    try:
+        async with _httpx.AsyncClient(timeout=cfg.ollama.timeout_seconds) as wc:
+            await wc.post(
+                f"{cfg.ollama.base_url}/api/generate",
+                json={"model": model_name, "prompt": "Ready.", "stream": False,
+                      "options": {"num_predict": 1}},
+            )
+    except Exception:
+        pass
+
+    ctx = EvaluationContext(
+        container_name=f"benchmark-{scenario_id}",
+        filtered_lines=[],
+        structured_summary=sc["summary"],
+        model=model_name,
+    )
+    t0 = _time.time()
+    try:
+        result, _ = await evaluate(ctx, cfg.ollama)
+        ms = round((_time.time() - t0) * 1000)
+        pts, notes, got_action, got_restart = _score_scenario(sc, result)
+        return {
+            "model": model_name, "scenario": scenario_id,
+            "name": sc["name"], "difficulty": sc["difficulty"],
+            "score": pts, "notes": "; ".join(notes) if notes else "Perfect",
+            "response_ms": ms,
+            "got_status": result.status, "got_score": result.health_score,
+            "got_action": got_action, "got_restart": got_restart,
+            "summary": (result.summary or "")[:200],
+            "expected_status": sc["expect_status"],
+            "expected_score_range": f"{sc['score_min']}-{sc['score_max']}",
+            "passed": pts >= 70,
+        }
+    except Exception as e:
+        return {
+            "model": model_name, "scenario": scenario_id,
+            "score": 0, "notes": f"Error: {str(e)[:200]}",
+            "response_ms": round((_time.time() - t0) * 1000), "passed": False,
+        }
+
+
+@router.get("/admin/benchmark")
+async def get_benchmarks():
+    """Get all benchmark results. Hidden admin endpoint."""
+    cfg = _get_cfg()
+    conn = init_db(cfg.monitoring.db_path)
+    try:
+        return {"benchmarks": get_benchmark_results(conn), "tiers": MODEL_TIERS}
+    finally:
+        conn.close()
+

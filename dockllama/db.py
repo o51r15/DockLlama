@@ -62,6 +62,20 @@ CREATE TABLE IF NOT EXISTS alert_urls (
     added_at TEXT NOT NULL DEFAULT (datetime('now'))
 );
 
+CREATE TABLE IF NOT EXISTS benchmark_results (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    model TEXT NOT NULL,
+    tested_at TEXT NOT NULL DEFAULT (datetime('now')),
+    benchmark_version TEXT DEFAULT '2.0',
+    total_score INTEGER DEFAULT 0,
+    max_score INTEGER DEFAULT 0,
+    percentage REAL DEFAULT 0,
+    grade TEXT DEFAULT '',
+    avg_response_ms INTEGER DEFAULT 0,
+    results_json TEXT,
+    tier TEXT DEFAULT ''
+);
+
 CREATE TABLE IF NOT EXISTS tested_models (
     model TEXT PRIMARY KEY,
     tested_at TEXT NOT NULL DEFAULT (datetime('now')),
@@ -537,6 +551,34 @@ def is_blackout_active(conn, now: datetime | None = None) -> dict | None:
 
     return None
 
+
+
+
+def save_benchmark_result(conn, model: str, tier: str, total_score: int, max_score: int,
+                          percentage: float, grade: str, avg_ms: int, results_json: str):
+    """Save or update benchmark result for a model."""
+    conn.execute(
+        """INSERT OR REPLACE INTO benchmark_results
+        (model, tested_at, benchmark_version, total_score, max_score, percentage, grade,
+         avg_response_ms, results_json, tier)
+        VALUES (?, datetime('now'), '2.0', ?, ?, ?, ?, ?, ?, ?)""",
+        (model, total_score, max_score, percentage, grade, avg_ms, results_json, tier),
+    )
+    conn.commit()
+
+
+def get_benchmark_results(conn) -> list:
+    """Get all benchmark results."""
+    rows = conn.execute(
+        "SELECT model, tested_at, total_score, max_score, percentage, grade, "
+        "avg_response_ms, results_json, tier FROM benchmark_results ORDER BY percentage DESC"
+    ).fetchall()
+    return [
+        {"model": r[0], "tested_at": r[1], "total_score": r[2], "max_score": r[3],
+         "percentage": r[4], "grade": r[5], "avg_response_ms": r[6],
+         "results_json": r[7], "tier": r[8]}
+        for r in rows
+    ]
 
 if __name__ == "__main__":
     import tempfile

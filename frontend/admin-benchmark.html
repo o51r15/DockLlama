@@ -1,0 +1,199 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>DockLlama Admin - Model Benchmarks</title>
+<link rel="icon" type="image/svg+xml" href="/favicon.svg">
+<link rel="stylesheet" href="/common.css">
+<script>
+  (function(){const t=localStorage.getItem('theme');if(t==='light')document.documentElement.classList.add('light');})();
+</script>
+<style>
+.bench-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(340px, 1fr)); gap: 16px; margin: 20px 0; }
+.bench-card { background: var(--card-bg); border: 1px solid var(--border); border-radius: 8px; padding: 16px; }
+.bench-card h3 { margin: 0 0 8px; display: flex; justify-content: space-between; align-items: center; }
+.bench-card .grade { font-size: 1.5em; font-weight: bold; }
+.grade-a { color: #22c55e; } .grade-b { color: #84cc16; } .grade-c { color: #eab308; }
+.grade-d { color: #f97316; } .grade-f { color: #ef4444; }
+.tier-badge { font-size: 0.7em; padding: 2px 8px; border-radius: 10px; text-transform: uppercase; }
+.tier-high { background: #7c3aed33; color: #a78bfa; }
+.tier-standard { background: #2563eb33; color: #60a5fa; }
+.tier-low { background: #65a30d33; color: #a3e635; }
+.scenario-row { display: flex; justify-content: space-between; padding: 4px 0; border-bottom: 1px solid var(--border); font-size: 0.85em; }
+.scenario-row:last-child { border: none; }
+.score-bar { width: 60px; height: 8px; background: var(--border); border-radius: 4px; overflow: hidden; display: inline-block; vertical-align: middle; }
+.score-fill { height: 100%; border-radius: 4px; }
+.run-btn { background: var(--accent); color: white; border: none; padding: 8px 16px; border-radius: 6px; cursor: pointer; font-size: 0.9em; }
+.run-btn:hover { opacity: 0.9; }
+.run-btn:disabled { opacity: 0.5; cursor: not-allowed; }
+.progress { color: var(--text-dim); font-size: 0.85em; margin: 8px 0; }
+.admin-warn { background: #f59e0b22; border: 1px solid #f59e0b44; padding: 12px; border-radius: 8px; margin-bottom: 16px; color: #fbbf24; font-size: 0.9em; }
+.summary-table { width: 100%; border-collapse: collapse; margin: 20px 0; }
+.summary-table th, .summary-table td { padding: 8px 12px; text-align: left; border-bottom: 1px solid var(--border); }
+.summary-table th { color: var(--text-dim); font-size: 0.85em; }
+</style>
+</head>
+<body>
+<div class="container" x-data="benchmarkApp()" x-init="init()">
+  <header>
+    <div class="header-left">
+      <h1>Admin: Model Benchmarks</h1>
+    </div>
+    <div class="header-right">
+      <a href="/" style="color:var(--text-dim);text-decoration:none;margin-right:12px">← Dashboard</a>
+      <button class="theme-toggle" @click="toggleTheme()" x-text="document.documentElement.classList.contains('light') ? '🌙' : '☀️'"></button>
+    </div>
+  </header>
+
+  <div class="admin-warn">
+    ⚠️ Hidden admin page. Benchmarks test each model against 8 scenarios of varying difficulty.
+    Each scenario scores 0-100 on status accuracy, health score range, action recommendation, restart assessment, and summary quality.
+    Start with low-tier models (fastest), then work up.
+  </div>
+
+  <!-- Run Controls -->
+  <div style="margin-bottom:20px">
+    <template x-for="(models, tier) in tiers" :key="tier">
+      <div style="margin-bottom:12px">
+        <strong x-text="tier.toUpperCase() + ' TIER'" style="text-transform:uppercase;font-size:0.85em;color:var(--text-dim)"></strong>
+        <div style="display:flex;gap:8px;flex-wrap:wrap;margin-top:4px">
+          <template x-for="m in models" :key="m">
+            <button class="run-btn" @click="runBenchmark(m)" :disabled="running"
+                    x-text="running === m ? 'Running...' : m"></button>
+          </template>
+        </div>
+      </div>
+    </template>
+  </div>
+
+  <div class="progress" x-show="running" x-text="progressMsg"></div>
+
+  <!-- Results Summary Table -->
+  <template x-if="benchmarks.length > 0">
+    <div>
+      <h2>Results</h2>
+      <table class="summary-table">
+        <thead>
+          <tr><th>Model</th><th>Tier</th><th>Score</th><th>%</th><th>Grade</th><th>Avg ms</th><th>Tested</th></tr>
+        </thead>
+        <tbody>
+          <template x-for="b in benchmarks" :key="b.model">
+            <tr @click="selected = selected === b.model ? null : b.model" style="cursor:pointer">
+              <td x-text="b.model" style="font-weight:600"></td>
+              <td><span class="tier-badge" :class="'tier-'+b.tier" x-text="b.tier"></span></td>
+              <td x-text="b.total_score + '/' + b.max_score"></td>
+              <td x-text="b.percentage + '%'"></td>
+              <td><span :class="gradeClass(b.grade)" x-text="b.grade" style="font-weight:bold;font-size:1.2em"></span></td>
+              <td x-text="b.avg_response_ms + 'ms'"></td>
+              <td x-text="new Date(b.tested_at+'Z').toLocaleString()" style="font-size:0.8em;color:var(--text-dim)"></td>
+            </tr>
+          </template>
+        </tbody>
+      </table>
+
+      <!-- Expanded detail for selected model -->
+      <template x-if="selected && getDetail(selected)">
+        <div class="bench-card" style="margin-top:16px">
+          <h3>
+            <span x-text="selected + ' — Scenario Details'"></span>
+            <span class="grade" :class="gradeClass(getDetail(selected).grade)" x-text="getDetail(selected).grade"></span>
+          </h3>
+          <template x-for="(sc, sid) in getDetail(selected).scenarios" :key="sid">
+            <div class="scenario-row">
+              <span>
+                <strong x-text="sid"></strong>
+                <span x-text="sc.name"></span>
+                <span style="color:var(--text-dim);font-size:0.8em" x-text="'(' + sc.difficulty + ')'"></span>
+              </span>
+              <span>
+                <span class="score-bar">
+                  <div class="score-fill" :style="'width:'+sc.score+'%;background:'+scoreColor(sc.score)"></div>
+                </span>
+                <span style="margin-left:6px;min-width:50px;display:inline-block" x-text="sc.score+'/100'"></span>
+                <span style="color:var(--text-dim);font-size:0.8em" x-text="sc.response_ms ? sc.response_ms+'ms' : ''"></span>
+              </span>
+            </div>
+          </template>
+        </div>
+      </template>
+    </div>
+  </template>
+</div>
+
+<script src="https://cdn.jsdelivr.net/npm/alpinejs@3/dist/cdn.min.js" defer></script>
+<script>
+function benchmarkApp() {
+  return {
+    benchmarks: [],
+    tiers: {
+      low: ["llama3.2:3b", "phi4-mini:latest"],
+      standard: ["gemma3:4b", "mistral:7b", "qwen2.5:7b-instruct", "llama3.1:8b"],
+      high: ["qwen3:14b", "gemma4:latest", "phi4:latest", "deepseek-r1:14b"],
+    },
+    running: null,
+    progressMsg: "",
+    selected: null,
+    _details: {},
+
+    async init() {
+      await this.loadResults();
+    },
+
+    async loadResults() {
+      try {
+        const r = await fetch("/api/admin/benchmark");
+        const data = await r.json();
+        this.benchmarks = data.benchmarks || [];
+        // Parse results_json for each
+        this._details = {};
+        for (const b of this.benchmarks) {
+          if (b.results_json) {
+            try { this._details[b.model] = JSON.parse(b.results_json); } catch {}
+          }
+        }
+      } catch (e) { console.error("Failed to load benchmarks:", e); }
+    },
+
+    async runBenchmark(model) {
+      this.running = model;
+      this.progressMsg = `Running 8 scenarios against ${model}... this may take several minutes.`;
+      try {
+        const r = await fetch(`/api/admin/benchmark/${encodeURIComponent(model)}`, {method: "POST"});
+        const data = await r.json();
+        this.progressMsg = `${model}: ${data.percentage}% (${data.grade})`;
+        await this.loadResults();
+        this.selected = model;
+      } catch (e) {
+        this.progressMsg = `Error: ${e.message}`;
+      } finally {
+        this.running = null;
+      }
+    },
+
+    getDetail(model) { return this._details[model] || null; },
+
+    gradeClass(g) {
+      if (g === "A+" || g === "A") return "grade-a";
+      if (g === "B") return "grade-b";
+      if (g === "C") return "grade-c";
+      if (g === "D") return "grade-d";
+      return "grade-f";
+    },
+
+    scoreColor(s) {
+      if (s >= 80) return "#22c55e";
+      if (s >= 60) return "#84cc16";
+      if (s >= 40) return "#eab308";
+      return "#ef4444";
+    },
+
+    toggleTheme() {
+      document.documentElement.classList.toggle("light");
+      localStorage.setItem("theme", document.documentElement.classList.contains("light") ? "light" : "dark");
+    },
+  };
+}
+</script>
+</body>
+</html>
