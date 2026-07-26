@@ -5,45 +5,21 @@
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>DockLlama — Insights</title>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/alpinejs/3.13.5/cdn.min.js" defer></script>
+<link rel="stylesheet" href="/common.css">
+<link rel="icon" type="image/svg+xml" href="/favicon.svg">
+<script>
+(function(){var t=localStorage.getItem('dockllama-theme');if(t==='light')document.documentElement.classList.add('light')})();
+</script>
 <style>
-:root {
-  --bg: #0f1117; --surface: #1a1d27; --surface2: #242834;
-  --border: #2e3345; --text: #e4e6ed; --text-dim: #8b8fa3;
-  --green: #22c55e; --yellow: #eab308; --red: #ef4444; --blue: #3b82f6;
-  --orange: #f97316;
-}
-* { margin:0; padding:0; box-sizing:border-box; }
-body { background:var(--bg); color:var(--text); font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif; }
-.header { padding:1.5rem 2rem; border-bottom:1px solid var(--border); }
-.header h1 { font-size:1.4rem; font-weight:600; }
-.header h1 span { color:var(--blue); }
-nav { padding:0.75rem 2rem; border-bottom:1px solid var(--border); display:flex; gap:1rem; }
-nav a { color:var(--text-dim); text-decoration:none; padding:0.4rem 0.8rem; border-radius:6px; font-size:0.85rem; }
-nav a.active, nav a:hover { color:var(--text); background:var(--surface2); }
-
-.layout { display:flex; min-height:calc(100vh - 110px); }
-.sidebar { width:200px; border-right:1px solid var(--border); padding:1rem 0; flex-shrink:0; }
-.sidebar a { display:block; padding:0.6rem 1.5rem; color:var(--text-dim); text-decoration:none; font-size:0.85rem; cursor:pointer; }
-.sidebar a:hover { color:var(--text); background:var(--surface); }
-.sidebar a.active { color:var(--text); background:var(--surface2); border-right:2px solid var(--blue); }
+.main { flex:1; min-width:0; overflow-y:auto; }
+/* Events search controls */
+.events-controls { display:flex; gap:1rem; margin-bottom:1rem; align-items:center; flex-wrap:wrap; }
+.events-controls input[type='text'] { flex:1; min-width:200px; }
 .main { flex:1; min-width:0; overflow-y:auto; }
 
 /* Shared */
-.loading { text-align:center; padding:3rem; color:var(--text-dim); }
-.btn { padding:0.4rem 0.85rem; border-radius:5px; border:1px solid var(--border); background:var(--surface2); color:var(--text); font-size:0.8rem; cursor:pointer; }
-.btn:hover { background:var(--border); }
-.btn-blue { border-color:var(--blue); color:var(--blue); }
-.btn-blue:hover { background:var(--blue); color:white; }
-.btn-primary { background:var(--blue); border-color:var(--blue); color:#fff; font-size:0.85rem; padding:0.5rem 1rem; border-radius:6px; }
-.btn-primary:hover { opacity:0.9; }
 .btn-generate { border-color:var(--yellow); color:var(--yellow); }
 .btn-generate:hover { background:#eab30822; }
-.confidence { font-weight:600; }
-.conf-high { color:var(--green); }
-.conf-mid { color:var(--yellow); }
-.conf-low { color:var(--red); }
-select, input { background:var(--surface); border:1px solid var(--border); color:var(--text); padding:0.5rem 0.75rem; border-radius:6px; font-size:0.85rem; }
-select:focus, input:focus { outline:none; border-color:var(--blue); }
 
 /* ── Health Trends ── */
 .trends-section { padding:2rem; }
@@ -74,9 +50,6 @@ select:focus, input:focus { outline:none; border-color:var(--blue); }
 /* ── Recent Events ── */
 .events-panel { padding:2rem; }
 .events-panel h2 { font-size:1.1rem; margin-bottom:1rem; }
-table { width:100%; border-collapse:collapse; font-size:0.8rem; }
-th { text-align:left; padding:0.5rem; color:var(--text-dim); border-bottom:1px solid var(--border); font-weight:500; }
-td { padding:0.5rem; border-bottom:1px solid var(--border); }
 .type-badge { padding:0.15rem 0.4rem; border-radius:3px; font-size:0.7rem; font-weight:600; }
 .type-evaluation { background:#3b82f622; color:var(--blue); }
 .type-action { background:#eab30822; color:var(--yellow); }
@@ -143,6 +116,7 @@ td { padding:0.5rem; border-bottom:1px solid var(--border); }
 
 <div class="header">
   <h1>dock<span>Llama</span></h1>
+  <div class="header-right"><button class="theme-toggle" onclick="toggleTheme()" title="Toggle theme">&#x263E;</button></div>
 </div>
 
 <nav>
@@ -236,6 +210,15 @@ td { padding:0.5rem; border-bottom:1px solid var(--border); }
     <div x-show="view==='events'" x-cloak>
       <div class="events-panel">
         <h2>Recent Events</h2>
+          <div class="events-controls">
+            <input type="text" placeholder="Search events..." x-model="eventSearch" @input="filterEvents()">
+            <select x-model="eventTypeFilter" @change="filterEvents()" style="width:auto;">
+              <option value="">All Types</option>
+              <option value="evaluation">Evaluations</option>
+              <option value="action">Actions</option>
+              <option value="restart">Restarts</option>
+            </select>
+          </div>
         <table>
           <thead><tr><th>Time</th><th>Container</th><th>Type</th><th>Status</th><th>Confidence</th><th>Summary</th></tr></thead>
           <tbody>
@@ -250,7 +233,13 @@ td { padding:0.5rem; border-bottom:1px solid var(--border); }
               </tr>
             </template>
           </tbody>
-        </table>
+        
+          </table>
+          <div class="pagination" x-show="totalEventPages > 1">
+            <button @click="eventsPage--" :disabled="eventsPage <= 1">&laquo; Prev</button>
+            <span x-text="'Page ' + eventsPage + ' of ' + totalEventPages + ' (' + filteredEvents.length + ' events)'"></span>
+            <button @click="eventsPage++" :disabled="eventsPage >= totalEventPages">Next &raquo;</button>
+          </div>
       </div>
     </div>
 
@@ -477,6 +466,11 @@ function insightsApp() {
     trends: null,
     // Events
     events: [],
+        filteredEvents: [],
+        eventSearch: '',
+        eventTypeFilter: '',
+        eventsPage: 1,
+        eventsPerPage: 25,
     // Explorer
     explorerContainer: '',
     tail: 200,
@@ -547,8 +541,8 @@ function insightsApp() {
 
     async fetchEvents() {
       try {
-        const r = await fetch('/api/events?limit=20');
-        this.events = await r.json();
+        const r = await fetch('/api/events?limit=200');
+        this.events = await r.json(); this.filterEvents();
       } catch(e) { console.error(e); }
     },
 
@@ -674,8 +668,33 @@ function insightsApp() {
       if (diff < 3600) return Math.round(diff/60) + 'm ago';
       if (diff < 86400) return Math.round(diff/3600) + 'h ago';
       return Math.round(diff/86400) + 'd ago';
+    },
+
+    filterEvents() {
+      let f = this.events;
+      if (this.eventTypeFilter) f = f.filter(e => e.event_type === this.eventTypeFilter);
+      if (this.eventSearch) {
+        const q = this.eventSearch.toLowerCase();
+        f = f.filter(e => (e.container_name||'').toLowerCase().includes(q) || (e.summary||'').toLowerCase().includes(q) || (e.details||'').toLowerCase().includes(q));
+      }
+      this.filteredEvents = f;
+      this.eventsPage = 1;
+    },
+    get pagedEvents() {
+      const s = (this.eventsPage-1) * this.eventsPerPage;
+      return this.filteredEvents.slice(s, s + this.eventsPerPage);
+    },
+    get totalEventPages() {
+      return Math.ceil(this.filteredEvents.length / this.eventsPerPage);
     }
   };
+}
+</script>
+<script>
+function toggleTheme() {
+  document.documentElement.classList.toggle('light');
+  localStorage.setItem('dockllama-theme',
+    document.documentElement.classList.contains('light') ? 'light' : 'dark');
 }
 </script>
 </body>

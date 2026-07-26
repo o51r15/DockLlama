@@ -5,52 +5,26 @@
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>DockLlama</title>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/alpinejs/3.13.5/cdn.min.js" defer></script>
+<link rel="stylesheet" href="/common.css">
+<link rel="icon" type="image/svg+xml" href="/favicon.svg">
+<script>
+(function(){var t=localStorage.getItem('dockllama-theme');if(t==='light')document.documentElement.classList.add('light')})();
+</script>
 <style>
-:root {
-  --bg: #0f1117; --surface: #1a1d27; --surface2: #242834;
-  --border: #2e3345; --text: #e4e6ed; --text-dim: #8b8fa3;
-  --green: #22c55e; --yellow: #eab308; --red: #ef4444; --blue: #3b82f6;
-}
-* { margin:0; padding:0; box-sizing:border-box; }
-body { background:var(--bg); color:var(--text); font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif; }
-.header { padding:1.5rem 2rem; border-bottom:1px solid var(--border); display:flex; justify-content:space-between; align-items:center; }
-.header h1 { font-size:1.4rem; font-weight:600; }
-.header h1 span { color:var(--blue); }
-.header-right { display:flex; gap:1rem; align-items:center; }
-.badge { padding:0.25rem 0.6rem; border-radius:4px; font-size:0.75rem; font-weight:600; }
-.badge-dry { background:#eab30822; color:var(--yellow); }
-.badge-live { background:#22c55e22; color:var(--green); }
-nav { padding:0.75rem 2rem; border-bottom:1px solid var(--border); display:flex; gap:1rem; }
-nav a { color:var(--text-dim); text-decoration:none; padding:0.4rem 0.8rem; border-radius:6px; font-size:0.85rem; }
-nav a.active, nav a:hover { color:var(--text); background:var(--surface2); }
 .grid { display:grid; grid-template-columns:repeat(auto-fill,minmax(340px,1fr)); gap:1rem; padding:2rem; }
 .card { background:var(--surface); border:1px solid var(--border); border-radius:10px; padding:1.25rem; transition:border-color 0.2s; }
 .card:hover { border-color:var(--text-dim); }
 .card-header { display:flex; justify-content:space-between; align-items:center; margin-bottom:0.75rem; }
 .card-name { font-weight:600; font-size:1rem; }
-.status-dot { width:10px; height:10px; border-radius:50%; display:inline-block; }
-.dot-green { background:var(--green); box-shadow:0 0 6px var(--green); }
-.dot-yellow { background:var(--yellow); box-shadow:0 0 6px var(--yellow); }
-.dot-red { background:var(--red); box-shadow:0 0 6px var(--red); }
-.dot-gray { background:var(--text-dim); }
-.dot-orange { background:#f97316; box-shadow:0 0 6px #f97316; }
 .card-image { color:var(--text-dim); font-size:0.75rem; margin-bottom:0.5rem; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
 .card-eval { background:var(--surface2); border-radius:6px; padding:0.75rem; font-size:0.8rem; line-height:1.5; }
 .card-eval .label { color:var(--text-dim); }
 .card-meta { display:flex; justify-content:space-between; margin-top:0.5rem; font-size:0.7rem; color:var(--text-dim); }
-.confidence { font-weight:600; }
-.conf-high { color:var(--green); }
-.conf-mid { color:var(--yellow); }
-.conf-low { color:var(--red); }
-
-
-/* Fleet overview */
 .fleet-bar { display:flex; gap:1.5rem; padding:0 2rem; margin-top:-0.5rem; margin-bottom:0.5rem; flex-wrap:wrap; }
 .fleet-stat { background:var(--surface); border:1px solid var(--border); border-radius:8px; padding:0.6rem 1rem; display:flex; align-items:center; gap:0.6rem; }
 .fleet-stat .fs-value { font-size:1.1rem; font-weight:700; }
 .fleet-stat .fs-label { font-size:0.7rem; color:var(--text-dim); }
 .fleet-stat .fs-icon { font-size:1rem; }
-/* Sparklines */
 .card-sparklines { display:flex; gap:0.75rem; margin-top:0.5rem; min-height:40px; }
 .sparkline-wrap { flex:1; }
 .sparkline-label { font-size:0.65rem; color:var(--text-dim); margin-bottom:0.15rem; }
@@ -61,43 +35,16 @@ nav a.active, nav a:hover { color:var(--text); background:var(--surface2); }
 .spark-mem { stroke:#8b5cf6; }
 .spark-area-cpu { fill:rgba(59,130,246,0.1); stroke:none; }
 .spark-area-mem { fill:rgba(139,92,246,0.1); stroke:none; }
-/* Detail drawer */
 .detail-overlay { position:fixed; inset:0; background:rgba(0,0,0,0.5); z-index:100; }
 .detail-drawer { position:fixed; top:0; right:0; bottom:0; width:min(600px,90vw); background:var(--bg); border-left:1px solid var(--border); z-index:101; overflow-y:auto; padding:1.5rem; }
 .detail-drawer h2 { margin:0 0 0.25rem; font-size:1.25rem; }
 .detail-drawer .close-btn { position:absolute; top:1rem; right:1rem; background:none; border:none; color:var(--text-dim); font-size:1.5rem; cursor:pointer; }
-.detail-tabs { display:flex; gap:0; border-bottom:1px solid var(--border); margin:1rem 0; }
-.detail-tab { padding:0.5rem 1rem; cursor:pointer; font-size:0.85rem; color:var(--text-dim); border-bottom:2px solid transparent; }
-.detail-tab.active { color:var(--text); border-bottom-color:var(--blue); }
 .chart-container { position:relative; height:200px; margin-bottom:1rem; }
 .chart-container canvas { width:100%!important; }
 .range-selector { display:flex; gap:0.5rem; margin-bottom:1rem; }
 .range-btn { background:var(--surface); border:1px solid var(--border); color:var(--text-dim); padding:0.25rem 0.75rem; border-radius:4px; cursor:pointer; font-size:0.75rem; }
 .range-btn.active { background:var(--blue); color:white; border-color:var(--blue); }
 .card-actions { margin-top:0.75rem; display:flex; gap:0.5rem; }
-.btn { padding:0.35rem 0.75rem; border-radius:5px; border:1px solid var(--border); background:var(--surface2); color:var(--text); font-size:0.75rem; cursor:pointer; }
-.btn:hover { background:var(--border); }
-.btn-eval { border-color:var(--blue); color:var(--blue); }
-
-.hc-dot { width:8px; height:8px; border-radius:50%; display:inline-block; margin-left:4px; }
-.hc-dot-green { background:var(--green); box-shadow:0 0 4px var(--green); }
-.hc-dot-yellow { background:var(--yellow); box-shadow:0 0 4px var(--yellow); }
-.hc-dot-red { background:var(--red); box-shadow:0 0 4px var(--red); }
-
-.blackout-banner {
-  background: rgba(234,179,8,0.15);
-  border: 1px solid var(--yellow);
-  border-radius: 8px;
-  padding: 0.5rem 1rem;
-  margin-bottom: 1rem;
-  display: flex;
-  align-items: center;
-  gap: 0.5rem;
-  font-size: 0.85rem;
-  color: var(--yellow);
-}
-.blackout-banner .bo-icon { font-size: 1.1rem; }
-.loading { text-align:center; padding:3rem; color:var(--text-dim); }
 </style>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/Chart.js/4.4.1/chart.umd.min.js"></script>
 </head>
@@ -110,7 +57,8 @@ nav a.active, nav a:hover { color:var(--text); background:var(--surface2); }
       <span class="badge" :class="config.monitoring.dry_run ? 'badge-dry' : 'badge-live'"
             x-text="config.monitoring.dry_run ? 'DRY RUN' : 'LIVE'"></span>
     </template>
-    <span style="font-size:0.75rem;color:var(--text-dim)" x-text="'Connected'"></span>
+    <button class="theme-toggle" onclick="toggleTheme()" title="Toggle theme">&#x263E;</button>
+    <span style="font-size:0.75rem;color:var(--text-dim)" x-text="sseConnected ? 'Connected' : 'Reconnecting...'"></span>
   </div>
 </div>
 
@@ -125,6 +73,11 @@ nav a.active, nav a:hover { color:var(--text); background:var(--surface2); }
   <span>Maintenance window active: <strong x-text="blackout ? blackout.name : ''"></strong>
     (<span x-text="blackout ? blackout.start_time + ' \u2014 ' + blackout.end_time : ''"></span>)
     \u2014 alerts and auto-restarts are suppressed</span>
+</div>
+
+<div class="offline-banner" x-show="!sseConnected" x-cloak>
+  <span>&#x26A0;</span>
+  <span>Connection lost — reconnecting...</span>
 </div>
 
 <template x-if="loading">
@@ -144,6 +97,11 @@ nav a.active, nav a:hover { color:var(--text); background:var(--surface2); }
     <span class="fs-icon">&#x1F4BE;</span>
     <div><div class="fs-value" x-text="formatMB(fleetData?.total_mem_mb || 0)"></div><div class="fs-label">Total RAM</div></div>
   </div>
+</div>
+<div style="padding:0.5rem 2rem;" x-show="!loading">
+  <button class="btn btn-eval" @click="evalAll()" :disabled="evaluatingAll">
+    <span x-text="evaluatingAll ? 'Evaluating All...' : 'Evaluate All'"></span>
+  </button>
 </div>
 <div class="grid" x-show="!loading">
   <template x-for="c in containers" :key="c.name">
@@ -231,38 +189,44 @@ nav a.active, nav a:hover { color:var(--text); background:var(--surface2); }
 </template>
 
 <script>
+function toggleTheme() {
+  document.documentElement.classList.toggle('light');
+  localStorage.setItem('dockllama-theme',
+    document.documentElement.classList.contains('light') ? 'light' : 'dark');
+}
+
 function dashboard() {
   return {
     containers: [],
     detailContainer: null,
     detailRange: '1h',
     detailCharts: {},
-    statsCache: {},
     fleetData: null,
     config: null,
     loading: true,
-      blackout: null,
+    blackout: null,
     evaluating: null,
+    evaluatingAll: false,
     eventSource: null,
+    sseConnected: true,
+    _sseRetryDelay: 1000,
+    _setupDone: false,
 
     async init() {
-      // Check if first-run setup is needed
-      try {
-        const sr = await fetch('/api/setup/status');
-        if (sr.ok) {
-          const sd = await sr.json();
-          if (sd.needs_setup) { window.location.href = '/setup.html'; return; }
-        }
-      } catch (e) { /* setup endpoint missing = skip redirect */ }
-
-    // Check for active blackout
-    try {
-      const br = await fetch('/api/blackouts/active');
-      if (br.ok) {
-        const bd = await br.json();
-        this.blackout = bd.active ? bd.window : null;
+      if (!this._setupDone) {
+        try {
+          const sr = await fetch('/api/setup/status');
+          if (sr.ok) {
+            const sd = await sr.json();
+            if (sd.needs_setup) { window.location.href = '/setup.html'; return; }
+          }
+          this._setupDone = true;
+        } catch (e) {}
       }
-    } catch (e) { /* blackout endpoint missing = ignore */ }
+      try {
+        const br = await fetch('/api/blackouts/active');
+        if (br.ok) { const bd = await br.json(); this.blackout = bd.active ? bd.window : null; }
+      } catch (e) {}
       await Promise.all([this.fetchContainers(), this.fetchConfig()]);
       this.loading = false;
       this.connectSSE();
@@ -272,14 +236,9 @@ function dashboard() {
       try {
         const r = await fetch('/api/containers');
         const fresh = await r.json();
-        // Preserve _spark data from previous containers to avoid flicker
         const sparkMap = {};
-        for (const c of this.containers) {
-          if (c._spark) sparkMap[c.name] = c._spark;
-        }
-        for (const c of fresh) {
-          if (sparkMap[c.name]) c._spark = sparkMap[c.name];
-        }
+        for (const c of this.containers) { if (c._spark) sparkMap[c.name] = c._spark; }
+        for (const c of fresh) { if (sparkMap[c.name]) c._spark = sparkMap[c.name]; }
         this.containers = fresh;
         this.loadSparklines();
         this.loadFleet();
@@ -287,161 +246,130 @@ function dashboard() {
     },
 
     async fetchConfig() {
-      try {
-        const r = await fetch('/api/config');
-        this.config = await r.json();
-      } catch(e) { console.error('Failed to fetch config', e); }
+      try { const r = await fetch('/api/config'); this.config = await r.json(); } catch(e) {}
     },
 
     connectSSE() {
+      if (this.eventSource) { this.eventSource.close(); }
       this.eventSource = new EventSource('/api/stream');
+      this.eventSource.onopen = () => { this.sseConnected = true; this._sseRetryDelay = 1000; };
       this.eventSource.onmessage = (e) => {
         const data = JSON.parse(e.data);
-        if (data.type === 'evaluation' || data.type === 'action') {
-          this.fetchContainers();
-        }
+        if (data.type === 'evaluation' || data.type === 'action') this.fetchContainers();
       };
       this.eventSource.onerror = () => {
-        setTimeout(() => this.connectSSE(), 5000);
+        this.sseConnected = false;
+        this.eventSource.close();
+        const delay = Math.min(this._sseRetryDelay, 30000);
+        this._sseRetryDelay = delay * 2;
+        setTimeout(() => this.connectSSE(), delay);
       };
     },
 
     async evalNow(name) {
       this.evaluating = name;
       try {
-        await fetch(`/api/containers/${name}/evaluate`, {method:'POST', headers:{'Content-Type':'application/json'}, body:'{}'});
+        await fetch('/api/containers/' + name + '/evaluate', {method:'POST', headers:{'Content-Type':'application/json'}, body:'{}'});
         await this.fetchContainers();
       } catch(e) { console.error('Eval failed', e); }
       this.evaluating = null;
+    },
+
+    async evalAll() {
+      this.evaluatingAll = true;
+      for (const c of this.containers.filter(c => c.running)) {
+        try { await fetch('/api/containers/' + c.name + '/evaluate', {method:'POST', headers:{'Content-Type':'application/json'}, body:'{}'}); } catch(e) {}
+      }
+      await this.fetchContainers();
+      this.evaluatingAll = false;
     },
 
     dotClass(c) {
       if (!c.running) return 'dot-gray';
       if (!c.last_evaluation) return 'dot-gray';
       const s = c.last_evaluation.ai_status;
-      if (s === 'healthy') return 'dot-green';
-      if (s === 'degraded') return 'dot-yellow';
-      if (s === 'unhealthy') return 'dot-orange';
-      if (s === 'critical') return 'dot-red';
-      return 'dot-gray';
+      return s === 'healthy' ? 'dot-green' : s === 'degraded' ? 'dot-yellow' : s === 'unhealthy' ? 'dot-orange' : s === 'critical' ? 'dot-red' : 'dot-gray';
     },
-
-
 
     async loadFleet() {
-      try {
-        const r = await fetch('/api/stats/fleet?range=1h');
-        if (!r.ok) return;
-        const d = await r.json();
-        this.fleetData = d.current;
-      } catch(e) { /* silent */ }
+      try { const r = await fetch('/api/stats/fleet?range=1h'); if (r.ok) { const d = await r.json(); this.fleetData = d.current; } } catch(e) {}
     },
 
-    formatMB(mb) {
-      if (mb >= 1024) return (mb / 1024).toFixed(1) + ' GB';
-      return Math.round(mb) + ' MB';
-    },
+    formatMB(mb) { return mb >= 1024 ? (mb/1024).toFixed(1)+' GB' : Math.round(mb)+' MB'; },
 
-    // ── Sparklines ──
     sparkLine(vals) {
       if (!vals || vals.length < 2) return '';
-      const max = Math.max(...vals, 1);
-      const step = 100 / (vals.length - 1);
-      return 'M' + vals.map((v, i) => `${(i * step).toFixed(1)},${(24 - (v / max) * 22).toFixed(1)}`).join('L');
+      const max = Math.max(...vals, 1), step = 100/(vals.length-1);
+      return 'M' + vals.map((v,i) => (i*step).toFixed(1)+','+(24-(v/max)*22).toFixed(1)).join('L');
     },
     sparkArea(vals) {
       if (!vals || vals.length < 2) return '';
-      const max = Math.max(...vals, 1);
-      const step = 100 / (vals.length - 1);
-      const line = vals.map((v, i) => `${(i * step).toFixed(1)},${(24 - (v / max) * 22).toFixed(1)}`).join('L');
-      return `M0,24L${line}L100,24Z`;
+      const max = Math.max(...vals, 1), step = 100/(vals.length-1);
+      const line = vals.map((v,i) => (i*step).toFixed(1)+','+(24-(v/max)*22).toFixed(1)).join('L');
+      return 'M0,24L'+line+'L100,24Z';
     },
 
     async loadSparklines() {
-      await Promise.all(this.containers.map(async (c) => {
-        try {
-          const r = await fetch(`/api/containers/${encodeURIComponent(c.name)}/stats?range=1h`);
-          if (!r.ok) return;
-          const d = await r.json();
-          const cpuVals = d.data.map(p => p.cpu || 0);
-          const memVals = d.data.map(p => p.mem || 0);
-          const last = d.data[d.data.length - 1];
-          c._spark = {
-            cpu: cpuVals, mem: memVals,
-            cpu_now: last ? (last.cpu != null ? last.cpu + '%' : '-') : '-',
-            mem_now: last ? (last.mem != null ? last.mem + '%' : '-') : '-',
-          };
-        } catch(e) { /* silent */ }
-      }));
+      const batch = 5;
+      for (let i = 0; i < this.containers.length; i += batch) {
+        await Promise.all(this.containers.slice(i, i+batch).map(async (c) => {
+          try {
+            const r = await fetch('/api/containers/'+encodeURIComponent(c.name)+'/stats?range=1h');
+            if (!r.ok) return;
+            const d = await r.json();
+            const last = d.data[d.data.length-1];
+            c._spark = {
+              cpu: d.data.map(p=>p.cpu||0), mem: d.data.map(p=>p.mem||0),
+              cpu_now: last ? (last.cpu!=null ? last.cpu+'%' : '-') : '-',
+              mem_now: last ? (last.mem!=null ? last.mem+'%' : '-') : '-',
+            };
+          } catch(e) {}
+        }));
+      }
     },
 
-    // ── Detail Drawer ──
     async openDetail(c) {
-      this.detailContainer = c;
-      this.detailRange = '1h';
-      await this.$nextTick();
-      this.loadDetailStats('1h');
+      this.detailContainer = c; this.detailRange = '1h';
+      await this.$nextTick(); this.loadDetailStats('1h');
     },
     closeDetail() { this.detailContainer = null; this.destroyCharts(); },
-
-    destroyCharts() {
-      for (const k in this.detailCharts) { this.detailCharts[k].destroy(); }
-      this.detailCharts = {};
-    },
+    destroyCharts() { for (const k in this.detailCharts) this.detailCharts[k].destroy(); this.detailCharts = {}; },
 
     async loadDetailStats(range) {
       this.detailRange = range;
       if (!this.detailContainer) return;
       try {
-        const r = await fetch(`/api/containers/${encodeURIComponent(this.detailContainer.name)}/stats?range=${range}`);
-        if (!r.ok) return;
-        const d = await r.json();
-        this.renderCharts(d.data);
+        const r = await fetch('/api/containers/'+encodeURIComponent(this.detailContainer.name)+'/stats?range='+range);
+        if (r.ok) this.renderCharts((await r.json()).data);
       } catch(e) { console.error(e); }
     },
 
     renderCharts(data) {
       this.destroyCharts();
-      const labels = data.map(p => p.t.substring(11, 16));
-      const chartOpts = (label, color, values) => ({
-        type: 'line',
-        data: { labels, datasets: [{ label, data: values, borderColor: color, backgroundColor: color + '22', fill: true, pointRadius: 0, tension: 0.3, borderWidth: 1.5 }] },
-        options: { responsive: true, maintainAspectRatio: false, scales: { x: { display: true, ticks: { maxTicksLimit: 8, font: { size: 10 }, color: '#888' }, grid: { display: false } }, y: { beginAtZero: true, ticks: { font: { size: 10 }, color: '#888' }, grid: { color: '#333' } } }, plugins: { legend: { display: false } }, animation: false }
+      const labels = data.map(p => p.t.substring(11,16));
+      const mk = (label, color, values) => ({
+        type:'line', data:{labels, datasets:[{label, data:values, borderColor:color, backgroundColor:color+'22', fill:true, pointRadius:0, tension:0.3, borderWidth:1.5}]},
+        options:{responsive:true, maintainAspectRatio:false, scales:{x:{ticks:{maxTicksLimit:8,font:{size:10},color:'#888'},grid:{display:false}},y:{beginAtZero:true,ticks:{font:{size:10},color:'#888'},grid:{color:'#333'}}}, plugins:{legend:{display:false}}, animation:false}
       });
-      const cpuEl = document.getElementById('cpuChart');
-      const memEl = document.getElementById('memChart');
-      const netEl = document.getElementById('netChart');
-      if (cpuEl) this.detailCharts.cpu = new Chart(cpuEl, chartOpts('CPU %', '#3b82f6', data.map(p => p.cpu)));
-      if (memEl) this.detailCharts.mem = new Chart(memEl, chartOpts('RAM %', '#8b5cf6', data.map(p => p.mem)));
-      if (netEl) this.detailCharts.net = new Chart(netEl, {
-        type: 'line',
-        data: { labels, datasets: [
-          { label: 'RX', data: data.map(p => p.rx ? Math.round(p.rx/1024) : 0), borderColor: '#22c55e', pointRadius: 0, tension: 0.3, borderWidth: 1.5, fill: false },
-          { label: 'TX', data: data.map(p => p.tx ? Math.round(p.tx/1024) : 0), borderColor: '#f59e0b', pointRadius: 0, tension: 0.3, borderWidth: 1.5, fill: false },
-        ] },
-        options: { responsive: true, maintainAspectRatio: false, scales: { x: { ticks: { maxTicksLimit: 8, font: { size: 10 }, color: '#888' }, grid: { display: false } }, y: { beginAtZero: true, ticks: { font: { size: 10 }, color: '#888', callback: v => v + ' KB' }, grid: { color: '#333' } } }, plugins: { legend: { labels: { color: '#888', font: { size: 10 } } } }, animation: false }
+      const cpu = document.getElementById('cpuChart');
+      const mem = document.getElementById('memChart');
+      const net = document.getElementById('netChart');
+      if (cpu) this.detailCharts.cpu = new Chart(cpu, mk('CPU%','#3b82f6',data.map(p=>p.cpu)));
+      if (mem) this.detailCharts.mem = new Chart(mem, mk('RAM%','#8b5cf6',data.map(p=>p.mem)));
+      if (net) this.detailCharts.net = new Chart(net, {
+        type:'line', data:{labels, datasets:[
+          {label:'RX',data:data.map(p=>p.rx?Math.round(p.rx/1024):0),borderColor:'#22c55e',pointRadius:0,tension:0.3,borderWidth:1.5,fill:false},
+          {label:'TX',data:data.map(p=>p.tx?Math.round(p.tx/1024):0),borderColor:'#f59e0b',pointRadius:0,tension:0.3,borderWidth:1.5,fill:false}
+        ]}, options:{responsive:true,maintainAspectRatio:false,scales:{x:{ticks:{maxTicksLimit:8,font:{size:10},color:'#888'},grid:{display:false}},y:{beginAtZero:true,ticks:{font:{size:10},color:'#888',callback:v=>v+' KB'},grid:{color:'#333'}}},plugins:{legend:{labels:{color:'#888',font:{size:10}}}},animation:false}
       });
     },
 
-    scoreClass(score) {
-      if (score >= 80) return 'conf-high';
-      if (score >= 40) return 'conf-mid';
-      return 'conf-low';
-    },
-
-    confClass(conf) {
-      if (conf >= 70) return 'conf-high';
-      if (conf >= 40) return 'conf-mid';
-      return 'conf-low';
-    },
-
+    scoreClass(s) { return s >= 80 ? 'conf-high' : s >= 40 ? 'conf-mid' : 'conf-low'; },
+    confClass(c) { return c >= 70 ? 'conf-high' : c >= 40 ? 'conf-mid' : 'conf-low'; },
     timeAgo(ts) {
       if (!ts) return '';
-      const diff = (Date.now() - new Date(ts+'Z').getTime()) / 1000;
-      if (diff < 60) return Math.round(diff) + 's ago';
-      if (diff < 3600) return Math.round(diff/60) + 'm ago';
-      if (diff < 86400) return Math.round(diff/3600) + 'h ago';
-      return Math.round(diff/86400) + 'd ago';
+      const d = (Date.now() - new Date(ts+'Z').getTime()) / 1000;
+      return d < 60 ? Math.round(d)+'s ago' : d < 3600 ? Math.round(d/60)+'m ago' : d < 86400 ? Math.round(d/3600)+'h ago' : Math.round(d/86400)+'d ago';
     }
   };
 }

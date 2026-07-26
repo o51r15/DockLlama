@@ -109,6 +109,13 @@ async def _get_container_snapshot() -> dict:
     return data
 
 
+import time as _time
+
+# Trends cache — 5 min TTL
+_trends_cache = None
+_trends_cache_time = 0.0
+_TRENDS_TTL = 300
+
 @router.get("/containers")
 async def get_containers() -> list[ContainerStatus]:
     """List all monitored containers with their latest evaluation."""
@@ -376,7 +383,15 @@ async def trigger_digest():
 
 @router.get("/trends")
 async def get_trends(container: Optional[str] = None):
-    """7-day and 30-day health trends per container."""
+    """7-day and 30-day health trends per container (cached 5min)."""
+    global _trends_cache, _trends_cache_time
+    now = _time.time()
+    cache_key = container or "__fleet__"
+    if _trends_cache is not None and (now - _trends_cache_time) < _TRENDS_TTL:
+        if isinstance(_trends_cache, dict) and _trends_cache.get("_key") == cache_key:
+            result = dict(_trends_cache)
+            result.pop("_key", None)
+            return result
     cfg = _get_cfg()
     conn = init_db(cfg.monitoring.db_path)
     try:
@@ -386,6 +401,10 @@ async def get_trends(container: Optional[str] = None):
         else:
             names = [c.name for c in cfg.containers if c.enabled]
             result = get_fleet_trends(conn, names)
+        _trends_cache = dict(result) if isinstance(result, dict) else result
+        if isinstance(_trends_cache, dict):
+            _trends_cache["_key"] = cache_key
+        _trends_cache_time = now
         return result
     except Exception as e:
         raise HTTPException(500, f"Trend calculation failed: {e}")
