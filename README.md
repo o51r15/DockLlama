@@ -125,30 +125,32 @@ The preprocessor does all mechanical analysis in Python — the LLM only interpr
 
 ## Model Recommendations
 
-All models were benchmarked against 8 container health scenarios (easy, medium, hard) covering healthy operations, crash loops, recovery detection, routine errors, degraded performance, graceful shutdowns, high-CPU workloads, and external dependency failures. Scored out of 800 points across status accuracy, health score range, action correctness, restart recommendation, and summary quality.
+All 10 models were benchmarked against 8 synthetic container health scenarios using DockLlama's own `evaluate()` pipeline — the same code path used in production. Each scenario provides a structured log summary and scores the model's JSON response across 5 dimensions: status correctness (30 pts), health score accuracy (30 pts), action correctness (20 pts), restart recommendation (10 pts), and summary quality (10 pts). Total: 800 points across all 8 scenarios.
 
-### Benchmark Results (v2.0)
+Scenarios range from easy (clean healthy container, obvious OOM crash) to hard (PostgreSQL FATAL during graceful shutdown, high CPU from normal transcoding, external API failure vs container failure). The hardest differentiators are S4 (routine BitTorrent tracker errors that smaller models flag as degraded) and S8 (external dependency failure where models conflate the container's health with the API's health).
+
+### Benchmark Results (v2.1)
 
 | Rank | Model | Size | Score | Grade | Avg Response | Tier |
 |------|-------|------|-------|-------|-------------|------|
-| 1 | `phi4:latest` | 9.1 GB | 780/800 (97.5%) | A+ | ~5.2s | High |
-| 2 | `qwen2.5:7b-instruct` | 4.7 GB | 770/800 (96.3%) | A+ | ~3.5s | Standard |
-| 3 | `llama3.1:8b` | 4.9 GB | 753/800 (94.1%) | A | ~3.2s | Standard |
-| 4 | `qwen3:14b` | 9.3 GB | 750/800 (93.8%) | A | ~4.8s | High |
-| 4 | `gemma4:latest` | 9.6 GB | 750/800 (93.8%) | A | ~4.5s | High |
-| 4 | `deepseek-r1:14b` | 9.0 GB | 750/800 (93.8%) | A | ~4.9s | High |
-| 7 | `phi4-mini:latest` | 2.5 GB | 732/800 (91.5%) | A | ~2.1s | Low |
-| 8 | `gemma3:4b` | 3.3 GB | 700/800 (87.5%) | B | ~1.8s | Standard |
-| 9 | `llama3.2:3b` | 2.0 GB | 675/800 (84.4%) | B | ~2.9s | Low |
-| 9 | `mistral:7b` | 4.4 GB | 675/800 (84.4%) | B | ~3.1s | Standard |
+| 1 | `phi4:latest` | 9.1 GB | 780/800 (97.5%) | A+ | ~5.0s | High |
+| 2 | `qwen2.5:7b-instruct` | 4.7 GB | 770/800 (96.3%) | A+ | ~2.7s | Standard |
+| 3 | `llama3.1:8b` | 4.9 GB | 753/800 (94.1%) | A | ~2.8s | Standard |
+| 4 | `qwen3:14b` | 9.3 GB | 750/800 (93.8%) | A | ~5.2s | High |
+| 4 | `deepseek-r1:14b` | 9.0 GB | 750/800 (93.8%) | A | ~4.6s | High |
+| 6 | `phi4-mini:latest` | 2.5 GB | 732/800 (91.5%) | A | ~2.2s | Low |
+| 7 | `gemma4:latest` | 9.6 GB | 720/800 (90.0%) | A | ~3.6s | High |
+| 8 | `gemma3:4b` | 3.3 GB | 705/800 (88.1%) | B | ~2.8s | Standard |
+| 9 | `llama3.2:3b` | 2.0 GB | 675/800 (84.4%) | B | ~1.9s | Low |
+| 9 | `mistral:7b` | 4.4 GB | 675/800 (84.4%) | B | ~2.8s | Standard |
 
 ### Hardware Tier Guide
 
-**High Tier (14B models, 9-10 GB VRAM):** Best accuracy. Use `phi4:latest` for maximum quality or any of the 14B models (all scored A). Ideal when you have a dedicated GPU and fewer containers.
+**High Tier (14B models, 9-10 GB VRAM):** Best accuracy. `phi4:latest` leads at 97.5% — near-perfect on 7/8 scenarios. The thinking models (`qwen3:14b`, `deepseek-r1:14b`) both score A but take longer due to chain-of-thought reasoning. Ideal when you have a dedicated GPU and fewer containers.
 
-**Standard Tier (7-8B models, 4-5 GB VRAM):** Best value. `qwen2.5:7b-instruct` (A+) beats most 14B models at half the VRAM. `llama3.1:8b` (A, default) is the fastest all-rounder.
+**Standard Tier (7-8B models, 4-5 GB VRAM):** Best value. `qwen2.5:7b-instruct` (A+, 96.3%) outperforms every 14B model except phi4 at half the VRAM and twice the speed. `llama3.1:8b` (A, default) is the reliable all-rounder.
 
-**Low Tier (1-4B models, 2-3 GB VRAM):** For constrained hardware or large fleets. `phi4-mini:latest` (A) is the standout — 91.5% accuracy at just 2.5 GB. Even `llama3.2:3b` (B) handles clear-cut cases well.
+**Low Tier (1-4B models, 2-3 GB VRAM):** For constrained hardware or large fleets. `phi4-mini:latest` (A, 91.5%) punches well above its weight at just 2.5 GB. Even `llama3.2:3b` (B) handles clear-cut healthy/critical cases correctly.
 
 Models can be benchmarked and switched from **Settings > Models** in the UI, with hardware-aware interval calculations. Benchmark results persist in the database even if models are later removed.
 
