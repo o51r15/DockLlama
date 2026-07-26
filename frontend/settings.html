@@ -759,7 +759,7 @@ function settingsApp() {
     testingNotification: false,
     // Prompts
     containers: [],
-    loadingContainers: true,
+    loadingPromptContainers: true,
     selectedContainer: '',
     promptLoaded: false,
     promptSource: 'config',
@@ -788,6 +788,7 @@ function settingsApp() {
       if (params.get('view')) this.view = params.get('view');
       if (this.view === 'models') this.loadModels();
       if (this.view === 'containers') this.loadDockerContainers();
+      if (this.view === 'healthchecks') this.loadHealthChecks();
 
       // Load blackout windows
       this.loadBlackouts();
@@ -800,12 +801,12 @@ function settingsApp() {
       } catch(e) { this.showToast('Failed to load alert config', 'error'); }
 
       // Load containers for prompts
-      this.loadingContainers = true;
+      this.loadingPromptContainers = true;
       try {
         const r = await fetch('/api/containers');
         this.containers = await r.json();
       } catch(e) { this.showToast('Failed to load containers', 'error'); }
-      this.loadingContainers = false;
+      this.loadingPromptContainers = false;
     },
 
 

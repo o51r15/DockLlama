@@ -120,14 +120,15 @@ nav a.active, nav a:hover { color:var(--text); background:var(--surface2); }
   <a href="/settings.html">Settings</a>
 </nav>
 
+<div class="blackout-banner" x-show="!loading && blackout" x-cloak style="margin:1rem 2rem 0;">
+  <span class="bo-icon">&#9888;</span>
+  <span>Maintenance window active: <strong x-text="blackout ? blackout.name : ''"></strong>
+    (<span x-text="blackout ? blackout.start_time + ' \u2014 ' + blackout.end_time : ''"></span>)
+    \u2014 alerts and auto-restarts are suppressed</span>
+</div>
+
 <template x-if="loading">
-  <div class="blackout-banner" x-show="blackout" x-cloak>
-          <span class="bo-icon">&#9888;</span>
-          <span>Maintenance window active: <strong x-text="blackout ? blackout.name : ''"></strong>
-            (<span x-text="blackout ? blackout.start_time + ' — ' + blackout.end_time : ''"></span>)
-            — alerts and auto-restarts are suppressed</span>
-        </div>
-        <div class="loading">Loading containers...</div>
+  <div class="loading">Loading containers...</div>
 </template>
 
 <div class="fleet-bar" x-show="!loading && fleetData">

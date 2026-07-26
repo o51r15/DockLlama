@@ -14,13 +14,12 @@ from fastapi import FastAPI
 from fastapi.staticfiles import StaticFiles
 
 from dockllama.config import load_config, DockLlamaConfig
-from dockllama.db import init_db, save_container_stats, prune_container_stats, get_container_prompt, verify_tables, prune_old_events, vacuum_db
+from dockllama.db import init_db, save_container_stats, prune_container_stats, get_container_prompt, verify_tables, prune_old_events, vacuum_db, is_blackout_active
 from dockllama.docker_client import get_client, get_logs, list_containers, get_container_stats
 from dockllama.log_pipeline import process_logs
 from dockllama.log_analyzer import analyze_logs
 from dockllama.ai_engine import evaluate, EvaluationContext, EvaluationResult
 from dockllama.actions import execute_action, resolve_dependency_group
-from dockllama.db import is_blackout_active
 from dockllama.alerts import (
     init_alerts, alert_restart, alert_dry_run, alert_escalation,
     alert_cooldown_skip, alert_error,
@@ -172,13 +171,11 @@ async def _process_container(container_cfg, container, cfg: DockLlamaConfig, con
 
     # Persist stats snapshot (Phase 7B)
     try:
-        conn_stats = init_db(cfg.monitoring.db_path)
         save_container_stats(
-            conn_stats, container_cfg.name,
+            conn, container_cfg.name,
             metrics["cpu_percent"], metrics["mem_percent"],
             metrics.get("mem_usage_mb"), metrics.get("net_rx_bytes"), metrics.get("net_tx_bytes"),
         )
-        conn_stats.close()
     except Exception as e:
         logger.debug("Failed to save stats for %s: %s", container_cfg.name, e)
 
@@ -336,6 +333,7 @@ async def _process_container(container_cfg, container, cfg: DockLlamaConfig, con
     })
 
     # 6. Execute action
+    action = None  # initialized here; set below if not in blackout
     # Check for active blackout window
     blackout = is_blackout_active(conn)
     if blackout:
@@ -352,7 +350,7 @@ async def _process_container(container_cfg, container, cfg: DockLlamaConfig, con
             container_cfg.name, cfg.dependency_groups
         )
 
-        action = execute_action(
+        action = await execute_action(
             result=result, container=container, conn=conn,
             cooldown_cfg=cfg.cooldowns, dry_run=cfg.monitoring.dry_run,
             log_snapshot=log_snapshot,

@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import asyncio
 import logging
 import sqlite3
 import time
@@ -140,7 +141,7 @@ def reset_cooldown_if_healthy(
         logger.info("[%s] Cooldown reset — healthy for %d+ minutes", container, healthy_threshold_minutes)
 
 
-def execute_action(
+async def execute_action(
     result: EvaluationResult,
     container: Container,
     conn: sqlite3.Connection,
@@ -242,16 +243,14 @@ def execute_action(
         containers_to_restart = [container]
         restart_order_names = None
         if dependency_group_name and dependency_group_members and len(dependency_group_members) > 1:
-            client = docker.from_env()
-            all_running = {c.name: c for c in client.containers.list()}
+            all_running = {c.name: c for c in container.client.containers.list()}
             # Use dependency group order (defined in config)
             containers_to_restart = [
                 all_running[n] for n in dependency_group_members if n in all_running
             ]
             restart_order_names = dependency_group_members
         elif compose_group and group_container_names and len(group_container_names) > 1:
-            client = docker.from_env()
-            all_running = {c.name: c for c in client.containers.list()}
+            all_running = {c.name: c for c in container.client.containers.list()}
             containers_to_restart = [
                 all_running[n] for n in group_container_names if n in all_running
             ]
@@ -261,12 +260,12 @@ def execute_action(
             c.restart(timeout=30)
 
         # Verify: check at 10s and 30s
-        time.sleep(10)
+        await asyncio.sleep(10)
         all_ok = True
         for c in containers_to_restart:
             c.reload()
             if c.status != "running":
-                time.sleep(20)
+                await asyncio.sleep(20)
                 c.reload()
             if c.status != "running":
                 all_ok = False

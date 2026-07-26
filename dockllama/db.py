@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import json
 import sqlite3
-from datetime import datetime, time as dtime
+from datetime import datetime, time as dtime, timedelta, timezone
 from pathlib import Path
 
 DEFAULT_DB_PATH = "/app/data/dockllama.db"
@@ -180,8 +180,6 @@ def archive_container_config(conn, container: str, ignore_patterns: list = None,
                               compose_group: str = None, model_override: str = None,
                               enabled: bool = True) -> None:
     """Archive a container's config.yaml settings to DB before removal."""
-    import json
-    from datetime import datetime, timezone
     now = datetime.now(timezone.utc).strftime("%Y-%m-%d %H:%M:%S")
     patterns_json = json.dumps(ignore_patterns) if ignore_patterns else None
     conn.execute(
@@ -201,7 +199,6 @@ def archive_container_config(conn, container: str, ignore_patterns: list = None,
 
 def restore_container_config(conn, container: str) -> dict | None:
     """Restore archived config for a container. Returns None if no archive exists."""
-    import json
     row = conn.execute(
         "SELECT ignore_patterns, compose_group, model_override, enabled, archived_at "
         "FROM container_config_archive WHERE container = ?",
@@ -237,30 +234,8 @@ def purge_container_data(conn, container: str) -> dict:
     return deleted
 
 
-if __name__ == "__main__":
-    import tempfile
-    import os
-
-    test_path = os.path.join(tempfile.gettempdir(), "dockllama_test.db")
-    print(f"Testing DB at {test_path}")
-
-    conn = init_db(test_path)
-    tables = verify_tables(conn)
-    print(f"Tables created: {tables}")
-
-    # Verify WAL mode
-    mode = conn.execute("PRAGMA journal_mode").fetchone()[0]
-    print(f"Journal mode: {mode}")
-
-    conn.close()
-    os.unlink(test_path)
-    print("Test passed, cleaned up.")
-
-
-
 def get_container_prompt(conn, container: str) -> dict | None:
     """Fetch prompt overrides for a container from DB. Returns None if not set."""
-    import json
     row = conn.execute(
         "SELECT context_prompt, examples, known_patterns, updated_at "
         "FROM container_prompts WHERE container = ?",
@@ -280,8 +255,6 @@ def get_container_prompt(conn, container: str) -> dict | None:
 def save_container_prompt(conn, container: str, context_prompt: str | None,
                           examples: list | None, known_patterns: list | None) -> None:
     """Save or update prompt overrides for a container."""
-    import json
-    from datetime import datetime, timezone
     now = datetime.now(timezone.utc).isoformat()
     examples_json = json.dumps(examples) if examples else None
     patterns_json = json.dumps(known_patterns) if known_patterns else None
@@ -322,7 +295,6 @@ def get_tested_models(conn) -> list[dict]:
 def save_tested_model(conn, model: str, healthy_pass: bool, failing_pass: bool,
                        avg_response_ms: int, results_json: str = None) -> None:
     """Save or update a model test result."""
-    from datetime import datetime, timezone
     now = datetime.now(timezone.utc).strftime("%Y-%m-%d %H:%M:%S")
     status = "supported" if (healthy_pass and failing_pass) else "failed"
     conn.execute(
@@ -343,7 +315,6 @@ def save_tested_model(conn, model: str, healthy_pass: bool, failing_pass: bool,
 def save_container_stats(conn, container: str, cpu_percent, mem_percent,
                          mem_usage_mb, net_rx_bytes, net_tx_bytes) -> None:
     """Record one stats snapshot for a container."""
-    from datetime import datetime, timezone
     now = datetime.now(timezone.utc).strftime("%Y-%m-%d %H:%M:%S")
     conn.execute(
         "INSERT INTO container_stats (container, timestamp, cpu_percent, mem_percent, mem_usage_mb, net_rx_bytes, net_tx_bytes) "
@@ -355,7 +326,6 @@ def save_container_stats(conn, container: str, cpu_percent, mem_percent,
 
 def prune_container_stats(conn, retention_days: int = 7) -> int:
     """Delete stats older than retention_days. Returns rows deleted."""
-    from datetime import datetime, timedelta, timezone
     cutoff = (datetime.now(timezone.utc) - timedelta(days=retention_days)).strftime("%Y-%m-%d %H:%M:%S")
     cursor = conn.execute("DELETE FROM container_stats WHERE timestamp < ?", (cutoff,))
     conn.commit()
@@ -365,7 +335,6 @@ def prune_container_stats(conn, retention_days: int = 7) -> int:
 def prune_old_events(conn, retention_days=90):
     """Delete events older than retention_days. Returns rows deleted."""
     import logging
-    from datetime import datetime, timedelta, timezone
     logger = logging.getLogger(__name__)
     cutoff = (datetime.now(timezone.utc) - timedelta(days=retention_days)).strftime("%Y-%m-%d %H:%M:%S")
     cursor = conn.execute("DELETE FROM events WHERE timestamp < ?", (cutoff,))
@@ -400,11 +369,26 @@ def get_health_check(conn, container: str) -> dict | None:
     }
 
 
-def get_all_health_checks(conn) -> list[dict]:
-    """Get all enabled health check configs."""
+def get_enabled_health_checks(conn) -> list[dict]:
+    """Get enabled health check configs (for the poller)."""
     rows = conn.execute(
         "SELECT container, url, method, expected_status, interval_seconds, "
         "timeout_seconds, failure_threshold, enabled FROM health_checks WHERE enabled = 1"
+    ).fetchall()
+    return [
+        {"container": r[0], "url": r[1], "method": r[2],
+         "expected_status": r[3], "interval_seconds": r[4],
+         "timeout_seconds": r[5], "failure_threshold": r[6],
+         "enabled": bool(r[7])}
+        for r in rows
+    ]
+
+
+def get_all_health_checks(conn) -> list[dict]:
+    """Get ALL health check configs (enabled and disabled) for API listing."""
+    rows = conn.execute(
+        "SELECT container, url, method, expected_status, interval_seconds, "
+        "timeout_seconds, failure_threshold, enabled FROM health_checks"
     ).fetchall()
     return [
         {"container": r[0], "url": r[1], "method": r[2],
@@ -447,7 +431,6 @@ def delete_health_check(conn, container: str) -> bool:
 def save_health_check_result(conn, container: str, status_code: int | None,
                               response_ms: int, success: bool, error: str | None = None) -> None:
     """Record a single health check result."""
-    from datetime import datetime, timezone
     now = datetime.now(timezone.utc).strftime("%Y-%m-%d %H:%M:%S")
     conn.execute(
         "INSERT INTO health_check_results (container, timestamp, status_code, response_ms, success, error) "
@@ -553,3 +536,23 @@ def is_blackout_active(conn, now: datetime | None = None) -> dict | None:
                 return {"id": wid, "name": name, "days": days, "start_time": start_str, "end_time": end_str}
 
     return None
+
+
+if __name__ == "__main__":
+    import tempfile
+    import os
+
+    test_path = os.path.join(tempfile.gettempdir(), "dockllama_test.db")
+    print(f"Testing DB at {test_path}")
+
+    conn = init_db(test_path)
+    tables = verify_tables(conn)
+    print(f"Tables created: {tables}")
+
+    # Verify WAL mode
+    mode = conn.execute("PRAGMA journal_mode").fetchone()[0]
+    print(f"Journal mode: {mode}")
+
+    conn.close()
+    os.unlink(test_path)
+    print("Test passed, cleaned up.")
