@@ -632,3 +632,45 @@ The admin benchmark UI at `/admin-benchmark.html` provides a visual interface fo
 - **phi4:latest** (14B) achieved near-perfect scores with 7/8 scenarios at 100 points
 - **qwen2.5:7b-instruct** (7B) outperformed most 14B models — the best value pick
 - **phi4-mini:latest** (3.8B) scored 91.5%, making it viable for resource-constrained setups
+
+
+---
+
+## Session 9 — Benchmarking All Models & Documentation
+
+### What happened
+- Ran the full 8-scenario benchmark suite against all 10 installed Ollama models
+- First run had GPU contention — eval cycle was competing with benchmarks despite pause endpoint returning paused=true. Killed the stuck run and wrote bench_all2.sh that re-confirms pause before each model.
+- Second run completed all 10 models in ~8 minutes with correct response times
+
+### Benchmark v2.1 Results
+| Model | Score | Grade | Avg Response |
+|-------|-------|-------|-------------|
+| phi4 (14B) | 780/800 | A+ | 4998ms |
+| qwen2.5:7b-instruct | 770/800 | A+ | 2692ms |
+| llama3.1:8b | 753/800 | A | 2768ms |
+| qwen3:14b | 750/800 | A | 5206ms |
+| deepseek-r1:14b | 750/800 | A | 4616ms |
+| phi4-mini (3.8B) | 732/800 | A | 2194ms |
+| gemma4 | 720/800 | A | 3643ms |
+| gemma3:4b | 705/800 | B | 2830ms |
+| llama3.2:3b | 675/800 | B | 1874ms |
+| mistral:7b | 675/800 | B | 2811ms |
+
+### Key findings
+- qwen2.5:7b-instruct outperforms all 14B models except phi4 at half the VRAM and twice the speed
+- phi4-mini is the standout small model — 91.5% accuracy at 2.5GB VRAM
+- Thinking models (qwen3, deepseek-r1) are capable but slower due to chain-of-thought overhead
+- Results consistent with v2.0 benchmarks, confirming scoring stability
+
+### Documentation updates
+- Updated README.md Model Recommendations section with v2.1 data and methodology (commit f84b1f4)
+- Created HANDOFF.md with full project documentation for session continuity
+- Created blog post 27.txt covering the entire project history and architecture
+
+### Scripts created
+- bench_all2.sh — sequential 10-model benchmark with per-model pause confirmation
+- patch_readme2.py — automated README update with v2.1 results
+
+### Git commits
+- f84b1f4 — docs: update README with v2.1 benchmark results and methodology
