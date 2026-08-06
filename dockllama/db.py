@@ -189,7 +189,6 @@ def get_connection(db_path: str | Path = DEFAULT_DB_PATH) -> sqlite3.Connection:
     conn.row_factory = sqlite3.Row
     conn.execute("PRAGMA journal_mode=WAL")
     conn.execute("PRAGMA foreign_keys=ON")
-    seed_base_prompts(conn)
     return conn
 
 
@@ -207,6 +206,7 @@ def init_db(db_path: str | Path = DEFAULT_DB_PATH) -> sqlite3.Connection:
             conn.commit()
         except Exception:
             pass  # column already exists
+    seed_base_prompts(conn)
     return conn
 
 
