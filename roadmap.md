@@ -70,7 +70,7 @@ Renamed across 32 files — Python package dir, imports, Docker image, CI/CD, co
 
 ## Upcoming
 
-**Recommended execution order across phases:** Phase 7 (telemetry, read-only enrichment) → Phase 8.1–8.3 (context injection, prompt-level) → Phase 6.2 (dependency groups, touches restart logic) → Phase 8.4 (prompt UI) → Phase 9 (model validation) → Phase 7B (stats history) → Phase 6.5 ✅ → Phase 6.6 (blackout windows) → Phase 10+ (learning mode, fleet, UI improvements).
+**Recommended execution order across phases:** Phase 7 (telemetry, read-only enrichment) → Phase 8.1–8.3 (context injection, prompt-level) → Phase 6.2 (dependency groups, touches restart logic) → Phase 8.4 (prompt UI) → Phase 9 (model validation) → Phase 7B (stats history) → Phase 6.5 ✅ → Phase 6.6 (blackout windows) → **Phase 10A** (eval history & status UX) → **Phase 10B** (configurable digest & log retention) → **Phase 10C–10F** (learning persistence & knowledge base) → Phase 11 (fleet) → Phase 12 (open-source) → Phase 13 (UI improvements).
 
 ### Phase 6 — Advanced Remediation & Alerting
 
@@ -437,52 +437,191 @@ All of the above is also accessible from the Settings page (9.4 container manage
 
 ---
 
-### Phase 10 — Learning Mode (formerly Phase 9)
+### Phase 10 — Evaluation History, Learning Persistence & Knowledge Base
 
-The core problem with generic AI healthchecks is that every container has its own definition of "normal." Learning Mode lets Dockmon observe containers passively, surface patterns it thinks might be problems, and learn from user feedback what actually matters for each container.
+**Status:** 10A-10B NOT STARTED, 10C-10F NOT STARTED
+**Objective:** Transform DockLlama from a stateless evaluator into a system that remembers, learns, and improves over time. This is broken into six sub-phases that build on each other.
 
-#### L1 — Pattern Detection Engine
-- New LLM prompt: `v1_learn.txt` — focused on pattern detection, not health judgment
-- New DB tables: `learned_patterns`, `container_rules`
-- Pattern deduplication via LLM clustering of similar log lines
-- Frequency and first/last seen tracking
+**Architecture principle:** Eval results are the indexed, searchable layer — compact and structured with start/end timestamp pointers back to Docker's raw logs. Raw logs stay in Docker where they belong. The learning system reads past eval results, identifies patterns across evaluations, and uses timestamps to pull targeted raw log slices from Docker when it needs the full picture. This avoids storing terabytes of raw logs in SQLite while giving the learning system everything it needs.
 
-#### L2 — Learning Mode Dashboard
-- New frontend page: `/learning.html`
-- Per-container pattern list with examples, frequency, AI guess
-- Approve/reject/watch buttons per pattern
-- API endpoints for pattern listing, verdict submission, rule viewing, promotion
+**Docker log retention dependency:** The system relies on Docker retaining raw logs long enough for timestamp-based lookups to work. If Docker rotates logs before the eval retention window expires, the learning system can't pull raw context for older evaluations. This dependency must be clearly documented in the setup wizard, in-app wiki, and Settings UI so users configure `--log-opt max-size` and `max-file` appropriately.
 
-#### L3 — Rule Injection into Evaluation
-- Append learned rules to evaluation prompts as container-specific context
-- Rules act as few-shot examples: "The user has told you that X is normal and Y is a problem"
-- Track whether learned rules improve evaluation accuracy
-- Allow editing/deleting rules from the dashboard
+---
 
-#### L4 — Continuous Learning
-- Flag NEW patterns not seen during learning, even in monitoring mode
-- Periodic notifications: "I noticed a new pattern in gluetun I haven't seen before..."
-- Re-enter learning mode to refine rules
-- Export/import rules between containers with similar roles
+#### 10A — Evaluation History & Status UX ⬅️ START HERE
 
-#### Config Changes
-```yaml
-containers:
-  - name: "gluetun"
-    enabled: true
-    mode: "learning"          # "learning" | "monitoring" (default: monitoring)
-    learning:
-      min_patterns_before_promote: 10
-      observation_cycles: 100
-    rules_file: null           # auto-generated, or path to manual rules yaml
-```
+**Objective:** Make all evaluation results persistent and queryable, and improve the status display to show reasoning.
+
+##### 10A.1 — Evaluation History for Quick Evals
+Currently, quick health evals (both manual from Log Explorer and scheduled automatic evals) are ephemeral — the AI analysis text is returned to the frontend or logged to console but not persisted. The full log eval already stores results in `log_evaluations`. Extend this to all eval types.
+
+- New `eval_history` table: `(id INTEGER PK, container TEXT, timestamp TEXT DEFAULT CURRENT_TIMESTAMP, eval_type TEXT, status TEXT, health_score INT, confidence INT, summary TEXT, root_cause_category TEXT, recommended_action TEXT, model TEXT, prompt_version TEXT, lines_evaluated INT, eval_time_seconds REAL, full_result_json TEXT)`
+- `eval_type` values: `"scheduled"` (automatic cycle), `"manual"` (quick eval button), `"log_eval"` (deep log eval — consider migrating `log_evaluations` into this unified table or keeping separate)
+- Store every scheduled eval result as it completes in `_process_container()`
+- Store manual quick eval results from `POST /api/containers/{name}/evaluate`
+- API: `GET /api/containers/{name}/eval-history?type=&limit=&since=` — paginated eval history with filters
+- Frontend: clickable eval history list on container detail / Log Explorer, showing past results with timestamp, status, score, and summary preview
+
+##### 10A.2 — Status Badge Reasoning
+Change "worsening" status label to **"degraded"** across the codebase (more precise, less alarming).
+
+Make the status badge (stable/improving/degraded) clickable to show the LLM's reasoning for the current rating:
+
+- The LLM already determines the status during evaluation — extend the eval response schema to include a `status_reasoning` field explaining why the container is rated as it is
+- Example: "Rated DEGRADED because: memory usage increased 15% over last 3 evaluations, restart count went from 0 to 2 in the last 24h, and DNS resolution errors appeared in the last 6 hours that weren't present before."
+- Click the badge → tooltip/popover/modal showing the reasoning text
+- Status reasoning is stored in `eval_history` alongside the status itself
+- This reasoning also feeds into the knowledge base (10C) — if a user classifies a "degraded" status as expected ("I'm doing a migration"), future evals have that context
+
+---
+
+#### 10B — Configurable Digest Window & Log Retention
+
+**Objective:** Make the digest time window and per-container eval retention configurable.
+
+##### 10B.1 — Configurable Digest Time Window
+Currently the digest summarizes ~24h of events. Make this configurable:
+
+- New config field: `digest_window_hours` (default: 24, options: 24, 72, 168, or custom). Maximum value capped at `eval_retention_days * 24`
+- Settings UI: dropdown in the Digest section to select digest window (1 day, 3 days, 7 days)
+- The adaptive feeding strategy from the log eval feature applies here — a 7-day digest across 28 containers could be a lot of data, so use dedup/chunking when necessary
+- Longer digest windows naturally produce better trend analysis: "this error has been increasing over the past week" vs just "this error appeared today"
+- Digest can also be triggered on a configurable schedule (not just daily) — e.g., weekly summary every Monday
+
+##### 10B.2 — Per-Container Eval Retention with Trim Job
+Configurable retention window for eval history, with a daily cleanup job:
+
+- New config field: `eval_retention_days` (default: 10, -1 disables trim entirely)
+- Per-container override in Settings → Containers (some containers may warrant longer history)
+- Daily background task (runs alongside existing DB maintenance) that prunes `eval_history` rows older than the retention window
+- Settings UI: global default with per-container override capability
+- Important: Docker's own log rotation (`--log-opt max-size`, `max-file`) is the true retention limit for raw logs. The eval retention controls how long structured results stay in the DB, but raw log lookups via timestamps require Docker to still have those logs. **Surface this dependency prominently** in setup wizard, Settings UI, and wiki docs
+
+---
+
+#### 10C — Per-Container Knowledge Base
+
+**Objective:** Build a structured knowledge base per container that stores user-classified patterns and context, injected into all future evaluations.
+
+##### 10C.1 — Knowledge Base Schema
+- New `container_knowledge` table: `(id INTEGER PK, container TEXT, pattern_hash TEXT, sample_log_line TEXT, classification TEXT, user_explanation TEXT, times_seen INT DEFAULT 1, first_seen TEXT, last_seen TEXT, created_at TEXT, updated_at TEXT)`
+- `classification` values: `"expected"` (known benign — don't flag), `"problem"` (confirmed issue — always flag), `"watch"` (monitor closely — increase attention), `"ignore"` (noise — suppress entirely)
+- `pattern_hash` is a normalized hash of the log pattern for deduplication (strip timestamps, UUIDs, port numbers)
+- `user_explanation` is free-text from the user explaining what this pattern means in their environment: "This warning fires every time the VPN rotates servers, it's normal and resolves within 30 seconds"
+- Index on `(container, pattern_hash)` for fast lookups during evaluation
+
+##### 10C.2 — Knowledge Base Injection into Evaluations
+- During eval prompt construction, query `container_knowledge` for the target container
+- Inject knowledge entries into the system prompt as a `## Known Patterns (User-Classified)` block:
+  ```
+  ## Known Patterns (User-Classified)
+  The following patterns have been classified by the operator for this container:
+
+  - EXPECTED: "Task queue depth is 1" — "This is normal under load, only flag if depth exceeds 10" (seen 47 times)
+  - WATCH: "Connection refused on port 5432" — "Database restart, should resolve within 60s" (seen 3 times)
+  - IGNORE: "Chromium DevTools listening on ws://..." — noise from headless browser
+  ```
+- The LLM uses these classifications to calibrate its scoring — expected patterns don't lower the health score, watched patterns get extra attention in the summary, ignored patterns are excluded from findings
+- This works alongside and augments the existing `context_prompt`, `examples`, and `known_patterns` systems (Phase 8) — the knowledge base is dynamically populated from user feedback rather than manually configured
+
+##### 10C.3 — Knowledge Base API & UI
+- API endpoints:
+  - `GET /api/containers/{name}/knowledge` — list all knowledge entries for a container
+  - `POST /api/containers/{name}/knowledge` — add a new entry (manual classification)
+  - `PUT /api/containers/{name}/knowledge/{id}` — update classification or explanation
+  - `DELETE /api/containers/{name}/knowledge/{id}` — remove an entry
+- Frontend: Knowledge Base section in container detail view, showing classified patterns with edit/delete capability
+- Bulk operations: classify multiple patterns at once, export/import knowledge between similar containers
+
+---
+
+#### 10D — Pattern Detection & User Prompting
+
+**Objective:** Have DockLlama proactively identify recurring patterns and ask the user to classify them, building the knowledge base through guided interaction.
+
+##### 10D.1 — Recurring Pattern Detection
+- After each evaluation, extract notable patterns (errors, warnings, unusual messages) from the eval results
+- Compare against `container_knowledge` — if a pattern isn't already classified, track it in a `pending_patterns` table: `(id INTEGER PK, container TEXT, pattern_hash TEXT, sample_log_line TEXT, occurrence_count INT, first_seen TEXT, last_seen TEXT, ai_guess TEXT, surfaced BOOL DEFAULT 0)`
+- `ai_guess` is the LLM's initial assessment: "This appears to be a routine DNS lookup failure" — gives the user context when classifying
+- Only surface patterns that have been seen `N` times over `X` days (configurable threshold to avoid noise from one-off errors)
+
+##### 10D.2 — User Prompting Interface
+When patterns cross the threshold, surface them to the user with preset response options:
+
+- **Surfacing methods** (user-configurable, not mutually exclusive):
+  - Dashboard notification badge: "3 patterns need your input" with a count indicator
+  - Folded into the daily digest: "DockLlama noticed 2 new recurring patterns — click to classify"
+  - Dedicated "Pending Patterns" section in container detail view
+- **Preset response options per pattern:**
+  - **"Expected behavior"** — marks as `expected`, stops flagging
+  - **"This is a problem"** — marks as `problem`, ensures it's always flagged
+  - **"Watch more closely"** — marks as `watch`, increases monitoring attention for this pattern
+  - **"Ignore this"** — marks as `ignore`, suppresses from findings entirely
+  - **Free-text input** — user types their own explanation of what the pattern means, stored as `user_explanation` in the knowledge base
+- After classification, the pattern moves from `pending_patterns` to `container_knowledge` and immediately affects future evaluations
+
+##### 10D.3 — "Watch More Closely" Behavior
+When a pattern is classified as `watch`:
+- The eval prompt explicitly calls out this pattern: "The operator has flagged this pattern for close monitoring. Report any changes in frequency or context."
+- If the pattern's occurrence count increases beyond its baseline rate, trigger a notification: "Watched pattern in [container] is occurring more frequently than usual"
+- Dashboard shows watched patterns with trend indicators (↑ increasing, → stable, ↓ decreasing)
+
+---
+
+#### 10E — Learning from Evaluations Over Time
+
+**Objective:** The system reads its own evaluation history to build a longitudinal understanding of each container's behavior.
+
+##### 10E.1 — Evaluation Trend Analysis
+- Periodic background task (daily, after digest) that reviews the last N days of eval history per container
+- Identifies:
+  - Patterns that appear in multiple evaluations
+  - Health score trends (improving, stable, degrading)
+  - Recurring root causes
+  - Patterns that were flagged but later resolved without intervention
+- Stores trend analysis results in a `container_trends` table or as metadata on the container
+
+##### 10E.2 — Cross-Evaluation Pattern Correlation
+- When the learning system identifies a pattern across multiple evaluations, it uses the stored start/end timestamps to pull the raw logs from Docker for those specific windows
+- Feeds the targeted raw log slices to the LLM with accumulated knowledge base context for deeper analysis
+- This enables insights like: "Over the past 7 days, this container has shown a pattern of memory growth → OOM kill → restart → clean operation for 12 hours → repeat. This suggests a memory leak."
+- Results are surfaced in the digest and stored as knowledge base entries
+
+##### 10E.3 — Baseline Evolution
+- Current baselines are static snapshots captured once. With learning persistence, baselines should evolve:
+  - Track what "normal" looks like over time, not just at first capture
+  - Flag when a container's normal behavior shifts (e.g., new log patterns appear after an update)
+  - Auto-suggest baseline refresh when the container image changes
+
+---
+
+#### 10F — Wiki & In-App Documentation
+
+**Objective:** Contextual documentation linked directly from the UI so users understand what each feature does and how to configure it properly.
+
+##### 10F.1 — GitHub Wiki Structure
+- Create a GitHub wiki with pages covering:
+  - Setup guide (Ollama, Docker log retention requirements, first-run wizard)
+  - Configuration reference (config.yaml fields, per-container overrides)
+  - Knowledge base guide (how classifications work, best practices for explanations)
+  - Prompt customization (context prompts, examples, known patterns, base prompts)
+  - Learning system overview (how pattern detection works, what "watch" does)
+  - API reference
+  - Troubleshooting (common issues, Docker log retention, model selection)
+
+##### 10F.2 — In-App Contextual Help Links
+- Each config section in Settings gets a small help icon (ℹ️ or 📖) that links to the relevant wiki page
+- Links open in a new tab to the specific section on GitHub wiki
+- Implemented as a simple `help_links` mapping in the frontend: `{ "models": "wiki/Model-Configuration", "prompts": "wiki/Prompt-Customization", ... }`
+- Docker log retention warning in Settings → Log Retention links directly to the wiki page explaining why this matters and how to configure `--log-opt`
 
 #### Key Design Decisions
-- Learning mode uses a SEPARATE prompt from evaluation — it's identifying patterns, not judging health
-- Pattern detection runs through the LLM, not regex — clusters similar messages as the same pattern
-- User verdicts are stored permanently and survive prompt version upgrades
-- Rules are human-readable YAML, editable by hand
-- A container can stay in learning mode indefinitely
+- **Eval results are the index, Docker logs are the archive.** Never duplicate raw logs into the DB. Store structured eval results with timestamp pointers; pull raw logs from Docker on demand.
+- **User classifications are permanent.** They survive prompt version upgrades, model changes, and container restarts. They're the institutional knowledge of the environment.
+- **Pattern detection uses the LLM, not regex.** The LLM clusters similar messages as the same pattern, handling timestamp/UUID variations automatically. This is the same deduplication logic already in `_deduplicate_logs()`.
+- **The knowledge base augments, not replaces, existing prompt customization.** `context_prompt`, `examples`, and `known_patterns` (Phase 8) are manual configuration. The knowledge base is dynamically populated from user feedback. Both are injected into the eval prompt.
+- **"Watch more closely" is actionable, not just a label.** It affects monitoring behavior — increased reporting, baseline comparison, trend alerts.
+- **Surfacing questions through the digest is the default.** Users already read the digest daily. Adding "patterns needing your input" to the digest is the lowest-friction way to build the knowledge base over time.
 
 ---
 
