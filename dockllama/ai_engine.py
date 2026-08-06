@@ -10,6 +10,7 @@ from pathlib import Path
 from typing import Optional
 
 import httpx
+import sqlite3
 from pydantic import BaseModel, field_validator
 
 from dockllama.config import OllamaConfig
@@ -91,9 +92,37 @@ def _load_prompt(version: str) -> str:
     return path.read_text().strip()
 
 
-def _build_messages(ctx: EvaluationContext) -> tuple[str, str]:
+
+
+def _load_prompt_from_db(prompt_type: str, db_path: str = None) -> str | None:
+    """Try to load the active base prompt from DB. Returns None if not available."""
+    if not db_path:
+        return None
+    try:
+        import sqlite3 as _sql
+        conn = _sql.connect(db_path)
+        row = conn.execute(
+            "SELECT content FROM base_prompts WHERE prompt_type = ? AND is_active = 1 LIMIT 1",
+            (prompt_type,),
+        ).fetchone()
+        conn.close()
+        if row:
+            return row[0]
+    except Exception:
+        pass
+    return None
+
+
+def _load_prompt_with_fallback(prompt_type: str, file_version: str, db_path: str = None) -> str:
+    """Load prompt from DB if available, otherwise fall back to file."""
+    db_prompt = _load_prompt_from_db(prompt_type, db_path)
+    if db_prompt:
+        return db_prompt
+    return _load_prompt(file_version)
+
+def _build_messages(ctx: EvaluationContext, db_path: str = None) -> tuple[str, str]:
     """Build system and user prompts for the LLM."""
-    system_prompt = _load_prompt(ctx.prompt_version)
+    system_prompt = _load_prompt_with_fallback("eval", ctx.prompt_version, db_path)
 
     # Append container-specific context if provided
     if ctx.context_prompt:

@@ -147,6 +147,36 @@ CREATE TABLE IF NOT EXISTS container_config_archive (
     enabled INTEGER DEFAULT 1,
     archived_at TEXT NOT NULL DEFAULT (datetime('now'))
 );
+
+CREATE TABLE IF NOT EXISTS base_prompts (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    name TEXT NOT NULL,
+    prompt_type TEXT NOT NULL,
+    content TEXT NOT NULL,
+    is_active INTEGER NOT NULL DEFAULT 0,
+    is_system_default INTEGER NOT NULL DEFAULT 0,
+    created_at TEXT NOT NULL DEFAULT (datetime('now')),
+    updated_at TEXT NOT NULL DEFAULT (datetime('now'))
+);
+
+CREATE INDEX IF NOT EXISTS idx_base_prompts_type ON base_prompts(prompt_type);
+
+CREATE TABLE IF NOT EXISTS log_evaluations (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    container TEXT NOT NULL,
+    timestamp TEXT NOT NULL DEFAULT (datetime('now')),
+    hours_evaluated INTEGER NOT NULL,
+    line_count INTEGER NOT NULL DEFAULT 0,
+    strategy_used TEXT,
+    output_format TEXT NOT NULL DEFAULT 'report',
+    model TEXT,
+    result_json TEXT,
+    eval_time_seconds REAL,
+    prompt_name TEXT
+);
+
+CREATE INDEX IF NOT EXISTS idx_log_evals_container ON log_evaluations(container);
+CREATE INDEX IF NOT EXISTS idx_log_evals_timestamp ON log_evaluations(timestamp);
 """
 
 
@@ -159,6 +189,7 @@ def get_connection(db_path: str | Path = DEFAULT_DB_PATH) -> sqlite3.Connection:
     conn.row_factory = sqlite3.Row
     conn.execute("PRAGMA journal_mode=WAL")
     conn.execute("PRAGMA foreign_keys=ON")
+    seed_base_prompts(conn)
     return conn
 
 

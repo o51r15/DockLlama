@@ -16,6 +16,10 @@ from dockllama.log_pipeline import process_logs
 from dockllama.ai_engine import evaluate, EvaluationContext
 from dockllama.health_checker import get_hc_status, get_all_hc_statuses
 from dockllama.db import get_all_blackout_windows, get_blackout_window, save_blackout_window, delete_blackout_window, is_blackout_active
+from dockllama.db import (get_all_base_prompts, get_base_prompt, get_active_base_prompt,
+                          save_base_prompt, activate_base_prompt, delete_base_prompt,
+                          reset_base_prompt, save_log_evaluation, get_log_evaluations, get_log_evaluation)
+from dockllama.ai_engine import log_evaluate
 
 router = APIRouter(prefix="/api")
 
@@ -813,6 +817,23 @@ Recent Tail (last 10 lines):
         "status": "supported" if all_passed else "failed",
     }
 
+
+
+
+class LogEvalRequest(BaseModel):
+    hours: int = 24
+    output_format: str = "report"  # report, freeform, json
+
+
+class BasePromptCreate(BaseModel):
+    name: str
+    prompt_type: str  # eval, log_eval, digest
+    content: str
+
+
+class BasePromptUpdate(BaseModel):
+    name: str = None
+    content: str = None
 
 class SetDefaultModelRequest(BaseModel):
     model: str
@@ -2010,6 +2031,221 @@ async def run_benchmark_single(model_name: str, scenario_id: str):
             "response_ms": round((_time.time() - t0) * 1000), "passed": False,
         }
 
+
+
+
+# ─── Log Evaluation ────────────────────────────────────────────
+
+@router.post("/containers/{name}/log-evaluate")
+async def log_evaluate_container(name: str, req: LogEvalRequest):
+    """Deep log evaluation — analyzes ALL logs from a time window."""
+    cfg = _get_cfg()
+    client = get_client()
+    matches = [c for c in client.containers.list() if c.name == name]
+    if not matches:
+        raise HTTPException(404, f"Container '{name}' not running")
+
+    if req.output_format not in ("report", "freeform", "json"):
+        raise HTTPException(400, f"Invalid output_format: {req.output_format}")
+
+    container = matches[0]
+
+    # Get ALL logs for the time window (unfiltered)
+    from datetime import datetime, timedelta, timezone
+    since = datetime.now(timezone.utc) - timedelta(hours=req.hours)
+    try:
+        raw = container.logs(since=since, timestamps=False).decode("utf-8", errors="replace")
+        raw_lines = [l for l in raw.split("\n") if l.strip()]
+    except Exception as e:
+        raise HTTPException(500, f"Failed to fetch logs: {e}")
+
+    # Get container-specific context prompt
+    conn = init_db(cfg.monitoring.db_path)
+    context_prompt = None
+    try:
+        from dockllama.db import get_container_prompt as _gcp
+        prompt_data = _gcp(conn, name)
+        if prompt_data and prompt_data.get("context_prompt"):
+            context_prompt = prompt_data["context_prompt"]
+    except Exception:
+        pass
+
+    # Also check config.yaml
+    if not context_prompt:
+        for c in cfg.containers:
+            if c.name == name and c.context_prompt:
+                context_prompt = c.context_prompt
+                break
+
+    # Use digest model for deep evaluation
+    model = cfg.ollama.digest_model or cfg.ollama.default_model
+
+    start = time.time()
+    eval_result = await log_evaluate(
+        container_name=name,
+        raw_lines=raw_lines,
+        hours=req.hours,
+        output_format=req.output_format,
+        model=model,
+        ollama_config=cfg.ollama,
+        db_path=cfg.monitoring.db_path,
+        context_prompt=context_prompt,
+    )
+    elapsed = round(time.time() - start, 2)
+
+    # Persist to DB
+    import json as _json
+    try:
+        result_json = _json.dumps(eval_result["result"])
+        eval_id = save_log_evaluation(
+            conn, name, req.hours, eval_result["line_count"],
+            eval_result["strategy"], req.output_format, model,
+            result_json, elapsed, eval_result.get("prompt_name"),
+        )
+    except Exception:
+        eval_id = None
+    finally:
+        conn.close()
+
+    return {
+        "id": eval_id,
+        "container": name,
+        "hours": req.hours,
+        "line_count": eval_result["line_count"],
+        "strategy": eval_result["strategy"],
+        "output_format": req.output_format,
+        "model": model,
+        "eval_time_seconds": elapsed,
+        "result": eval_result["result"],
+    }
+
+
+@router.get("/containers/{name}/log-evaluations")
+async def list_log_evaluations(name: str, limit: int = Query(20, ge=1, le=100)):
+    """Get past log evaluations for a container."""
+    cfg = _get_cfg()
+    conn = init_db(cfg.monitoring.db_path)
+    try:
+        evals = get_log_evaluations(conn, name, limit)
+        import json as _json
+        for e in evals:
+            if e.get("result_json"):
+                try:
+                    e["result"] = _json.loads(e["result_json"])
+                except Exception:
+                    e["result"] = e["result_json"]
+                del e["result_json"]
+        return evals
+    finally:
+        conn.close()
+
+
+# ─── Base Prompt Management ────────────────────────────────────
+
+@router.get("/prompts/base")
+async def list_base_prompts(prompt_type: str = Query(None)):
+    """List all base prompts, optionally filtered by type."""
+    cfg = _get_cfg()
+    conn = init_db(cfg.monitoring.db_path)
+    try:
+        prompts = get_all_base_prompts(conn, prompt_type)
+        return {"prompts": prompts, "types": ["eval", "log_eval", "digest"]}
+    finally:
+        conn.close()
+
+
+@router.get("/prompts/base/{prompt_id}")
+async def get_base_prompt_by_id(prompt_id: int):
+    """Get a single base prompt."""
+    cfg = _get_cfg()
+    conn = init_db(cfg.monitoring.db_path)
+    try:
+        prompt = get_base_prompt(conn, prompt_id)
+        if not prompt:
+            raise HTTPException(404, f"Prompt {prompt_id} not found")
+        return prompt
+    finally:
+        conn.close()
+
+
+@router.post("/prompts/base")
+async def create_base_prompt(req: BasePromptCreate):
+    """Create a new base prompt."""
+    if req.prompt_type not in ("eval", "log_eval", "digest"):
+        raise HTTPException(400, f"Invalid prompt_type: {req.prompt_type}")
+    cfg = _get_cfg()
+    conn = init_db(cfg.monitoring.db_path)
+    try:
+        prompt_id = save_base_prompt(conn, req.name, req.prompt_type, req.content)
+        return {"id": prompt_id, "status": "created"}
+    finally:
+        conn.close()
+
+
+@router.put("/prompts/base/{prompt_id}")
+async def update_base_prompt(prompt_id: int, req: BasePromptUpdate):
+    """Update a base prompt's name and/or content."""
+    cfg = _get_cfg()
+    conn = init_db(cfg.monitoring.db_path)
+    try:
+        existing = get_base_prompt(conn, prompt_id)
+        if not existing:
+            raise HTTPException(404, f"Prompt {prompt_id} not found")
+        name = req.name if req.name is not None else existing["name"]
+        content = req.content if req.content is not None else existing["content"]
+        save_base_prompt(conn, name, existing["prompt_type"], content, prompt_id)
+        return {"id": prompt_id, "status": "updated"}
+    finally:
+        conn.close()
+
+
+@router.put("/prompts/base/{prompt_id}/activate")
+async def activate_base_prompt_endpoint(prompt_id: int):
+    """Set a prompt as the active one for its type."""
+    cfg = _get_cfg()
+    conn = init_db(cfg.monitoring.db_path)
+    try:
+        try:
+            activate_base_prompt(conn, prompt_id)
+        except ValueError as e:
+            raise HTTPException(404, str(e))
+        return {"id": prompt_id, "status": "activated"}
+    finally:
+        conn.close()
+
+
+@router.delete("/prompts/base/{prompt_id}")
+async def delete_base_prompt_endpoint(prompt_id: int):
+    """Delete a base prompt. Cannot delete system defaults."""
+    cfg = _get_cfg()
+    conn = init_db(cfg.monitoring.db_path)
+    try:
+        try:
+            deleted = delete_base_prompt(conn, prompt_id)
+        except ValueError as e:
+            raise HTTPException(400, str(e))
+        if not deleted:
+            raise HTTPException(404, f"Prompt {prompt_id} not found")
+        return {"status": "deleted"}
+    finally:
+        conn.close()
+
+
+@router.post("/prompts/base/reset/{prompt_type}")
+async def reset_base_prompt_endpoint(prompt_type: str):
+    """Reset a prompt type to its hardcoded default."""
+    if prompt_type not in ("eval", "log_eval", "digest"):
+        raise HTTPException(400, f"Invalid prompt_type: {prompt_type}")
+    cfg = _get_cfg()
+    conn = init_db(cfg.monitoring.db_path)
+    try:
+        try:
+            reset_base_prompt(conn, prompt_type)
+        except (ValueError, FileNotFoundError) as e:
+            raise HTTPException(400, str(e))
+        return {"status": "reset", "prompt_type": prompt_type}
+    finally:
+        conn.close()
 
 @router.get("/admin/benchmark")
 async def get_benchmarks():

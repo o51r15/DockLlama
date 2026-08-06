@@ -55,6 +55,38 @@
 .type-action { background:#eab30822; color:var(--yellow); }
 .type-restart { background:#ef444422; color:var(--red); }
 
+
+/* ── Log Evaluation ── */
+.log-eval-panel { background:var(--surface); border:1px solid var(--border); border-radius:8px; padding:1.25rem; margin:0 2rem 1rem; }
+.log-eval-panel h3 { font-size:0.9rem; margin-bottom:0.75rem; }
+.log-eval-controls { display:flex; gap:1rem; align-items:center; flex-wrap:wrap; }
+.log-eval-controls select, .log-eval-controls button { font-size:0.85rem; }
+.log-eval-progress { margin-top:0.75rem; font-size:0.8rem; color:var(--text-dim); }
+.log-eval-result { background:var(--surface); border:1px solid var(--border); border-radius:8px; padding:1.25rem; margin:0 2rem 2rem; }
+.log-eval-result h3 { font-size:0.9rem; margin-bottom:0.75rem; }
+.finding-card { background:var(--surface2); border-radius:6px; padding:0.75rem; margin-bottom:0.5rem; border-left:3px solid var(--border); }
+.finding-card.sev-critical { border-left-color:var(--red); }
+.finding-card.sev-high { border-left-color:#f97316; }
+.finding-card.sev-medium { border-left-color:var(--yellow); }
+.finding-card.sev-low { border-left-color:var(--blue); }
+.finding-card.sev-info { border-left-color:var(--text-dim); }
+.finding-title { font-weight:600; font-size:0.85rem; margin-bottom:0.3rem; }
+.finding-category { font-size:0.7rem; padding:0.1rem 0.4rem; border-radius:3px; background:var(--surface); display:inline-block; margin-right:0.5rem; }
+.finding-detail { font-size:0.8rem; color:var(--text-dim); margin-top:0.4rem; line-height:1.5; }
+.finding-evidence { font-family:monospace; font-size:0.75rem; background:var(--surface); padding:0.4rem; border-radius:4px; margin-top:0.3rem; max-height:100px; overflow-y:auto; white-space:pre-wrap; }
+.finding-recommendation { font-size:0.8rem; margin-top:0.4rem; color:var(--green); }
+.severity-badge { padding:0.15rem 0.4rem; border-radius:3px; font-size:0.7rem; font-weight:600; text-transform:uppercase; }
+.sev-clean { background:#22c55e22; color:var(--green); }
+.sev-minor { background:#3b82f622; color:var(--blue); }
+.sev-moderate { background:#eab30822; color:var(--yellow); }
+.sev-serious { background:#f9731622; color:#f97316; }
+.sev-critical-badge { background:#ef444422; color:var(--red); }
+.log-eval-freeform { font-family:monospace; font-size:0.8rem; line-height:1.6; white-space:pre-wrap; background:var(--surface2); padding:1rem; border-radius:6px; max-height:600px; overflow-y:auto; }
+.log-eval-meta { display:flex; gap:1.5rem; font-size:0.8rem; color:var(--text-dim); margin-bottom:1rem; flex-wrap:wrap; }
+.log-eval-history { margin-top:1rem; }
+.log-eval-history-item { padding:0.5rem 0; border-bottom:1px solid var(--surface2); font-size:0.8rem; cursor:pointer; }
+.log-eval-history-item:hover { background:var(--surface2); }
+
 /* ── Log Explorer ── */
 .explorer-section { padding:0; }
 .controls { padding:1.5rem 2rem; display:flex; gap:1rem; align-items:center; flex-wrap:wrap; }
@@ -110,6 +142,7 @@
 .empty-state { text-align:center; padding:4rem 2rem; color:var(--text-dim); }
 .empty-state h2 { font-size:1.2rem; margin-bottom:0.5rem; color:var(--text); }
 .empty-state p { font-size:0.9rem; margin-bottom:1.5rem; }
+@keyframes pulse { 0%,100% { opacity:0.3; } 50% { opacity:1; } }
 </style>
 </head>
 <body x-data="insightsApp()" x-init="init()">
@@ -257,13 +290,57 @@
             Tail: <input type="number" x-model.number="tail" min="10" max="2000" style="width:80px">
           </label>
           <button class="btn" @click="fetchLogs()" :disabled="!explorerContainer">Refresh</button>
-          <button class="btn btn-blue" @click="evalSelected()" :disabled="!explorerContainer || evaluating">
-            <span x-text="evaluating ? 'Evaluating...' : 'Evaluate with AI'"></span>
+          <button class="btn btn-blue" @click="evalSelected()" :disabled="!explorerContainer || evaluating" title="Quick health eval using filtered logs">
+            <span x-text="evaluating ? 'Evaluating...' : 'Quick Eval'"></span>
+          </button>
+          <button class="btn btn-generate" @click="showLogEvalPanel = !showLogEvalPanel" :disabled="!explorerContainer">
+            <span x-text="showLogEvalPanel ? 'Hide Log Eval' : 'Evaluate Log'"></span>
           </button>
           <label style="font-size:0.8rem;color:var(--text-dim);display:flex;gap:0.3rem;align-items:center">
             <input type="checkbox" x-model="showRaw"> Show raw logs
           </label>
         </div>
+
+
+        <template x-if="showLogEvalPanel && explorerContainer">
+          <div class="log-eval-panel">
+            <h3>Full Log Evaluation</h3>
+            <p style="font-size:0.8rem; color:var(--text-dim); margin-bottom:0.75rem;">
+              Analyze ALL unfiltered logs from a time window. Uses the digest model for deeper analysis of config errors, recurring issues, and optimization opportunities.
+            </p>
+            <div class="log-eval-controls">
+              <label style="font-size:0.8rem; color:var(--text-dim);">
+                Time Range:
+                <select x-model.number="logEvalHours">
+                  <option value="1">Last 1 hour</option>
+                  <option value="6">Last 6 hours</option>
+                  <option value="24">Last 24 hours</option>
+                  <option value="72">Last 3 days</option>
+                  <option value="168">Last 7 days</option>
+                </select>
+              </label>
+              <label style="font-size:0.8rem; color:var(--text-dim);">
+                Output Format:
+                <select x-model="logEvalFormat">
+                  <option value="report">Structured Report</option>
+                  <option value="freeform">Freeform Analysis</option>
+                  <option value="json">Raw JSON</option>
+                </select>
+              </label>
+              <button class="btn btn-primary" @click="runLogEval()" :disabled="logEvalRunning">
+                <span x-text="logEvalRunning ? 'Analyzing...' : 'Run Analysis'"></span>
+              </button>
+            </div>
+            <div class="log-eval-progress" x-show="logEvalRunning">
+              Analyzing logs... This may take a while for large time windows.
+              <div style="margin-top:0.5rem;">
+                <div style="height:3px; background:var(--surface2); border-radius:2px; overflow:hidden;">
+                  <div style="height:100%; background:var(--blue); width:100%; animation:pulse 2s infinite;" ></div>
+                </div>
+              </div>
+            </div>
+          </div>
+        </template>
 
         <template x-if="logData">
           <div class="stats">
@@ -330,6 +407,98 @@
                 <div class="label">Lines Evaluated</div>
                 <div class="value" x-text="evalResult.lines_evaluated"></div>
               </div>
+            </div>
+          </div>
+        </template>
+
+
+        <template x-if="logEvalResult">
+          <div class="log-eval-result">
+            <div style="display:flex; justify-content:space-between; align-items:center;">
+              <h3>Log Evaluation Result</h3>
+              <span class="severity-badge" :class="'sev-' + (logEvalResult.result?.severity || 'clean') + (logEvalResult.result?.severity === 'critical' ? '-badge' : '')"
+                    x-text="(logEvalResult.result?.severity || 'unknown').toUpperCase()"></span>
+            </div>
+            <div class="log-eval-meta">
+              <span>Lines: <strong x-text="logEvalResult.line_count"></strong></span>
+              <span>Strategy: <strong x-text="logEvalResult.strategy"></strong></span>
+              <span>Model: <strong x-text="logEvalResult.model"></strong></span>
+              <span>Time: <strong x-text="logEvalResult.eval_time_seconds + 's'"></strong></span>
+              <span>Window: <strong x-text="logEvalResult.hours + 'h'"></strong></span>
+            </div>
+
+            <!-- Freeform output -->
+            <template x-if="logEvalResult.result?.format === 'freeform' || logEvalResult.result?.text">
+              <div class="log-eval-freeform" x-text="logEvalResult.result.text"></div>
+            </template>
+
+            <!-- Structured report output -->
+            <template x-if="logEvalResult.result?.findings">
+              <div>
+                <p style="font-size:0.85rem; line-height:1.5; margin-bottom:1rem;" x-text="logEvalResult.result.summary"></p>
+
+                <template x-if="logEvalResult.result.findings.length > 0">
+                  <div>
+                    <h4 style="font-size:0.85rem; margin-bottom:0.5rem;">Findings (<span x-text="logEvalResult.result.findings.length"></span>)</h4>
+                    <template x-for="(f, i) in logEvalResult.result.findings" :key="i">
+                      <div class="finding-card" :class="'sev-' + (f.severity || 'info')">
+                        <div style="display:flex; align-items:center; gap:0.5rem;">
+                          <span class="finding-category" x-text="f.category"></span>
+                          <span class="severity-badge" :class="'sev-' + (f.severity || 'info') + (f.severity === 'critical' ? '-badge' : '')" x-text="f.severity"></span>
+                        </div>
+                        <div class="finding-title" x-text="f.title"></div>
+                        <div class="finding-detail" x-text="f.detail"></div>
+                        <template x-if="f.evidence && f.evidence.length > 0">
+                          <div class="finding-evidence" x-text="f.evidence.join('\n')"></div>
+                        </template>
+                        <template x-if="f.recommendation">
+                          <div class="finding-recommendation" x-text="'\u2192 ' + f.recommendation"></div>
+                        </template>
+                      </div>
+                    </template>
+                  </div>
+                </template>
+
+                <template x-if="logEvalResult.result.positive_observations && logEvalResult.result.positive_observations.length > 0">
+                  <div style="margin-top:1rem;">
+                    <h4 style="font-size:0.85rem; color:var(--green); margin-bottom:0.5rem;">Positive Observations</h4>
+                    <template x-for="obs in logEvalResult.result.positive_observations" :key="obs">
+                      <p style="font-size:0.8rem; color:var(--text-dim); margin-bottom:0.25rem;">&#x2713; <span x-text="obs"></span></p>
+                    </template>
+                  </div>
+                </template>
+
+                <template x-if="logEvalResult.result.recommended_actions && logEvalResult.result.recommended_actions.length > 0">
+                  <div style="margin-top:1rem;">
+                    <h4 style="font-size:0.85rem; margin-bottom:0.5rem;">Recommended Actions</h4>
+                    <template x-for="(a, i) in logEvalResult.result.recommended_actions" :key="i">
+                      <div style="font-size:0.8rem; margin-bottom:0.4rem;">
+                        <span class="severity-badge" :class="'sev-' + (a.priority || 'low')" x-text="a.priority"></span>
+                        <strong x-text="a.action" style="margin-left:0.3rem;"></strong>
+                        <span style="color:var(--text-dim);" x-text="' — ' + a.reason"></span>
+                      </div>
+                    </template>
+                  </div>
+                </template>
+
+                <template x-if="logEvalResult.result.log_quality_notes">
+                  <p style="margin-top:1rem; font-size:0.8rem; color:var(--text-dim); font-style:italic;" x-text="'Log quality: ' + logEvalResult.result.log_quality_notes"></p>
+                </template>
+              </div>
+            </template>
+
+            <!-- Past evaluations -->
+            <div class="log-eval-history" x-show="logEvalHistory.length > 0">
+              <h4 style="font-size:0.85rem; color:var(--text-dim); margin-bottom:0.5rem;">Previous Evaluations</h4>
+              <template x-for="h in logEvalHistory" :key="h.id">
+                <div class="log-eval-history-item" @click="loadLogEvalResult(h)">
+                  <span x-text="timeAgo(h.timestamp)"></span> —
+                  <span x-text="h.hours_evaluated + 'h window'"></span> —
+                  <span x-text="h.line_count + ' lines'"></span> —
+                  <span x-text="h.model"></span> —
+                  <span x-text="h.output_format"></span>
+                </div>
+              </template>
             </div>
           </div>
         </template>
@@ -479,6 +648,13 @@ function insightsApp() {
     evalResult: null,
     evaluating: false,
     restarts: [],
+    // Log Evaluation
+    showLogEvalPanel: false,
+    logEvalHours: 24,
+    logEvalFormat: 'report',
+    logEvalRunning: false,
+    logEvalResult: null,
+    logEvalHistory: [],
     // Digest
     digest: null,
     formattedText: '',
@@ -568,6 +744,7 @@ function insightsApp() {
         this.logData = await r.json();
       } catch(e) { console.error(e); }
       this.fetchRestarts();
+      this.fetchLogEvalHistory();
     },
 
     async fetchRestarts() {
@@ -587,6 +764,49 @@ function insightsApp() {
         this.evalResult = await r.json();
       } catch(e) { console.error(e); }
       this.evaluating = false;
+    },
+
+
+    async runLogEval() {
+      if (!this.explorerContainer) return;
+      this.logEvalRunning = true;
+      this.logEvalResult = null;
+      try {
+        const r = await fetch(`/api/containers/${this.explorerContainer}/log-evaluate`, {
+          method: 'POST',
+          headers: {'Content-Type': 'application/json'},
+          body: JSON.stringify({ hours: this.logEvalHours, output_format: this.logEvalFormat }),
+        });
+        if (!r.ok) {
+          const d = await r.json();
+          throw new Error(d.detail || 'Evaluation failed');
+        }
+        this.logEvalResult = await r.json();
+        this.fetchLogEvalHistory();
+      } catch(e) {
+        this.logEvalResult = { result: { text: 'Error: ' + e.message, format: 'freeform' }, line_count: 0, strategy: 'error', model: '', eval_time_seconds: 0, hours: this.logEvalHours };
+      }
+      this.logEvalRunning = false;
+    },
+
+    async fetchLogEvalHistory() {
+      if (!this.explorerContainer) return;
+      try {
+        const r = await fetch(`/api/containers/${this.explorerContainer}/log-evaluations?limit=10`);
+        this.logEvalHistory = await r.json();
+      } catch(e) { this.logEvalHistory = []; }
+    },
+
+    loadLogEvalResult(h) {
+      this.logEvalResult = {
+        result: h.result,
+        line_count: h.line_count,
+        strategy: h.strategy_used,
+        model: h.model,
+        eval_time_seconds: h.eval_time_seconds,
+        hours: h.hours_evaluated,
+        output_format: h.output_format,
+      };
     },
 
     lineClass(line) {

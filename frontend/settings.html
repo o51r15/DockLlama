@@ -161,6 +161,7 @@ label { display:block; font-size:0.85rem; color:var(--text-dim); margin-bottom:0
     <a :class="view==='models' && 'active'" @click="setView('models')">Models</a>
     <a :class="view==='containers' && 'active'" @click="setView('containers')">Containers</a>
     <a :class="view==='healthchecks' && 'active'" @click="setView('healthchecks')">Health Checks</a>
+    <a :class="view==='baseprompts' && 'active'" @click="setView('baseprompts')">Base Prompts</a>
   </div>
 
   <div class="main">
@@ -450,6 +451,10 @@ label { display:block; font-size:0.85rem; color:var(--text-dim); margin-bottom:0
                           :disabled="m.test_status !== 'supported' || m.is_current"
                           x-show="!m.is_current"
                           style="font-size:0.8rem;padding:0.35rem 0.7rem;">Set Default</button>
+                  <button class="btn" @click="setDefault(m.name, 'digest')"
+                          :disabled="m.is_digest"
+                          x-show="!m.is_digest"
+                          style="font-size:0.8rem;padding:0.35rem 0.7rem;border-color:var(--yellow);color:var(--yellow);">Set Digest</button>
                 </div>
               </div>
             </template>
@@ -652,6 +657,69 @@ label { display:block; font-size:0.85rem; color:var(--text-dim); margin-bottom:0
     </div>
 
     <!-- ═══ CONTAINERS ═══ -->
+
+    <!-- ═══ BASE PROMPTS ═══ -->
+    <div x-show="view==='baseprompts'" x-cloak>
+      <div class="content">
+        <div class="section">
+          <h2>Base Prompt Editor</h2>
+          <p class="desc">Edit the system prompts used for health evaluations, log evaluations, and daily digests. Changes take effect immediately. The default prompts can always be restored.</p>
+
+          <div class="field" style="display:flex; gap:1rem; align-items:center;">
+            <label style="min-width:80px;">Prompt Type</label>
+            <select x-model="bpType" @change="loadBasePrompts()">
+              <option value="eval">Health Evaluation</option>
+              <option value="log_eval">Log Evaluation</option>
+              <option value="digest">Digest</option>
+            </select>
+          </div>
+
+          <template x-if="bpLoading">
+            <div class="loading">Loading prompts...</div>
+          </template>
+
+          <template x-if="!bpLoading && bpList.length > 0">
+            <div>
+              <div class="field" style="display:flex; gap:1rem; align-items:center; margin-top:1rem;">
+                <label style="min-width:80px;">Active</label>
+                <select x-model.number="bpActiveId" @change="switchActivePrompt()">
+                  <template x-for="p in bpList" :key="p.id">
+                    <option :value="p.id" x-text="p.name + (p.is_system_default ? ' (default)' : '')"></option>
+                  </template>
+                </select>
+              </div>
+
+              <div class="field" style="margin-top:1rem;">
+                <label style="display:flex; justify-content:space-between; align-items:center;">
+                  <span>Prompt Name</span>
+                  <span style="font-size:0.75rem; color:var(--text-dim);" x-text="bpCurrent?.is_system_default ? 'System Default' : 'Custom'"></span>
+                </label>
+                <input type="text" x-model="bpName" placeholder="Prompt name...">
+              </div>
+
+              <div class="field" style="margin-top:0.5rem;">
+                <label>Prompt Content</label>
+                <textarea x-model="bpContent" rows="20" style="font-family:monospace; font-size:0.8rem; line-height:1.5;"></textarea>
+              </div>
+
+              <div class="btn-row" style="margin-top:1rem;">
+                <button class="btn btn-primary" @click="saveBasePrompt()" :disabled="bpSaving">
+                  <span x-text="bpSaving ? 'Saving...' : 'Save'"></span>
+                </button>
+                <button class="btn" @click="cloneBasePrompt()">Clone as New</button>
+                <button class="btn btn-danger" @click="resetBasePrompt()" x-show="bpCurrent?.is_system_default">Reset to Default</button>
+                <button class="btn btn-danger" @click="deleteBasePrompt()" x-show="!bpCurrent?.is_system_default">Delete</button>
+              </div>
+
+              <template x-if="bpSaveMsg">
+                <p style="margin-top:0.75rem; font-size:0.85rem;" :style="bpSaveError ? 'color:var(--red)' : 'color:var(--green)'" x-text="bpSaveMsg"></p>
+              </template>
+            </div>
+          </template>
+        </div>
+      </div>
+    </div>
+
     <div x-show="view==='containers'" x-cloak>
       <div class="content">
         <div class="section">
@@ -727,6 +795,17 @@ function settingsApp() {
     urls: [],
     savingNotifications: false,
     testingNotification: false,
+    // Base Prompts
+    bpType: 'eval',
+    bpList: [],
+    bpActiveId: null,
+    bpCurrent: null,
+    bpName: '',
+    bpContent: '',
+    bpLoading: false,
+    bpSaving: false,
+    bpSaveMsg: '',
+    bpSaveError: false,
     // Prompts
     containers: [],
     loadingPromptContainers: true,
@@ -895,12 +974,108 @@ function settingsApp() {
       } catch (e) { this.showToast('Error: ' + e.message, 'error'); }
     },
 
+
+    // ── Base Prompts ──
+    async loadBasePrompts() {
+      this.bpLoading = true;
+      this.bpSaveMsg = '';
+      try {
+        const r = await fetch('/api/prompts/base?prompt_type=' + this.bpType);
+        const data = await r.json();
+        this.bpList = data.prompts || [];
+        const active = this.bpList.find(p => p.is_active);
+        if (active) {
+          this.bpActiveId = active.id;
+          this.bpCurrent = active;
+          this.bpName = active.name;
+          this.bpContent = active.content;
+        } else if (this.bpList.length > 0) {
+          this.bpActiveId = this.bpList[0].id;
+          this.bpCurrent = this.bpList[0];
+          this.bpName = this.bpList[0].name;
+          this.bpContent = this.bpList[0].content;
+        }
+      } catch(e) { console.error(e); }
+      this.bpLoading = false;
+    },
+
+    switchActivePrompt() {
+      const p = this.bpList.find(x => x.id === this.bpActiveId);
+      if (p) {
+        this.bpCurrent = p;
+        this.bpName = p.name;
+        this.bpContent = p.content;
+      }
+      // Activate via API
+      fetch('/api/prompts/base/' + this.bpActiveId + '/activate', { method: 'PUT' })
+        .then(() => this.showToast('Prompt activated', 'success'))
+        .catch(e => this.showToast('Failed: ' + e.message, 'error'));
+    },
+
+    async saveBasePrompt() {
+      this.bpSaving = true;
+      this.bpSaveMsg = '';
+      try {
+        const r = await fetch('/api/prompts/base/' + this.bpActiveId, {
+          method: 'PUT',
+          headers: {'Content-Type': 'application/json'},
+          body: JSON.stringify({ name: this.bpName, content: this.bpContent }),
+        });
+        if (!r.ok) { const d = await r.json(); throw new Error(d.detail || 'Save failed'); }
+        this.bpSaveMsg = 'Saved successfully';
+        this.bpSaveError = false;
+        await this.loadBasePrompts();
+      } catch(e) {
+        this.bpSaveMsg = e.message;
+        this.bpSaveError = true;
+      }
+      this.bpSaving = false;
+    },
+
+    async cloneBasePrompt() {
+      try {
+        const r = await fetch('/api/prompts/base', {
+          method: 'POST',
+          headers: {'Content-Type': 'application/json'},
+          body: JSON.stringify({
+            name: this.bpName + ' (copy)',
+            prompt_type: this.bpType,
+            content: this.bpContent,
+          }),
+        });
+        if (!r.ok) throw new Error('Clone failed');
+        this.showToast('Prompt cloned', 'success');
+        await this.loadBasePrompts();
+      } catch(e) { this.showToast(e.message, 'error'); }
+    },
+
+    async resetBasePrompt() {
+      if (!confirm('Reset this prompt type to the hardcoded default? This will overwrite the current content.')) return;
+      try {
+        const r = await fetch('/api/prompts/base/reset/' + this.bpType, { method: 'POST' });
+        if (!r.ok) throw new Error('Reset failed');
+        this.showToast('Prompt reset to default', 'success');
+        await this.loadBasePrompts();
+      } catch(e) { this.showToast(e.message, 'error'); }
+    },
+
+    async deleteBasePrompt() {
+      if (!confirm('Delete this custom prompt?')) return;
+      try {
+        const r = await fetch('/api/prompts/base/' + this.bpActiveId, { method: 'DELETE' });
+        if (!r.ok) { const d = await r.json(); throw new Error(d.detail || 'Delete failed'); }
+        this.showToast('Prompt deleted', 'success');
+        await this.loadBasePrompts();
+      } catch(e) { this.showToast(e.message, 'error'); }
+    },
+
     setView(v) {
       this.view = v;
       if (v === 'models' && this.models.length === 0) this.loadModels();
       if (v === 'containers') this.loadDockerContainers();
       if (v === 'healthchecks') this.loadHealthChecks();
       history.replaceState(null, '', '/settings.html?view=' + v);
+      if (v === 'baseprompts' && this.bpList.length === 0) this.loadBasePrompts();
     },
 
 
