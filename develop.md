@@ -674,3 +674,53 @@ The admin benchmark UI at `/admin-benchmark.html` provides a visual interface fo
 
 ### Git commits
 - f84b1f4 â€” docs: update README with v2.1 benchmark results and methodology
+
+---
+
+## Session 10 — Full Log Evaluation, Base Prompt Management, Set Digest (2026-08-06)
+
+### Features Added
+1. **Full Log Evaluation** — deep analysis of ALL unfiltered logs from a user-selected time window (1h-7d). Adaptive feeding strategy: direct (=500 lines), deduplicated patterns (500-2000), chunked with synthesis (2000+). Uses digest model. Output format selectable: structured report (default), freeform narrative, or JSON. Results stored in log_evaluations table with history browsable in UI.
+2. **Base Prompt Management** — system prompts (eval, log_eval, digest) now visible and editable in Settings > Base Prompts. DB-backed with file fallback. Users can edit, clone, switch between, and reset to hardcoded defaults.
+3. **Set Digest button** — model cards in Settings now show a yellow  Set Digest button alongside Set Default for selecting which model handles digests.
+
+### New DB Tables
+- ase_prompts — stores editable system prompts (id, name, prompt_type, content, is_active, is_system_default)
+- log_evaluations — stores deep eval results (container, timestamps, hours_evaluated, line_count, strategy_used, output_format, model, result_json, eval_time_seconds, prompt_name)
+
+### New Files
+- dockllama/prompts/v1_log_evaluate.txt — deep log analysis prompt
+
+### Modified Files
+- dockllama/db.py — 2 new tables, ~15 new CRUD functions, seed_base_prompts()
+- dockllama/ai_engine.py — log_evaluate() function, DB-backed prompt loading, dedup/chunk helpers
+- dockllama/api/routes.py — 9 new endpoints for log-evaluate and base prompts
+- rontend/insights.html — Log Explorer: Quick Eval + Evaluate Log buttons, config panel, results display, history
+- rontend/settings.html — Set Digest button, Base Prompts editor section
+
+### Bug Fixes
+- Bumped log eval 
+um_predict from 4096?8192 (main) and 1024?2048 (chunks) to prevent JSON truncation with verbose models like phi4
+
+### Deployment Gotchas (IMPORTANT — DO NOT REPEAT)
+**CRITICAL: Always use the exact docker run command from HANDOFF.md.** During this session, the container was deployed with wrong volume mounts multiple times:
+- Used -p 8556:8555 instead of -p 8556:8556 (app listens on port from config, not hardcoded 8555)
+- Used named volume dockllama_config instead of bind-mount for config.yaml
+- Used bind-mount of entire /home/o51r15/docker/dockmon directory as /app/config instead of just the config.yaml file
+- Used named volume dockllama_data instead of dockmon-data
+
+The CORRECT docker run command is:
+`ash
+docker stop dockLlama && docker rm dockLlama
+docker run -d --name dockLlama --restart unless-stopped \
+  -p 8556:8556 \
+  -v /var/run/docker.sock:/var/run/docker.sock:ro \
+  -v /home/o51r15/docker/dockmon/config.yaml:/app/config/config.yaml \
+  -v dockmon-data:/app/data \
+  -e TZ=America/New_York \
+  dockllama:dev
+`
+
+### Git Commits
+- ccc5c57 — full log eval, base prompt management, set digest button (4 commits)
+- 302d993 — bump log eval num_predict: chunks 2048, main 8192
