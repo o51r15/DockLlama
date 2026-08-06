@@ -301,6 +301,230 @@ async def evaluate(
         return _make_fallback(ctx.container_name, f"Invalid LLM response: {e}"), ctx.prompt_version
 
 
+
+
+# ─── Log Evaluation (Full / Deep Analysis) ─────────────────────
+
+from collections import Counter as _Counter
+import re as _re
+
+
+def _deduplicate_logs(lines: list[str]) -> str:
+    """Deduplicate log lines by normalized message, preserving counts and time range."""
+    pattern_map = {}
+
+    for i, line in enumerate(lines):
+        normalized = _re.sub(r'\d{4}-\d{2}-\d{2}[T ]\d{2}:\d{2}:\d{2}[.\d]*\s*', '', line)
+        normalized = _re.sub(r'[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}', '<UUID>', normalized)
+        normalized = _re.sub(r'\b\d{1,5}\b', '<N>', normalized)
+        normalized = normalized.strip()
+
+        if not normalized:
+            continue
+
+        if normalized not in pattern_map:
+            pattern_map[normalized] = {
+                "count": 0,
+                "first_idx": i,
+                "last_idx": i,
+                "sample": line.strip(),
+            }
+        pattern_map[normalized]["count"] += 1
+        pattern_map[normalized]["last_idx"] = i
+
+    sorted_patterns = sorted(pattern_map.values(), key=lambda p: p["first_idx"])
+
+    parts = [f"Deduplicated log patterns ({len(lines)} total lines -> {len(sorted_patterns)} unique patterns):", ""]
+    for p in sorted_patterns:
+        count_str = f" (x{p['count']})" if p['count'] > 1 else ""
+        span = f" [lines {p['first_idx']+1}-{p['last_idx']+1}]" if p['count'] > 1 else f" [line {p['first_idx']+1}]"
+        parts.append(f"{p['sample']}{count_str}{span}")
+
+    return "\n".join(parts)
+
+
+def _chunk_logs(lines: list[str], chunk_size: int = 400) -> list[list[str]]:
+    """Split log lines into chunks for multi-pass evaluation."""
+    chunks = []
+    for i in range(0, len(lines), chunk_size):
+        chunks.append(lines[i:i + chunk_size])
+    return chunks
+
+
+async def log_evaluate(
+    container_name: str,
+    raw_lines: list[str],
+    hours: int,
+    output_format: str,
+    model: str,
+    ollama_config,
+    db_path: str = None,
+    context_prompt: str = None,
+) -> dict:
+    """
+    Perform a deep log evaluation on unfiltered container logs.
+
+    Adaptive strategy based on line count:
+    - <=500: send all raw lines directly
+    - 500-2000: deduplicate patterns with counts
+    - 2000+: chunk, summarize each, then synthesize
+
+    Returns dict with: result, strategy, line_count, model, prompt_name
+    """
+    line_count = len(raw_lines)
+
+    # Load prompt from DB or file
+    system_prompt = _load_prompt_with_fallback("log_eval", "v1_log_evaluate", db_path)
+    prompt_name = "log_eval"
+
+    # Try to get the active prompt name
+    if db_path:
+        try:
+            _conn = sqlite3.connect(db_path)
+            row = _conn.execute(
+                "SELECT name FROM base_prompts WHERE prompt_type = 'log_eval' AND is_active = 1 LIMIT 1"
+            ).fetchone()
+            if row:
+                prompt_name = row[0]
+            _conn.close()
+        except Exception:
+            pass
+
+    if context_prompt:
+        system_prompt += "\n\n## Container-Specific Context\n" + context_prompt
+
+    # Add format instruction
+    format_instruction = {
+        "report": "\n\nRespond in REPORT format (structured JSON as described above).",
+        "freeform": "\n\nRespond in FREEFORM format (detailed narrative analysis in plain text).",
+        "json": "\n\nRespond in JSON format (structured JSON as described above).",
+    }
+    system_prompt += format_instruction.get(output_format, format_instruction["report"])
+
+    use_json_format = output_format in ("report", "json")
+
+    # Determine strategy
+    if line_count == 0:
+        return {
+            "result": {"summary": "No logs found for the specified time period.", "severity": "clean", "findings": []},
+            "strategy": "empty",
+            "line_count": 0,
+            "model": model,
+            "prompt_name": prompt_name,
+        }
+
+    if line_count <= 500:
+        strategy = "direct"
+        user_prompt = f"Container: {container_name}\nTime window: last {hours} hour(s)\nTotal lines: {line_count}\n\n--- RAW LOGS ---\n"
+        user_prompt += "\n".join(raw_lines)
+        user_prompt += "\n--- END LOGS ---"
+
+    elif line_count <= 2000:
+        strategy = "deduplicated"
+        user_prompt = f"Container: {container_name}\nTime window: last {hours} hour(s)\n\n"
+        user_prompt += _deduplicate_logs(raw_lines)
+
+    else:
+        strategy = "chunked"
+        chunks = _chunk_logs(raw_lines, chunk_size=400)
+        logger.info("Log evaluate %s: chunking %d lines into %d chunks", container_name, line_count, len(chunks))
+
+        # Phase 1: summarize each chunk
+        chunk_summaries = []
+        for i, chunk in enumerate(chunks):
+            chunk_prompt = (
+                f"Container: {container_name} -- Chunk {i+1}/{len(chunks)}\n"
+                f"Time window: last {hours} hour(s) (this is chunk {i+1} of {len(chunks)})\n"
+                f"Lines {i*400+1}-{min((i+1)*400, line_count)} of {line_count}\n\n"
+                "Summarize the key findings, errors, warnings, and patterns in this chunk. "
+                "Be specific about error messages, counts, and patterns. This summary will be combined with other chunks.\n\n"
+                "--- CHUNK LOGS ---\n"
+            )
+            chunk_prompt += "\n".join(chunk)
+            chunk_prompt += "\n--- END CHUNK ---"
+
+            try:
+                async with httpx.AsyncClient(timeout=ollama_config.timeout_seconds) as client:
+                    resp = await client.post(
+                        f"{ollama_config.base_url}/api/generate",
+                        json={
+                            "model": model,
+                            "system": "You are a log analysis assistant. Summarize the key findings from this log chunk concisely but thoroughly. Focus on errors, warnings, patterns, and anything noteworthy.",
+                            "prompt": chunk_prompt,
+                            "stream": False,
+                            "options": {"temperature": 0.1, "num_predict": 1024},
+                        },
+                    )
+                    resp.raise_for_status()
+                    chunk_summary = resp.json().get("response", "")
+                    chunk_summaries.append(f"=== Chunk {i+1}/{len(chunks)} (lines {i*400+1}-{min((i+1)*400, line_count)}) ===\n{chunk_summary}")
+            except Exception as e:
+                chunk_summaries.append(f"=== Chunk {i+1}/{len(chunks)} === [Analysis failed: {e}]")
+
+        # Phase 2: synthesize
+        user_prompt = (
+            f"Container: {container_name}\n"
+            f"Time window: last {hours} hour(s)\n"
+            f"Total lines: {line_count} (analyzed in {len(chunks)} chunks)\n\n"
+            "The following are summaries from analyzing each chunk of logs. "
+            "Synthesize these into a comprehensive analysis, identifying patterns that span multiple chunks.\n\n"
+        )
+        user_prompt += "\n\n".join(chunk_summaries)
+
+    # Make the LLM call
+    try:
+        payload = {
+            "model": model,
+            "system": system_prompt,
+            "prompt": user_prompt,
+            "stream": False,
+            "options": {"temperature": 0.1, "num_predict": 4096},
+        }
+        if use_json_format:
+            payload["format"] = "json"
+
+        async with httpx.AsyncClient(timeout=max(ollama_config.timeout_seconds, 120)) as client:
+            resp = await client.post(
+                f"{ollama_config.base_url}/api/generate",
+                json=payload,
+            )
+            resp.raise_for_status()
+            raw_text = resp.json().get("response", "")
+    except Exception as e:
+        logger.exception("Log evaluate failed for %s", container_name)
+        return {
+            "result": {"summary": f"Evaluation failed: {e}", "severity": "unknown", "findings": []},
+            "strategy": strategy,
+            "line_count": line_count,
+            "model": model,
+            "prompt_name": prompt_name,
+        }
+
+    # Parse result
+    if output_format == "freeform":
+        result = {"text": raw_text, "format": "freeform"}
+    else:
+        try:
+            result = json.loads(raw_text)
+        except json.JSONDecodeError:
+            start = raw_text.find("{")
+            end = raw_text.rfind("}")
+            if start != -1 and end > start:
+                try:
+                    result = json.loads(raw_text[start:end + 1])
+                except json.JSONDecodeError:
+                    result = {"text": raw_text, "format": "freeform", "parse_error": True}
+            else:
+                result = {"text": raw_text, "format": "freeform", "parse_error": True}
+
+    return {
+        "result": result,
+        "strategy": strategy,
+        "line_count": line_count,
+        "model": model,
+        "prompt_name": prompt_name,
+    }
+
 if __name__ == "__main__":
     import asyncio
 
