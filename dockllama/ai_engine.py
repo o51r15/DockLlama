@@ -452,7 +452,7 @@ async def log_evaluate(
                             "system": "You are a log analysis assistant. Summarize the key findings from this log chunk concisely but thoroughly. Focus on errors, warnings, patterns, and anything noteworthy.",
                             "prompt": chunk_prompt,
                             "stream": False,
-                            "options": {"temperature": 0.1, "num_predict": 1024},
+                            "options": {"temperature": 0.1, "num_predict": 2048},
                         },
                     )
                     resp.raise_for_status()
@@ -478,7 +478,7 @@ async def log_evaluate(
             "system": system_prompt,
             "prompt": user_prompt,
             "stream": False,
-            "options": {"temperature": 0.1, "num_predict": 4096},
+            "options": {"temperature": 0.1, "num_predict": 8192},
         }
         if use_json_format:
             payload["format"] = "json"
