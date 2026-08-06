@@ -611,6 +611,228 @@ def get_benchmark_results(conn) -> list:
         for r in rows
     ]
 
+
+
+# ─── Base Prompts ──────────────────────────────────────────────
+
+DEFAULT_PROMPTS = {}  # populated by seed_base_prompts on first call
+
+
+def seed_base_prompts(conn) -> None:
+    """Seed the base_prompts table with hardcoded defaults if empty."""
+    from pathlib import Path
+    prompts_dir = Path(__file__).parent / "prompts"
+
+    defaults = [
+        ("Default Health Eval", "eval", "v5_evaluate.txt"),
+        ("Default Log Evaluation", "log_eval", "v1_log_evaluate.txt"),
+        ("Default Digest", "digest", "v1_digest.txt"),
+    ]
+
+    for name, ptype, filename in defaults:
+        existing = conn.execute(
+            "SELECT id FROM base_prompts WHERE prompt_type = ? AND is_system_default = 1",
+            (ptype,),
+        ).fetchone()
+        if existing:
+            continue
+
+        filepath = prompts_dir / filename
+        if not filepath.exists():
+            continue
+
+        file_content = filepath.read_text().strip()
+        conn.execute(
+            """INSERT INTO base_prompts (name, prompt_type, content, is_active, is_system_default)
+               VALUES (?, ?, ?, 1, 1)""",
+            (name, ptype, file_content),
+        )
+    conn.commit()
+
+
+def get_active_base_prompt(conn, prompt_type: str) -> dict | None:
+    """Get the active base prompt for a given type (eval, log_eval, digest)."""
+    row = conn.execute(
+        "SELECT id, name, prompt_type, content, is_active, is_system_default, created_at, updated_at "
+        "FROM base_prompts WHERE prompt_type = ? AND is_active = 1 LIMIT 1",
+        (prompt_type,),
+    ).fetchone()
+    if not row:
+        return None
+    return {
+        "id": row[0], "name": row[1], "prompt_type": row[2], "content": row[3],
+        "is_active": bool(row[4]), "is_system_default": bool(row[5]),
+        "created_at": row[6], "updated_at": row[7],
+    }
+
+
+def get_all_base_prompts(conn, prompt_type: str = None) -> list[dict]:
+    """Get all base prompts, optionally filtered by type."""
+    if prompt_type:
+        rows = conn.execute(
+            "SELECT id, name, prompt_type, content, is_active, is_system_default, created_at, updated_at "
+            "FROM base_prompts WHERE prompt_type = ? ORDER BY is_active DESC, name",
+            (prompt_type,),
+        ).fetchall()
+    else:
+        rows = conn.execute(
+            "SELECT id, name, prompt_type, content, is_active, is_system_default, created_at, updated_at "
+            "FROM base_prompts ORDER BY prompt_type, is_active DESC, name"
+        ).fetchall()
+    return [
+        {"id": r[0], "name": r[1], "prompt_type": r[2], "content": r[3],
+         "is_active": bool(r[4]), "is_system_default": bool(r[5]),
+         "created_at": r[6], "updated_at": r[7]}
+        for r in rows
+    ]
+
+
+def get_base_prompt(conn, prompt_id: int) -> dict | None:
+    """Get a single base prompt by ID."""
+    row = conn.execute(
+        "SELECT id, name, prompt_type, content, is_active, is_system_default, created_at, updated_at "
+        "FROM base_prompts WHERE id = ?",
+        (prompt_id,),
+    ).fetchone()
+    if not row:
+        return None
+    return {
+        "id": row[0], "name": row[1], "prompt_type": row[2], "content": row[3],
+        "is_active": bool(row[4]), "is_system_default": bool(row[5]),
+        "created_at": row[6], "updated_at": row[7],
+    }
+
+
+def save_base_prompt(conn, name: str, prompt_type: str, content: str,
+                     prompt_id: int = None) -> int:
+    """Create or update a base prompt. Returns the prompt ID."""
+    from datetime import datetime, timezone
+    now = datetime.now(timezone.utc).strftime("%Y-%m-%d %H:%M:%S")
+    if prompt_id:
+        conn.execute(
+            "UPDATE base_prompts SET name = ?, content = ?, updated_at = ? WHERE id = ?",
+            (name, content, now, prompt_id),
+        )
+        conn.commit()
+        return prompt_id
+    else:
+        cursor = conn.execute(
+            "INSERT INTO base_prompts (name, prompt_type, content, is_active, is_system_default, updated_at) "
+            "VALUES (?, ?, ?, 0, 0, ?)",
+            (name, prompt_type, content, now),
+        )
+        conn.commit()
+        return cursor.lastrowid
+
+
+def activate_base_prompt(conn, prompt_id: int) -> None:
+    """Set a prompt as active for its type, deactivating others of the same type."""
+    row = conn.execute("SELECT prompt_type FROM base_prompts WHERE id = ?", (prompt_id,)).fetchone()
+    if not row:
+        raise ValueError(f"Prompt {prompt_id} not found")
+    ptype = row[0]
+    conn.execute("UPDATE base_prompts SET is_active = 0 WHERE prompt_type = ?", (ptype,))
+    conn.execute("UPDATE base_prompts SET is_active = 1 WHERE id = ?", (prompt_id,))
+    conn.commit()
+
+
+def delete_base_prompt(conn, prompt_id: int) -> bool:
+    """Delete a base prompt. Cannot delete system defaults."""
+    row = conn.execute(
+        "SELECT is_system_default, is_active, prompt_type FROM base_prompts WHERE id = ?",
+        (prompt_id,),
+    ).fetchone()
+    if not row:
+        return False
+    if row[0]:
+        raise ValueError("Cannot delete system default prompts. Use reset instead.")
+    was_active = row[1]
+    ptype = row[2]
+    conn.execute("DELETE FROM base_prompts WHERE id = ?", (prompt_id,))
+    if was_active:
+        conn.execute(
+            "UPDATE base_prompts SET is_active = 1 WHERE prompt_type = ? AND is_system_default = 1",
+            (ptype,),
+        )
+    conn.commit()
+    return True
+
+
+def reset_base_prompt(conn, prompt_type: str) -> None:
+    """Reset a prompt type to its hardcoded default content and activate it."""
+    from pathlib import Path
+    from datetime import datetime, timezone
+    prompts_dir = Path(__file__).parent / "prompts"
+    filemap = {"eval": "v5_evaluate.txt", "log_eval": "v1_log_evaluate.txt", "digest": "v1_digest.txt"}
+    filename = filemap.get(prompt_type)
+    if not filename:
+        raise ValueError(f"Unknown prompt type: {prompt_type}")
+    filepath = prompts_dir / filename
+    if not filepath.exists():
+        raise FileNotFoundError(f"Default prompt file not found: {filepath}")
+    file_content = filepath.read_text().strip()
+    now = datetime.now(timezone.utc).strftime("%Y-%m-%d %H:%M:%S")
+    conn.execute("UPDATE base_prompts SET is_active = 0 WHERE prompt_type = ?", (prompt_type,))
+    conn.execute(
+        "UPDATE base_prompts SET content = ?, is_active = 1, updated_at = ? "
+        "WHERE prompt_type = ? AND is_system_default = 1",
+        (file_content, now, prompt_type),
+    )
+    conn.commit()
+
+
+# ─── Log Evaluations ──────────────────────────────────────────
+
+def save_log_evaluation(conn, container: str, hours: int, line_count: int,
+                        strategy: str, output_format: str, model: str,
+                        result_json: str, eval_time: float, prompt_name: str = None) -> int:
+    """Save a log evaluation result. Returns the evaluation ID."""
+    cursor = conn.execute(
+        """INSERT INTO log_evaluations
+           (container, hours_evaluated, line_count, strategy_used, output_format,
+            model, result_json, eval_time_seconds, prompt_name)
+           VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)""",
+        (container, hours, line_count, strategy, output_format, model,
+         result_json, eval_time, prompt_name),
+    )
+    conn.commit()
+    return cursor.lastrowid
+
+
+def get_log_evaluations(conn, container: str, limit: int = 20) -> list[dict]:
+    """Get recent log evaluations for a container."""
+    rows = conn.execute(
+        "SELECT id, container, timestamp, hours_evaluated, line_count, strategy_used, "
+        "output_format, model, result_json, eval_time_seconds, prompt_name "
+        "FROM log_evaluations WHERE container = ? ORDER BY id DESC LIMIT ?",
+        (container, limit),
+    ).fetchall()
+    return [
+        {"id": r[0], "container": r[1], "timestamp": r[2], "hours_evaluated": r[3],
+         "line_count": r[4], "strategy_used": r[5], "output_format": r[6],
+         "model": r[7], "result_json": r[8], "eval_time_seconds": r[9],
+         "prompt_name": r[10]}
+        for r in rows
+    ]
+
+
+def get_log_evaluation(conn, eval_id: int) -> dict | None:
+    """Get a single log evaluation by ID."""
+    r = conn.execute(
+        "SELECT id, container, timestamp, hours_evaluated, line_count, strategy_used, "
+        "output_format, model, result_json, eval_time_seconds, prompt_name "
+        "FROM log_evaluations WHERE id = ?",
+        (eval_id,),
+    ).fetchone()
+    if not r:
+        return None
+    return {
+        "id": r[0], "container": r[1], "timestamp": r[2], "hours_evaluated": r[3],
+        "line_count": r[4], "strategy_used": r[5], "output_format": r[6],
+        "model": r[7], "result_json": r[8], "eval_time_seconds": r[9],
+        "prompt_name": r[10],
+    }
+
 if __name__ == "__main__":
     import tempfile
     import os
