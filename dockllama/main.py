@@ -551,6 +551,7 @@ async def run(cfg: DockLlamaConfig) -> None:
         await server.serve()
 
     async def run_monitor():
+        nonlocal cfg
         # Run startup checks (non-blocking — web server is already accepting requests)
         await asyncio.to_thread(startup_check, cfg)
         logger.info("Starting monitor loop...")
