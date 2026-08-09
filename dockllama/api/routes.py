@@ -6,6 +6,7 @@ import asyncio
 import time
 from typing import Optional
 
+from fastapi.responses import PlainTextResponse
 from fastapi import APIRouter, Query, HTTPException
 from pydantic import BaseModel
 
@@ -450,6 +451,68 @@ async def list_fleet_containers():
     return all_containers
 
 
+
+
+@router.get("/metrics", response_class=PlainTextResponse)
+async def prometheus_metrics():
+    """Prometheus-compatible /metrics endpoint."""
+    cfg = _get_cfg()
+    conn = init_db(cfg.monitoring.db_path)
+    try:
+        lines = []
+        lines.append("# HELP dockllama_container_health_score Current health score")
+        lines.append("# TYPE dockllama_container_health_score gauge")
+        lines.append("# HELP dockllama_container_eval_count Total evaluations")
+        lines.append("# TYPE dockllama_container_eval_count counter")
+        lines.append("# HELP dockllama_container_cpu_percent CPU usage percent")
+        lines.append("# TYPE dockllama_container_cpu_percent gauge")
+        lines.append("# HELP dockllama_container_mem_percent Memory usage percent")
+        lines.append("# TYPE dockllama_container_mem_percent gauge")
+
+        for c in cfg.containers:
+            if not c.enabled:
+                continue
+            row = conn.execute(
+                "SELECT health_score FROM eval_history WHERE container = ? ORDER BY id DESC LIMIT 1",
+                (c.name,),
+            ).fetchone()
+            if row and row[0] is not None:
+                lines.append(f'dockllama_container_health_score{{container="{c.name}"}} {row[0]}')
+            count = conn.execute(
+                "SELECT COUNT(*) FROM eval_history WHERE container = ?", (c.name,),
+            ).fetchone()[0]
+            lines.append(f'dockllama_container_eval_count{{container="{c.name}"}} {count}')
+            stat = conn.execute(
+                "SELECT cpu_percent, mem_percent FROM container_stats WHERE container = ? ORDER BY id DESC LIMIT 1",
+                (c.name,),
+            ).fetchone()
+            if stat:
+                if stat[0] is not None:
+                    lines.append(f'dockllama_container_cpu_percent{{container="{c.name}"}} {stat[0]}')
+                if stat[1] is not None:
+                    lines.append(f'dockllama_container_mem_percent{{container="{c.name}"}} {stat[1]}')
+
+        total = len([c for c in cfg.containers if c.enabled])
+        lines.append("# HELP dockllama_monitored_containers Total monitored containers")
+        lines.append("# TYPE dockllama_monitored_containers gauge")
+        lines.append(f"dockllama_monitored_containers {total}")
+        lines.append("# HELP dockllama_poll_interval_seconds Poll interval")
+        lines.append("# TYPE dockllama_poll_interval_seconds gauge")
+        lines.append(f"dockllama_poll_interval_seconds {cfg.monitoring.poll_interval_seconds}")
+
+        try:
+            pending = conn.execute(
+                "SELECT COUNT(*) FROM pending_patterns WHERE surfaced = 1"
+            ).fetchone()[0]
+            lines.append("# HELP dockllama_pending_patterns Surfaced patterns awaiting classification")
+            lines.append("# TYPE dockllama_pending_patterns gauge")
+            lines.append(f"dockllama_pending_patterns {pending}")
+        except Exception:
+            pass
+
+        return "\n".join(lines) + "\n"
+    finally:
+        conn.close()
 
 @router.get("/help-links")
 async def get_help_links():

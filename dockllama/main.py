@@ -35,8 +35,36 @@ logging.basicConfig(
     datefmt="%Y-%m-%d %H:%M:%S",
 )
 logger = logging.getLogger("dockllama")
+import os as _os
 import hashlib
 import re as _re
+
+
+_config_mtime: float = 0.0
+
+
+def _check_config_reload(cfg):
+    """Reload config if the file has been modified on disk."""
+    global _config_mtime
+    try:
+        mtime = _os.path.getmtime(cfg._config_path)
+        if _config_mtime == 0.0:
+            _config_mtime = mtime
+            return cfg
+        if mtime > _config_mtime:
+            logger.info("Config file changed on disk, reloading...")
+            from dockllama.config import load_config
+            new_cfg = load_config(cfg._config_path)
+            _config_mtime = mtime
+            from dockllama.api.routes import set_config
+            set_config(new_cfg)
+            logger.info("Config reloaded: %d containers, poll=%ds",
+                        len(new_cfg.containers), new_cfg.monitoring.poll_interval_seconds)
+            return new_cfg
+    except Exception as e:
+        logger.warning("Config reload check failed: %s", e)
+    return cfg
+
 
 
 def _normalize_for_hash(line: str) -> str:
@@ -530,6 +558,7 @@ async def run(cfg: DockLlamaConfig) -> None:
             if eval_paused.is_set():
                 logger.info("Evaluations paused, skipping cycle...")
             else:
+                cfg = _check_config_reload(cfg)
                 try:
                     await monitor_cycle(cfg)
                 except Exception:
