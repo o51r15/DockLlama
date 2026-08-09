@@ -22,9 +22,13 @@ DockLlama watches your Docker containers, analyzes their logs, resource usage, a
 ## Quick Start
 
 ```bash
+# Find your host's docker group ID
+DOCKER_GID=$(getent group docker | cut -d: -f3)
+
 docker run -d \
   --name dockLlama \
   --restart unless-stopped \
+  --group-add $DOCKER_GID \
   -p 8556:8556 \
   -v /var/run/docker.sock:/var/run/docker.sock:ro \
   -v ./config.yaml:/app/config/config.yaml \
