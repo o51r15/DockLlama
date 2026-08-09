@@ -10,7 +10,7 @@ from fastapi import APIRouter, Query, HTTPException
 from pydantic import BaseModel
 
 from dockllama.config import DockLlamaConfig, ContainerConfig, save_poll_interval, save_default_model, save_containers_to_config
-from dockllama.db import init_db, save_benchmark_result, get_benchmark_results, archive_container_config, restore_container_config, purge_container_data, get_container_prompt, save_container_prompt, delete_container_prompt, get_tested_models, save_tested_model, get_health_check, get_all_health_checks, save_health_check, delete_health_check, get_health_check_history, save_health_check_result
+from dockllama.db import init_db, save_benchmark_result, get_benchmark_results, archive_container_config, restore_container_config, purge_container_data, get_container_prompt, save_container_prompt, delete_container_prompt, get_tested_models, save_tested_model, get_health_check, get_all_health_checks, save_health_check, delete_health_check, get_health_check_history, save_health_check_result, save_eval_history, get_eval_history
 from dockllama.docker_client import get_client, get_logs, list_containers
 from dockllama.log_pipeline import process_logs
 from dockllama.ai_engine import evaluate, EvaluationContext
@@ -289,6 +289,34 @@ async def evaluate_container(name: str, req: EvalRequest):
             ),
         )
         conn.commit()
+        # Persist to eval_history (Phase 10A)
+        try:
+            import json as _json
+            full_json = _json.dumps({
+                "status": result.status, "health_score": result.health_score,
+                "confidence": result.confidence, "summary": result.summary,
+                "root_cause_category": result.root_cause_category,
+                "error_origin": getattr(result, "error_origin", "none"),
+                "recommended_action": result.recommended_action,
+                "restart_would_help": getattr(result, "restart_would_help", False),
+                "restart_reasoning": getattr(result, "restart_reasoning", ""),
+            })
+            save_eval_history(
+                conn, name, eval_type="manual",
+                status=result.status, health_score=result.health_score,
+                confidence=result.confidence, summary=result.summary,
+                root_cause_category=result.root_cause_category,
+                error_origin=getattr(result, "error_origin", "none"),
+                recommended_action=result.recommended_action,
+                restart_would_help=getattr(result, "restart_would_help", False),
+                restart_reasoning=getattr(result, "restart_reasoning", ""),
+                model=model, prompt_version=prompt_version,
+                lines_evaluated=len(filtered_lines),
+                eval_time_seconds=elapsed,
+                full_result_json=full_json,
+            )
+        except Exception:
+            pass
     finally:
         conn.close()
 
@@ -305,6 +333,25 @@ async def evaluate_container(name: str, req: EvalRequest):
         "eval_time_seconds": elapsed,
         "lines_evaluated": len(filtered_lines),
     }
+
+
+
+
+@router.get("/containers/{name}/eval-history")
+async def get_container_eval_history(
+    name: str,
+    eval_type: Optional[str] = None,
+    limit: int = Query(50, ge=1, le=500),
+    since: Optional[str] = None,
+):
+    """Get evaluation history for a container."""
+    cfg = _get_cfg()
+    conn = init_db(cfg.monitoring.db_path)
+    try:
+        history = get_eval_history(conn, name, eval_type=eval_type, limit=limit, since=since)
+    finally:
+        conn.close()
+    return history
 
 
 @router.get("/events")

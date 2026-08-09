@@ -14,7 +14,7 @@ from fastapi import FastAPI
 from fastapi.staticfiles import StaticFiles
 
 from dockllama.config import load_config, DockLlamaConfig
-from dockllama.db import init_db, save_container_stats, prune_container_stats, get_container_prompt, verify_tables, prune_old_events, vacuum_db, is_blackout_active
+from dockllama.db import init_db, save_container_stats, prune_container_stats, get_container_prompt, verify_tables, prune_old_events, vacuum_db, is_blackout_active, save_eval_history, prune_eval_history
 from dockllama.docker_client import get_client, get_logs, list_containers, get_container_stats
 from dockllama.log_pipeline import process_logs
 from dockllama.log_analyzer import analyze_logs
@@ -81,6 +81,7 @@ def startup_check(cfg: DockLlamaConfig) -> None:
     logger.info("Database OK: %s", tables)
     pruned = prune_old_events(conn, cfg.monitoring.retention_days)
     prune_container_stats(conn, cfg.monitoring.stats_retention_days)
+    prune_eval_history(conn, cfg.monitoring.retention_days)
     if pruned:
         vacuum_db(conn)
         logger.info("DB maintenance: pruned %d old events, vacuumed", pruned)
@@ -253,6 +254,22 @@ async def _process_container(container_cfg, container, cfg: DockLlamaConfig, con
             "restart_reasoning": result.restart_reasoning,
             "recommended_action": result.recommended_action,
         })
+        # Persist to eval_history
+        try:
+            save_eval_history(
+                conn, container_cfg.name, eval_type="scheduled",
+                status=result.status, health_score=result.health_score,
+                confidence=result.confidence, summary=result.summary,
+                root_cause_category=result.root_cause_category,
+                error_origin=result.error_origin,
+                recommended_action=result.recommended_action,
+                restart_would_help=result.restart_would_help,
+                restart_reasoning=result.restart_reasoning,
+                model="none", prompt_version=prompt_version,
+                lines_evaluated=0,
+            )
+        except Exception as e:
+            logger.debug("Failed to save eval_history for %s: %s", container_cfg.name, e)
         return
 
     # 3b. Evaluate with AI
@@ -321,6 +338,34 @@ async def _process_container(container_cfg, container, cfg: DockLlamaConfig, con
         ),
     )
     conn.commit()
+
+    # Persist to eval_history
+    try:
+        import json as _json
+        full_json = _json.dumps({
+            "status": result.status, "health_score": result.health_score,
+            "confidence": result.confidence, "summary": result.summary,
+            "root_cause_category": result.root_cause_category,
+            "error_origin": result.error_origin,
+            "recommended_action": result.recommended_action,
+            "restart_would_help": result.restart_would_help,
+            "restart_reasoning": result.restart_reasoning,
+        })
+        save_eval_history(
+            conn, container_cfg.name, eval_type="scheduled",
+            status=result.status, health_score=result.health_score,
+            confidence=result.confidence, summary=result.summary,
+            root_cause_category=result.root_cause_category,
+            error_origin=result.error_origin,
+            recommended_action=result.recommended_action,
+            restart_would_help=result.restart_would_help,
+            restart_reasoning=result.restart_reasoning,
+            model=model, prompt_version=prompt_version,
+            lines_evaluated=summary.total_lines,
+            full_result_json=full_json,
+        )
+    except Exception as e:
+        logger.debug("Failed to save eval_history for %s: %s", container_cfg.name, e)
 
     # Publish to SSE
     publish("evaluation", {
@@ -481,6 +526,7 @@ async def run(cfg: DockLlamaConfig) -> None:
                 # Daily maintenance after digest
                 pruned = prune_old_events(conn, cfg.monitoring.retention_days)
                 prune_container_stats(conn, cfg.monitoring.stats_retention_days)
+                prune_eval_history(conn, cfg.monitoring.retention_days)
                 if pruned:
                     vacuum_db(conn)
                 conn.close()

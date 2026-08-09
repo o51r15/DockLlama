@@ -35,7 +35,7 @@
 .trend-badge { padding:0.15rem 0.5rem; border-radius:4px; font-size:0.7rem; font-weight:600; text-transform:uppercase; }
 .trend-improving { background:#22c55e22; color:var(--green); }
 .trend-stable { background:#3b82f622; color:var(--blue); }
-.trend-worsening { background:#ef444422; color:var(--red); }
+.trend-declining { background:#ef444422; color:var(--red); }
 .trend-insufficient_data { background:#8b8fa322; color:var(--text-dim); }
 .trend-bars { display:flex; gap:1rem; margin-top:0.5rem; }
 .trend-bar { flex:1; }
@@ -191,9 +191,9 @@
                      x-text="trends.fleet_restarts_7d"></div>
                 <div class="stat-label">Restarts (7d)</div>
               </div>
-              <template x-if="trends.worsening_containers && trends.worsening_containers.length > 0">
+              <template x-if="trends.declining_containers && trends.declining_containers.length > 0">
                 <div class="stat-card" style="border-color:var(--red)">
-                  <div class="stat-value conf-low" x-text="trends.worsening_containers.length"></div>
+                  <div class="stat-value conf-low" x-text="trends.declining_containers.length"></div>
                   <div class="stat-label">Worsening</div>
                 </div>
               </template>

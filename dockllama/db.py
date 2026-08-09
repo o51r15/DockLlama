@@ -177,6 +177,30 @@ CREATE TABLE IF NOT EXISTS log_evaluations (
 
 CREATE INDEX IF NOT EXISTS idx_log_evals_container ON log_evaluations(container);
 CREATE INDEX IF NOT EXISTS idx_log_evals_timestamp ON log_evaluations(timestamp);
+
+CREATE TABLE IF NOT EXISTS eval_history (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    container TEXT NOT NULL,
+    timestamp TEXT NOT NULL DEFAULT (datetime('now')),
+    eval_type TEXT NOT NULL,
+    status TEXT,
+    health_score INTEGER,
+    confidence INTEGER,
+    summary TEXT,
+    root_cause_category TEXT,
+    error_origin TEXT,
+    recommended_action TEXT,
+    restart_would_help INTEGER DEFAULT 0,
+    restart_reasoning TEXT,
+    model TEXT,
+    prompt_version TEXT,
+    lines_evaluated INTEGER,
+    eval_time_seconds REAL,
+    full_result_json TEXT
+);
+
+CREATE INDEX IF NOT EXISTS idx_eval_history_container_time ON eval_history(container, timestamp);
+CREATE INDEX IF NOT EXISTS idx_eval_history_type ON eval_history(eval_type);
 """
 
 
@@ -200,6 +224,28 @@ def init_db(db_path: str | Path = DEFAULT_DB_PATH) -> sqlite3.Connection:
     # Migrations for existing installs
     for sql in [
         "ALTER TABLE tested_models ADD COLUMN results_json TEXT",
+        """CREATE TABLE IF NOT EXISTS eval_history (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            container TEXT NOT NULL,
+            timestamp TEXT NOT NULL DEFAULT (datetime('now')),
+            eval_type TEXT NOT NULL,
+            status TEXT,
+            health_score INTEGER,
+            confidence INTEGER,
+            summary TEXT,
+            root_cause_category TEXT,
+            error_origin TEXT,
+            recommended_action TEXT,
+            restart_would_help INTEGER DEFAULT 0,
+            restart_reasoning TEXT,
+            model TEXT,
+            prompt_version TEXT,
+            lines_evaluated INTEGER,
+            eval_time_seconds REAL,
+            full_result_json TEXT
+        )""",
+        "CREATE INDEX IF NOT EXISTS idx_eval_history_container_time ON eval_history(container, timestamp)",
+        "CREATE INDEX IF NOT EXISTS idx_eval_history_type ON eval_history(eval_type)",
     ]:
         try:
             conn.execute(sql)
@@ -271,6 +317,7 @@ def purge_container_data(conn, container: str) -> dict:
         ("cooldowns", "container"),
         ("container_prompts", "container"),
         ("container_config_archive", "container"),
+        ("eval_history", "container"),
     ]:
         cursor = conn.execute(f"DELETE FROM {table} WHERE {col} = ?", (container,))
         if cursor.rowcount:
@@ -832,6 +879,97 @@ def get_log_evaluation(conn, eval_id: int) -> dict | None:
         "model": r[7], "result_json": r[8], "eval_time_seconds": r[9],
         "prompt_name": r[10],
     }
+
+
+# ─── Eval History ──────────────────────────────────────────────
+
+def save_eval_history(conn, container: str, eval_type: str, status: str,
+                      health_score: int, confidence: int, summary: str,
+                      root_cause_category: str = "none", error_origin: str = "none",
+                      recommended_action: str = "none", restart_would_help: bool = False,
+                      restart_reasoning: str = "", model: str = None,
+                      prompt_version: str = None, lines_evaluated: int = 0,
+                      eval_time_seconds: float = 0.0, full_result_json: str = None) -> int:
+    """Save an evaluation result to eval_history. Returns the row ID."""
+    now = datetime.now(timezone.utc).strftime("%Y-%m-%d %H:%M:%S")
+    cursor = conn.execute(
+        """INSERT INTO eval_history
+           (container, timestamp, eval_type, status, health_score, confidence, summary,
+            root_cause_category, error_origin, recommended_action, restart_would_help,
+            restart_reasoning, model, prompt_version, lines_evaluated,
+            eval_time_seconds, full_result_json)
+           VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
+        (container, now, eval_type, status, health_score, confidence, summary,
+         root_cause_category, error_origin, recommended_action,
+         int(restart_would_help), restart_reasoning, model, prompt_version,
+         lines_evaluated, eval_time_seconds, full_result_json),
+    )
+    conn.commit()
+    return cursor.lastrowid
+
+
+def get_eval_history(conn, container: str, eval_type: str = None,
+                     limit: int = 50, since: str = None) -> list[dict]:
+    """Get evaluation history for a container with optional filters."""
+    query = ("SELECT id, container, timestamp, eval_type, status, health_score, "
+             "confidence, summary, root_cause_category, error_origin, "
+             "recommended_action, restart_would_help, restart_reasoning, "
+             "model, prompt_version, lines_evaluated, eval_time_seconds, "
+             "full_result_json "
+             "FROM eval_history WHERE container = ?")
+    params: list = [container]
+    if eval_type:
+        query += " AND eval_type = ?"
+        params.append(eval_type)
+    if since:
+        query += " AND timestamp >= ?"
+        params.append(since)
+    query += " ORDER BY id DESC LIMIT ?"
+    params.append(limit)
+    rows = conn.execute(query, params).fetchall()
+    return [
+        {"id": r[0], "container": r[1], "timestamp": r[2], "eval_type": r[3],
+         "status": r[4], "health_score": r[5], "confidence": r[6],
+         "summary": r[7], "root_cause_category": r[8], "error_origin": r[9],
+         "recommended_action": r[10], "restart_would_help": bool(r[11]),
+         "restart_reasoning": r[12], "model": r[13], "prompt_version": r[14],
+         "lines_evaluated": r[15], "eval_time_seconds": r[16],
+         "full_result_json": r[17]}
+        for r in rows
+    ]
+
+
+def get_eval_history_entry(conn, eval_id: int) -> dict | None:
+    """Get a single eval history entry by ID."""
+    r = conn.execute(
+        "SELECT id, container, timestamp, eval_type, status, health_score, "
+        "confidence, summary, root_cause_category, error_origin, "
+        "recommended_action, restart_would_help, restart_reasoning, "
+        "model, prompt_version, lines_evaluated, eval_time_seconds, "
+        "full_result_json "
+        "FROM eval_history WHERE id = ?",
+        (eval_id,),
+    ).fetchone()
+    if not r:
+        return None
+    return {
+        "id": r[0], "container": r[1], "timestamp": r[2], "eval_type": r[3],
+        "status": r[4], "health_score": r[5], "confidence": r[6],
+        "summary": r[7], "root_cause_category": r[8], "error_origin": r[9],
+        "recommended_action": r[10], "restart_would_help": bool(r[11]),
+        "restart_reasoning": r[12], "model": r[13], "prompt_version": r[14],
+        "lines_evaluated": r[15], "eval_time_seconds": r[16],
+        "full_result_json": r[17],
+    }
+
+
+def prune_eval_history(conn, retention_days: int = 10) -> int:
+    """Delete eval_history rows older than retention_days. Returns rows deleted."""
+    cutoff = (datetime.now(timezone.utc) - timedelta(days=retention_days)).strftime("%Y-%m-%d %H:%M:%S")
+    cursor = conn.execute("DELETE FROM eval_history WHERE timestamp < ?", (cutoff,))
+    conn.commit()
+    return cursor.rowcount
+
 
 if __name__ == "__main__":
     import tempfile

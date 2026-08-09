@@ -32,6 +32,7 @@ class EvaluationResult(BaseModel):
     restart_would_help: bool = False
     restart_reasoning: str = ""
     recommended_action: str = "none"
+    status_reasoning: str = ""
 
     @field_validator("status")
     @classmethod

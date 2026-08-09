@@ -128,7 +128,7 @@ async def generate_digest(cfg: DockLlamaConfig, conn: sqlite3.Connection) -> dic
             stats["trends_7d_30d"] = {
                 "fleet_health_pct_7d": trends["fleet_health_pct_7d"],
                 "fleet_restarts_7d": trends["fleet_restarts_7d"],
-                "worsening_containers": trends["worsening_containers"],
+                "declining_containers": trends["declining_containers"],
                 "per_container": [
                     {"name": c["container"], "trend": c["trend"],
                      "health_7d": c["last_7d"]["health_pct"],

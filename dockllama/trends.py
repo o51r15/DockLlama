@@ -80,7 +80,7 @@ def _compare_windows(recent: dict, older: dict) -> str:
     if diff > 5:
         return "improving"
     elif diff < -5:
-        return "worsening"
+        return "declining"
     return "stable"
 
 
@@ -126,7 +126,7 @@ def get_fleet_trends(conn: sqlite3.Connection, containers: list[str]) -> dict[st
     fleet_healthy_7d = 0
     fleet_total_7d = 0
     fleet_restarts_7d = 0
-    worsening = []
+    declining = []
 
     for name in containers:
         t = get_container_trends(conn, name)
@@ -134,8 +134,8 @@ def get_fleet_trends(conn: sqlite3.Connection, containers: list[str]) -> dict[st
         fleet_healthy_7d += t["last_7d"]["healthy"]
         fleet_total_7d += t["last_7d"]["total_evaluations"]
         fleet_restarts_7d += t["last_7d"]["restarts"]
-        if t["trend"] == "worsening":
-            worsening.append(name)
+        if t["trend"] == "declining":
+            declining.append(name)
 
     fleet_health_pct = round((fleet_healthy_7d / fleet_total_7d) * 100, 1) if fleet_total_7d else 100.0
 
@@ -144,6 +144,6 @@ def get_fleet_trends(conn: sqlite3.Connection, containers: list[str]) -> dict[st
         "fleet_health_pct_7d": fleet_health_pct,
         "fleet_total_evaluations_7d": fleet_total_7d,
         "fleet_restarts_7d": fleet_restarts_7d,
-        "worsening_containers": worsening,
+        "declining_containers": declining,
         "containers": container_trends,
     }
