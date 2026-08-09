@@ -439,7 +439,7 @@ All of the above is also accessible from the Settings page (9.4 container manage
 
 ### Phase 10 — Evaluation History, Learning Persistence & Knowledge Base
 
-**Status:** 10A-10B NOT STARTED, 10C-10F NOT STARTED
+**Status:** 10A-10F COMPLETE (Session 11)
 **Objective:** Transform DockLlama from a stateless evaluator into a system that remembers, learns, and improves over time. This is broken into six sub-phases that build on each other.
 
 **Architecture principle:** Eval results are the indexed, searchable layer — compact and structured with start/end timestamp pointers back to Docker's raw logs. Raw logs stay in Docker where they belong. The learning system reads past eval results, identifies patterns across evaluations, and uses timestamps to pull targeted raw log slices from Docker when it needs the full picture. This avoids storing terabytes of raw logs in SQLite while giving the learning system everything it needs.
@@ -448,7 +448,7 @@ All of the above is also accessible from the Settings page (9.4 container manage
 
 ---
 
-#### 10A — Evaluation History & Status UX ⬅️ START HERE
+#### 10A — Evaluation History & Status UX ✅
 
 **Objective:** Make all evaluation results persistent and queryable, and improve the status display to show reasoning.
 
@@ -475,7 +475,7 @@ Make the status badge (stable/improving/degraded) clickable to show the LLM's re
 
 ---
 
-#### 10B — Configurable Digest Window & Log Retention
+#### 10B — Configurable Digest Window & Log Retention ✅
 
 **Objective:** Make the digest time window and per-container eval retention configurable.
 
@@ -499,7 +499,7 @@ Configurable retention window for eval history, with a daily cleanup job:
 
 ---
 
-#### 10C — Per-Container Knowledge Base
+#### 10C — Per-Container Knowledge Base ✅
 
 **Objective:** Build a structured knowledge base per container that stores user-classified patterns and context, injected into all future evaluations.
 
@@ -535,7 +535,7 @@ Configurable retention window for eval history, with a daily cleanup job:
 
 ---
 
-#### 10D — Pattern Detection & User Prompting
+#### 10D — Pattern Detection & User Prompting ✅
 
 **Objective:** Have DockLlama proactively identify recurring patterns and ask the user to classify them, building the knowledge base through guided interaction.
 
@@ -568,7 +568,7 @@ When a pattern is classified as `watch`:
 
 ---
 
-#### 10E — Learning from Evaluations Over Time
+#### 10E — Learning from Evaluations Over Time ✅
 
 **Objective:** The system reads its own evaluation history to build a longitudinal understanding of each container's behavior.
 
@@ -595,7 +595,7 @@ When a pattern is classified as `watch`:
 
 ---
 
-#### 10F — Wiki & In-App Documentation
+#### 10F — Wiki & In-App Documentation ✅
 
 **Objective:** Contextual documentation linked directly from the UI so users understand what each feature does and how to configure it properly.
 
@@ -625,7 +625,7 @@ When a pattern is classified as `watch`:
 
 ---
 
-### Phase 11 — Fleet Management (Distributed Architecture)
+### Phase 11 — Fleet Management (Distributed Architecture) ⬅️ START HERE
 
 **Objective:** Scale Dockmon to monitor multiple servers across an entire homelab or production environment.
 
