@@ -35,6 +35,45 @@ logging.basicConfig(
     datefmt="%Y-%m-%d %H:%M:%S",
 )
 logger = logging.getLogger("dockllama")
+import hashlib
+import re as _re
+
+
+def _normalize_for_hash(line: str) -> str:
+    """Normalize a log line for pattern hashing."""
+    s = line.strip()
+    s = _re.sub(r"\d{4}-\d{2}-\d{2}[T ]\d{2}:\d{2}:\d{2}[.\d]*Z?", "<TS>", s)
+    s = _re.sub(r"[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}", "<UUID>", s, flags=_re.IGNORECASE)
+    s = _re.sub(r"\b\d{1,3}\.\d{1,3}\.\d{1,3}\.\d{1,3}(:\d+)?\b", "<IP>", s)
+    s = _re.sub(r":\d{4,5}\b", ":<PORT>", s)
+    return hashlib.sha256(s.encode()).hexdigest()[:16]
+
+
+def _track_eval_patterns(conn, container: str, result, summary_obj=None):
+    """Extract notable patterns from an eval result and track them as pending patterns."""
+    try:
+        # Extract patterns from the summary text
+        summary = getattr(result, "summary", "") or ""
+        root_cause = getattr(result, "root_cause_category", "none") or "none"
+
+        # Only track patterns from non-healthy evals (healthy evals are noise)
+        status = getattr(result, "status", "healthy")
+        if status == "healthy" and getattr(result, "health_score", 100) >= 80:
+            return
+
+        # Use the summary as the pattern sample if no specific error lines
+        if summary and len(summary) > 10:
+            phash = _normalize_for_hash(summary)
+            ai_guess = f"AI assessment: {status} (score {getattr(result, 'health_score', '?')}). {summary[:200]}"
+            track_pending_pattern(conn, container, phash, summary[:500], ai_guess)
+
+        # Also surface pattern thresholds periodically
+        surface_pending_patterns(conn, threshold=3)
+    except Exception:
+        pass  # Don't let pattern tracking break the eval pipeline
+
+
+
 
 # Graceful shutdown
 _shutdown = asyncio.Event()

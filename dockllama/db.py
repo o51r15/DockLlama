@@ -217,6 +217,20 @@ CREATE TABLE IF NOT EXISTS container_knowledge (
 );
 
 CREATE INDEX IF NOT EXISTS idx_knowledge_container_hash ON container_knowledge(container, pattern_hash);
+
+CREATE TABLE IF NOT EXISTS pending_patterns (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    container TEXT NOT NULL,
+    pattern_hash TEXT NOT NULL,
+    sample_log_line TEXT,
+    occurrence_count INTEGER DEFAULT 1,
+    first_seen TEXT NOT NULL DEFAULT (datetime('now')),
+    last_seen TEXT NOT NULL DEFAULT (datetime('now')),
+    ai_guess TEXT,
+    surfaced INTEGER DEFAULT 0
+);
+
+CREATE UNIQUE INDEX IF NOT EXISTS idx_pending_container_hash ON pending_patterns(container, pattern_hash);
 """
 
 
@@ -268,6 +282,25 @@ def init_db(db_path: str | Path = DEFAULT_DB_PATH) -> sqlite3.Connection:
             conn.commit()
         except Exception:
             pass  # column already exists
+    # Migration: pending_patterns table
+    try:
+        conn.executescript("""
+            CREATE TABLE IF NOT EXISTS pending_patterns (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                container TEXT NOT NULL,
+                pattern_hash TEXT NOT NULL,
+                sample_log_line TEXT,
+                occurrence_count INTEGER DEFAULT 1,
+                first_seen TEXT NOT NULL DEFAULT (datetime('now')),
+                last_seen TEXT NOT NULL DEFAULT (datetime('now')),
+                ai_guess TEXT,
+                surfaced INTEGER DEFAULT 0
+            );
+            CREATE UNIQUE INDEX IF NOT EXISTS idx_pending_container_hash ON pending_patterns(container, pattern_hash);
+        """)
+        conn.commit()
+    except Exception:
+        pass
     # Migration: container_knowledge table
     try:
         conn.executescript("""
@@ -356,6 +389,7 @@ def purge_container_data(conn, container: str) -> dict:
         ("container_config_archive", "container"),
         ("eval_history", "container"),
         ("container_knowledge", "container"),
+        ("pending_patterns", "container"),
     ]:
         cursor = conn.execute(f"DELETE FROM {table} WHERE {col} = ?", (container,))
         if cursor.rowcount:
@@ -1099,6 +1133,124 @@ def delete_knowledge_entry(conn, entry_id: int) -> bool:
     cursor = conn.execute("DELETE FROM container_knowledge WHERE id = ?", (entry_id,))
     conn.commit()
     return cursor.rowcount > 0
+
+
+
+
+# ─── Pending Patterns ─────────────────────────────────────────
+
+def track_pending_pattern(conn, container: str, pattern_hash: str,
+                          sample_log_line: str, ai_guess: str = None) -> int:
+    """Track a pattern occurrence. Creates or increments count. Returns entry ID.
+    Skips if pattern already exists in container_knowledge."""
+    # Check if already classified
+    existing_kb = conn.execute(
+        "SELECT id FROM container_knowledge WHERE container = ? AND pattern_hash = ?",
+        (container, pattern_hash),
+    ).fetchone()
+    if existing_kb:
+        return -1  # Already classified, skip
+
+    now = datetime.now(timezone.utc).strftime("%Y-%m-%d %H:%M:%S")
+    existing = conn.execute(
+        "SELECT id, occurrence_count FROM pending_patterns WHERE container = ? AND pattern_hash = ?",
+        (container, pattern_hash),
+    ).fetchone()
+    if existing:
+        conn.execute(
+            "UPDATE pending_patterns SET occurrence_count = ?, last_seen = ?, "
+            "sample_log_line = ? WHERE id = ?",
+            (existing[1] + 1, now, sample_log_line, existing[0]),
+        )
+        conn.commit()
+        return existing[0]
+    else:
+        cursor = conn.execute(
+            "INSERT INTO pending_patterns "
+            "(container, pattern_hash, sample_log_line, occurrence_count, "
+            "first_seen, last_seen, ai_guess, surfaced) "
+            "VALUES (?, ?, ?, 1, ?, ?, ?, 0)",
+            (container, pattern_hash, sample_log_line, now, now, ai_guess),
+        )
+        conn.commit()
+        return cursor.lastrowid
+
+
+def get_pending_patterns(conn, container: str = None, surfaced_only: bool = False,
+                         min_occurrences: int = 1) -> list[dict]:
+    """Get pending patterns, optionally filtered by container and occurrence threshold."""
+    query = ("SELECT id, container, pattern_hash, sample_log_line, occurrence_count, "
+             "first_seen, last_seen, ai_guess, surfaced FROM pending_patterns WHERE 1=1")
+    params = []
+    if container:
+        query += " AND container = ?"
+        params.append(container)
+    if surfaced_only:
+        query += " AND surfaced = 1"
+    if min_occurrences > 1:
+        query += " AND occurrence_count >= ?"
+        params.append(min_occurrences)
+    query += " ORDER BY occurrence_count DESC, last_seen DESC"
+    rows = conn.execute(query, params).fetchall()
+    return [
+        {"id": r[0], "container": r[1], "pattern_hash": r[2], "sample_log_line": r[3],
+         "occurrence_count": r[4], "first_seen": r[5], "last_seen": r[6],
+         "ai_guess": r[7], "surfaced": bool(r[8])}
+        for r in rows
+    ]
+
+
+def surface_pending_patterns(conn, threshold: int = 3) -> int:
+    """Mark patterns with occurrence_count >= threshold as surfaced. Returns count surfaced."""
+    cursor = conn.execute(
+        "UPDATE pending_patterns SET surfaced = 1 WHERE surfaced = 0 AND occurrence_count >= ?",
+        (threshold,),
+    )
+    conn.commit()
+    return cursor.rowcount
+
+
+def classify_pending_pattern(conn, pattern_id: int, classification: str,
+                             user_explanation: str = None) -> dict | None:
+    """Classify a pending pattern — moves it to container_knowledge and deletes from pending."""
+    row = conn.execute(
+        "SELECT container, pattern_hash, sample_log_line, occurrence_count, first_seen "
+        "FROM pending_patterns WHERE id = ?",
+        (pattern_id,),
+    ).fetchone()
+    if not row:
+        return None
+    container, phash, sample, count, first_seen = row
+    now = datetime.now(timezone.utc).strftime("%Y-%m-%d %H:%M:%S")
+    # Insert into knowledge base
+    cursor = conn.execute(
+        "INSERT INTO container_knowledge "
+        "(container, pattern_hash, sample_log_line, classification, user_explanation, "
+        "times_seen, first_seen, last_seen, created_at, updated_at) "
+        "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+        (container, phash, sample, classification, user_explanation,
+         count, first_seen, now, now, now),
+    )
+    kb_id = cursor.lastrowid
+    # Remove from pending
+    conn.execute("DELETE FROM pending_patterns WHERE id = ?", (pattern_id,))
+    conn.commit()
+    return {"knowledge_id": kb_id, "container": container, "classification": classification}
+
+
+def delete_pending_pattern(conn, pattern_id: int) -> bool:
+    """Delete a pending pattern (dismiss without classifying)."""
+    cursor = conn.execute("DELETE FROM pending_patterns WHERE id = ?", (pattern_id,))
+    conn.commit()
+    return cursor.rowcount > 0
+
+
+def get_pending_pattern_counts(conn) -> dict:
+    """Get count of surfaced pending patterns per container (for notification badge)."""
+    rows = conn.execute(
+        "SELECT container, COUNT(*) FROM pending_patterns WHERE surfaced = 1 GROUP BY container"
+    ).fetchall()
+    return {r[0]: r[1] for r in rows}
 
 
 

@@ -10,7 +10,7 @@ from fastapi import APIRouter, Query, HTTPException
 from pydantic import BaseModel
 
 from dockllama.config import DockLlamaConfig, ContainerConfig, save_poll_interval, save_default_model, save_containers_to_config, save_digest_window, save_eval_retention
-from dockllama.db import get_container_knowledge, get_knowledge_entry, save_knowledge_entry, update_knowledge_entry, delete_knowledge_entry
+from dockllama.db import get_container_knowledge, get_knowledge_entry, save_knowledge_entry, update_knowledge_entry, delete_knowledge_entry, get_pending_patterns, classify_pending_pattern, delete_pending_pattern, get_pending_pattern_counts, surface_pending_patterns
 from dockllama.db import init_db, save_benchmark_result, get_benchmark_results, archive_container_config, restore_container_config, purge_container_data, get_container_prompt, save_container_prompt, delete_container_prompt, get_tested_models, save_tested_model, get_health_check, get_all_health_checks, save_health_check, delete_health_check, get_health_check_history, save_health_check_result, save_eval_history, get_eval_history
 from dockllama.docker_client import get_client, get_logs, list_containers
 from dockllama.log_pipeline import process_logs
@@ -387,6 +387,84 @@ async def update_retention_settings(body: dict):
         save_eval_retention(cfg)
     return {"status": "ok", "eval_retention_days": cfg.monitoring.eval_retention_days}
 
+
+
+
+
+@router.get("/patterns/pending")
+async def list_pending_patterns(container: str = None, min_occurrences: int = 1):
+    """Get pending patterns needing user classification."""
+    cfg = _get_cfg()
+    conn = init_db(cfg.monitoring.db_path)
+    try:
+        # Auto-surface patterns that meet threshold
+        surface_pending_patterns(conn, threshold=3)
+        patterns = get_pending_patterns(conn, container=container,
+                                        surfaced_only=True,
+                                        min_occurrences=min_occurrences)
+        return patterns
+    finally:
+        conn.close()
+
+
+@router.get("/patterns/pending/counts")
+async def pending_pattern_counts():
+    """Get count of surfaced pending patterns per container (for notification badge)."""
+    cfg = _get_cfg()
+    conn = init_db(cfg.monitoring.db_path)
+    try:
+        surface_pending_patterns(conn, threshold=3)
+        counts = get_pending_pattern_counts(conn)
+        total = sum(counts.values())
+        return {"total": total, "by_container": counts}
+    finally:
+        conn.close()
+
+
+@router.get("/patterns/pending/all")
+async def list_all_pending_patterns(container: str = None, min_occurrences: int = 1):
+    """Get ALL pending patterns (including not yet surfaced)."""
+    cfg = _get_cfg()
+    conn = init_db(cfg.monitoring.db_path)
+    try:
+        patterns = get_pending_patterns(conn, container=container,
+                                        min_occurrences=min_occurrences)
+        return patterns
+    finally:
+        conn.close()
+
+
+@router.post("/patterns/pending/{pattern_id}/classify")
+async def classify_pattern(pattern_id: int, body: dict):
+    """Classify a pending pattern — moves it to the knowledge base."""
+    classification = body.get("classification", "expected")
+    explanation = body.get("user_explanation", "")
+
+    if classification not in ("expected", "problem", "watch", "ignore"):
+        raise HTTPException(400, "classification must be: expected, problem, watch, or ignore")
+
+    cfg = _get_cfg()
+    conn = init_db(cfg.monitoring.db_path)
+    try:
+        result = classify_pending_pattern(conn, pattern_id, classification, explanation)
+        if not result:
+            raise HTTPException(404, "Pending pattern not found")
+        return result
+    finally:
+        conn.close()
+
+
+@router.delete("/patterns/pending/{pattern_id}")
+async def dismiss_pattern(pattern_id: int):
+    """Dismiss a pending pattern without classifying it."""
+    cfg = _get_cfg()
+    conn = init_db(cfg.monitoring.db_path)
+    try:
+        if not delete_pending_pattern(conn, pattern_id):
+            raise HTTPException(404, "Pending pattern not found")
+        return {"status": "ok", "dismissed": pattern_id}
+    finally:
+        conn.close()
 
 
 import hashlib
