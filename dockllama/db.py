@@ -231,6 +231,26 @@ CREATE TABLE IF NOT EXISTS pending_patterns (
 );
 
 CREATE UNIQUE INDEX IF NOT EXISTS idx_pending_container_hash ON pending_patterns(container, pattern_hash);
+
+CREATE TABLE IF NOT EXISTS container_trend_analysis (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    container TEXT NOT NULL,
+    analysis_date TEXT NOT NULL DEFAULT (datetime('now')),
+    period_days INTEGER NOT NULL DEFAULT 7,
+    eval_count INTEGER DEFAULT 0,
+    avg_health_score REAL,
+    min_health_score INTEGER,
+    max_health_score INTEGER,
+    healthy_pct REAL DEFAULT 0,
+    degraded_pct REAL DEFAULT 0,
+    unhealthy_pct REAL DEFAULT 0,
+    recurring_root_causes TEXT,
+    score_trend TEXT DEFAULT 'stable',
+    analysis_summary TEXT,
+    created_at TEXT NOT NULL DEFAULT (datetime('now'))
+);
+
+CREATE INDEX IF NOT EXISTS idx_trend_analysis_container ON container_trend_analysis(container, analysis_date);
 """
 
 
@@ -282,6 +302,37 @@ def init_db(db_path: str | Path = DEFAULT_DB_PATH) -> sqlite3.Connection:
             conn.commit()
         except Exception:
             pass  # column already exists
+    # Migration: baselines.image_id column
+    try:
+        conn.execute("ALTER TABLE baselines ADD COLUMN image_id TEXT")
+        conn.commit()
+    except Exception:
+        pass
+    # Migration: container_trend_analysis table
+    try:
+        conn.executescript("""
+            CREATE TABLE IF NOT EXISTS container_trend_analysis (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                container TEXT NOT NULL,
+                analysis_date TEXT NOT NULL DEFAULT (datetime('now')),
+                period_days INTEGER NOT NULL DEFAULT 7,
+                eval_count INTEGER DEFAULT 0,
+                avg_health_score REAL,
+                min_health_score INTEGER,
+                max_health_score INTEGER,
+                healthy_pct REAL DEFAULT 0,
+                degraded_pct REAL DEFAULT 0,
+                unhealthy_pct REAL DEFAULT 0,
+                recurring_root_causes TEXT,
+                score_trend TEXT DEFAULT 'stable',
+                analysis_summary TEXT,
+                created_at TEXT NOT NULL DEFAULT (datetime('now'))
+            );
+            CREATE INDEX IF NOT EXISTS idx_trend_analysis_container ON container_trend_analysis(container, analysis_date);
+        """)
+        conn.commit()
+    except Exception:
+        pass
     # Migration: pending_patterns table
     try:
         conn.executescript("""
@@ -390,6 +441,7 @@ def purge_container_data(conn, container: str) -> dict:
         ("eval_history", "container"),
         ("container_knowledge", "container"),
         ("pending_patterns", "container"),
+        ("container_trend_analysis", "container"),
     ]:
         cursor = conn.execute(f"DELETE FROM {table} WHERE {col} = ?", (container,))
         if cursor.rowcount:
@@ -1251,6 +1303,122 @@ def get_pending_pattern_counts(conn) -> dict:
         "SELECT container, COUNT(*) FROM pending_patterns WHERE surfaced = 1 GROUP BY container"
     ).fetchall()
     return {r[0]: r[1] for r in rows}
+
+
+
+
+# ─── Container Trend Analysis ─────────────────────────────────
+
+def analyze_container_trends(conn, container: str, period_days: int = 7) -> dict:
+    """Analyze eval history for a container over the given period.
+    Returns trend data and stores it in the DB."""
+    cutoff = (datetime.now(timezone.utc) - timedelta(days=period_days)).strftime("%Y-%m-%d %H:%M:%S")
+    rows = conn.execute(
+        "SELECT status, health_score, root_cause_category FROM eval_history "
+        "WHERE container = ? AND timestamp >= ? ORDER BY timestamp",
+        (container, cutoff),
+    ).fetchall()
+
+    if not rows:
+        return {"container": container, "eval_count": 0, "message": "No evaluations in period"}
+
+    scores = [r[1] for r in rows if r[1] is not None]
+    statuses = [r[0] for r in rows if r[0]]
+    root_causes = [r[2] for r in rows if r[2] and r[2] != "none"]
+
+    eval_count = len(rows)
+    avg_score = sum(scores) / len(scores) if scores else 0
+    min_score = min(scores) if scores else 0
+    max_score = max(scores) if scores else 0
+
+    total = len(statuses) or 1
+    healthy_pct = round(statuses.count("healthy") / total * 100, 1)
+    degraded_pct = round(statuses.count("degraded") / total * 100, 1)
+    unhealthy_pct = round((statuses.count("unhealthy") + statuses.count("critical")) / total * 100, 1)
+
+    # Determine score trend (compare first half vs second half)
+    if len(scores) >= 4:
+        mid = len(scores) // 2
+        first_half_avg = sum(scores[:mid]) / mid
+        second_half_avg = sum(scores[mid:]) / (len(scores) - mid)
+        diff = second_half_avg - first_half_avg
+        if diff > 5:
+            score_trend = "improving"
+        elif diff < -5:
+            score_trend = "declining"
+        else:
+            score_trend = "stable"
+    else:
+        score_trend = "stable"
+
+    # Count recurring root causes
+    cause_counts = {}
+    for c in root_causes:
+        cause_counts[c] = cause_counts.get(c, 0) + 1
+    recurring = {k: v for k, v in cause_counts.items() if v >= 2}
+
+    # Build summary
+    summary_parts = []
+    summary_parts.append(f"{eval_count} evaluations over {period_days} days.")
+    summary_parts.append(f"Average health score: {avg_score:.0f} (range {min_score}-{max_score}).")
+    summary_parts.append(f"Status distribution: {healthy_pct}% healthy, {degraded_pct}% degraded, {unhealthy_pct}% unhealthy.")
+    summary_parts.append(f"Score trend: {score_trend}.")
+    if recurring:
+        causes_str = ", ".join(f"{k} ({v}x)" for k, v in sorted(recurring.items(), key=lambda x: -x[1]))
+        summary_parts.append(f"Recurring root causes: {causes_str}.")
+    analysis_summary = " ".join(summary_parts)
+
+    now = datetime.now(timezone.utc).strftime("%Y-%m-%d %H:%M:%S")
+    recurring_json = json.dumps(recurring) if recurring else None
+    conn.execute(
+        "INSERT INTO container_trend_analysis "
+        "(container, analysis_date, period_days, eval_count, avg_health_score, "
+        "min_health_score, max_health_score, healthy_pct, degraded_pct, unhealthy_pct, "
+        "recurring_root_causes, score_trend, analysis_summary, created_at) "
+        "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+        (container, now, period_days, eval_count, round(avg_score, 1),
+         min_score, max_score, healthy_pct, degraded_pct, unhealthy_pct,
+         recurring_json, score_trend, analysis_summary, now),
+    )
+    conn.commit()
+
+    return {
+        "container": container, "period_days": period_days, "eval_count": eval_count,
+        "avg_health_score": round(avg_score, 1), "min_health_score": min_score,
+        "max_health_score": max_score, "healthy_pct": healthy_pct,
+        "degraded_pct": degraded_pct, "unhealthy_pct": unhealthy_pct,
+        "recurring_root_causes": recurring, "score_trend": score_trend,
+        "analysis_summary": analysis_summary,
+    }
+
+
+def get_trend_analysis(conn, container: str, limit: int = 10) -> list[dict]:
+    """Get recent trend analyses for a container."""
+    rows = conn.execute(
+        "SELECT id, container, analysis_date, period_days, eval_count, "
+        "avg_health_score, min_health_score, max_health_score, "
+        "healthy_pct, degraded_pct, unhealthy_pct, "
+        "recurring_root_causes, score_trend, analysis_summary "
+        "FROM container_trend_analysis WHERE container = ? ORDER BY id DESC LIMIT ?",
+        (container, limit),
+    ).fetchall()
+    return [
+        {"id": r[0], "container": r[1], "analysis_date": r[2], "period_days": r[3],
+         "eval_count": r[4], "avg_health_score": r[5], "min_health_score": r[6],
+         "max_health_score": r[7], "healthy_pct": r[8], "degraded_pct": r[9],
+         "unhealthy_pct": r[10],
+         "recurring_root_causes": json.loads(r[11]) if r[11] else {},
+         "score_trend": r[12], "analysis_summary": r[13]}
+        for r in rows
+    ]
+
+
+def prune_trend_analysis(conn, retention_days: int = 90) -> int:
+    """Delete old trend analyses."""
+    cutoff = (datetime.now(timezone.utc) - timedelta(days=retention_days)).strftime("%Y-%m-%d %H:%M:%S")
+    cursor = conn.execute("DELETE FROM container_trend_analysis WHERE created_at < ?", (cutoff,))
+    conn.commit()
+    return cursor.rowcount
 
 
 

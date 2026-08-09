@@ -10,7 +10,7 @@ from fastapi import APIRouter, Query, HTTPException
 from pydantic import BaseModel
 
 from dockllama.config import DockLlamaConfig, ContainerConfig, save_poll_interval, save_default_model, save_containers_to_config, save_digest_window, save_eval_retention
-from dockllama.db import get_container_knowledge, get_knowledge_entry, save_knowledge_entry, update_knowledge_entry, delete_knowledge_entry, get_pending_patterns, classify_pending_pattern, delete_pending_pattern, get_pending_pattern_counts, surface_pending_patterns
+from dockllama.db import get_container_knowledge, get_knowledge_entry, save_knowledge_entry, update_knowledge_entry, delete_knowledge_entry, get_pending_patterns, classify_pending_pattern, delete_pending_pattern, get_pending_pattern_counts, surface_pending_patterns, analyze_container_trends, get_trend_analysis
 from dockllama.db import init_db, save_benchmark_result, get_benchmark_results, archive_container_config, restore_container_config, purge_container_data, get_container_prompt, save_container_prompt, delete_container_prompt, get_tested_models, save_tested_model, get_health_check, get_all_health_checks, save_health_check, delete_health_check, get_health_check_history, save_health_check_result, save_eval_history, get_eval_history
 from dockllama.docker_client import get_client, get_logs, list_containers
 from dockllama.log_pipeline import process_logs
@@ -388,6 +388,66 @@ async def update_retention_settings(body: dict):
     return {"status": "ok", "eval_retention_days": cfg.monitoring.eval_retention_days}
 
 
+
+
+
+
+@router.get("/containers/{name}/trend-analysis")
+async def get_container_trend_analysis(name: str, limit: int = Query(10, ge=1, le=100)):
+    """Get recent trend analyses for a container."""
+    cfg = _get_cfg()
+    conn = init_db(cfg.monitoring.db_path)
+    try:
+        analyses = get_trend_analysis(conn, name, limit=limit)
+        return analyses
+    finally:
+        conn.close()
+
+
+@router.post("/containers/{name}/trend-analysis")
+async def run_trend_analysis(name: str, period_days: int = 7):
+    """Trigger an on-demand trend analysis for a container."""
+    cfg = _get_cfg()
+    conn = init_db(cfg.monitoring.db_path)
+    try:
+        result = analyze_container_trends(conn, name, period_days=period_days)
+        return result
+    finally:
+        conn.close()
+
+
+@router.get("/trend-analysis/fleet")
+async def fleet_trend_analysis(period_days: int = 7):
+    """Get trend analysis for all monitored containers."""
+    cfg = _get_cfg()
+    conn = init_db(cfg.monitoring.db_path)
+    try:
+        results = []
+        for c in cfg.containers:
+            if c.enabled:
+                result = analyze_container_trends(conn, c.name, period_days=period_days)
+                results.append(result)
+        # Fleet summary
+        total = len(results)
+        with_evals = [r for r in results if r.get("eval_count", 0) > 0]
+        if with_evals:
+            fleet_avg = sum(r["avg_health_score"] for r in with_evals) / len(with_evals)
+            improving = sum(1 for r in with_evals if r.get("score_trend") == "improving")
+            declining = sum(1 for r in with_evals if r.get("score_trend") == "declining")
+        else:
+            fleet_avg = 0
+            improving = declining = 0
+        return {
+            "period_days": period_days,
+            "total_containers": total,
+            "containers_with_data": len(with_evals),
+            "fleet_avg_health": round(fleet_avg, 1),
+            "improving_count": improving,
+            "declining_count": declining,
+            "containers": results,
+        }
+    finally:
+        conn.close()
 
 
 

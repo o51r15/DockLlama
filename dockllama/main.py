@@ -566,6 +566,15 @@ async def run(cfg: DockLlamaConfig) -> None:
                 pruned = prune_old_events(conn, cfg.monitoring.retention_days)
                 prune_container_stats(conn, cfg.monitoring.stats_retention_days)
                 prune_eval_history(conn, cfg.monitoring.eval_retention_days)
+                # Run trend analysis for all monitored containers
+                try:
+                    for c in cfg.containers:
+                        if c.enabled:
+                            analyze_container_trends(conn, c.name, period_days=7)
+                    prune_trend_analysis(conn, retention_days=90)
+                    logger.info("Trend analysis complete for all containers")
+                except Exception as e:
+                    logger.warning("Trend analysis failed: %s", e)
                 if pruned:
                     vacuum_db(conn)
                 conn.close()
