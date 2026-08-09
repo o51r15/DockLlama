@@ -14,7 +14,7 @@ from fastapi import FastAPI
 from fastapi.staticfiles import StaticFiles
 
 from dockllama.config import load_config, DockLlamaConfig
-from dockllama.db import init_db, save_container_stats, prune_container_stats, get_container_prompt, verify_tables, prune_old_events, vacuum_db, is_blackout_active, save_eval_history, prune_eval_history
+from dockllama.db import sync_docker_tags, init_db, save_container_stats, prune_container_stats, get_container_prompt, verify_tables, prune_old_events, vacuum_db, is_blackout_active, save_eval_history, prune_eval_history
 from dockllama.docker_client import get_client, get_logs, list_containers, get_container_stats, get_clients_for_nodes
 from dockllama.log_pipeline import process_logs
 from dockllama.log_analyzer import analyze_logs
@@ -217,6 +217,13 @@ async def monitor_cycle(cfg: DockLlamaConfig) -> None:
     running_map = {c.name: c for c in running}
 
     conn = init_db(cfg.monitoring.db_path)
+
+    # Auto-sync Docker labels as tags
+    for _rc in running:
+        try:
+            sync_docker_tags(conn, _rc.name, _rc.labels)
+        except Exception:
+            pass
 
     for container_cfg in enabled:
         if container_cfg.name not in running_map:

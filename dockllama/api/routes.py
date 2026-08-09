@@ -11,7 +11,7 @@ from fastapi import APIRouter, Query, HTTPException
 from pydantic import BaseModel
 
 from dockllama.config import DockLlamaConfig, ContainerConfig, save_poll_interval, save_default_model, save_containers_to_config, save_digest_window, save_eval_retention
-from dockllama.db import get_container_knowledge, get_knowledge_entry, save_knowledge_entry, update_knowledge_entry, delete_knowledge_entry, get_pending_patterns, classify_pending_pattern, delete_pending_pattern, get_pending_pattern_counts, surface_pending_patterns, analyze_container_trends, get_trend_analysis
+from dockllama.db import get_container_tags, get_all_tags, save_container_tag, delete_container_tag, sync_docker_tags, get_container_knowledge, get_knowledge_entry, save_knowledge_entry, update_knowledge_entry, delete_knowledge_entry, get_pending_patterns, classify_pending_pattern, delete_pending_pattern, get_pending_pattern_counts, surface_pending_patterns, analyze_container_trends, get_trend_analysis
 from dockllama.db import init_db, save_benchmark_result, get_benchmark_results, archive_container_config, restore_container_config, purge_container_data, get_container_prompt, save_container_prompt, delete_container_prompt, get_tested_models, save_tested_model, get_health_check, get_all_health_checks, save_health_check, delete_health_check, get_health_check_history, save_health_check_result, save_eval_history, get_eval_history
 from dockllama.docker_client import get_client, get_logs, list_containers
 from dockllama.log_pipeline import process_logs
@@ -453,6 +453,112 @@ async def list_fleet_containers():
 
 
 
+
+# ── Container Tags ──
+
+@router.get("/tags")
+async def list_all_tags():
+    """List all unique tags."""
+    cfg = _get_cfg()
+    conn = init_db(cfg.monitoring.db_path)
+    try:
+        return get_all_tags(conn)
+    finally:
+        conn.close()
+
+
+@router.get("/containers/{name}/tags")
+async def get_tags(name: str):
+    """Get tags for a container."""
+    cfg = _get_cfg()
+    conn = init_db(cfg.monitoring.db_path)
+    try:
+        return get_container_tags(conn, name)
+    finally:
+        conn.close()
+
+
+@router.post("/containers/{name}/tags")
+async def add_tag(name: str, body: dict):
+    """Add a tag to a container."""
+    tag = body.get("tag", "").strip().lower()
+    if not tag:
+        raise HTTPException(400, "tag is required")
+    cfg = _get_cfg()
+    conn = init_db(cfg.monitoring.db_path)
+    try:
+        save_container_tag(conn, name, tag)
+        return {"ok": True}
+    finally:
+        conn.close()
+
+
+@router.delete("/containers/{name}/tags/{tag}")
+async def remove_tag(name: str, tag: str):
+    """Remove a tag from a container."""
+    cfg = _get_cfg()
+    conn = init_db(cfg.monitoring.db_path)
+    try:
+        delete_container_tag(conn, name, tag)
+        return {"ok": True}
+    finally:
+        conn.close()
+
+
+# ── Container Restart ──
+
+@router.post("/containers/{name}/restart")
+async def restart_container(name: str):
+    """Restart a container from the dashboard. Respects cooldowns and blackout windows."""
+    cfg = _get_cfg()
+    conn = init_db(cfg.monitoring.db_path)
+
+    # Check blackout
+    from dockllama.db import is_blackout_active
+    if is_blackout_active(conn):
+        conn.close()
+        raise HTTPException(409, "Restart blocked — maintenance blackout window is active")
+
+    # Check cooldown
+    from dockllama.actions import _get_cooldown_state, _is_in_cooldown
+    state = _get_cooldown_state(conn, name)
+    if state and state.get("alert_only_mode"):
+        conn.close()
+        raise HTTPException(409, "Container in alert-only mode after repeated restarts")
+    if _is_in_cooldown(state):
+        conn.close()
+        raise HTTPException(409, "Restart skipped — cooldown active")
+
+    # Check dry run
+    if cfg.monitoring.dry_run:
+        conn.close()
+        return {"ok": True, "action": "dry_run", "message": "Dry run mode — restart not executed"}
+
+    # Execute restart
+    try:
+        client = get_client()
+        container = client.containers.get(name)
+        container.restart(timeout=30)
+
+        # Update cooldown
+        from dockllama.actions import _update_cooldown
+        _update_cooldown(conn, name, cfg.cooldowns)
+
+        # Log event
+        conn.execute(
+            "INSERT INTO events (container, event_type, summary, action_taken) VALUES (?, ?, ?, ?)",
+            (name, "manual_restart", "Manual restart triggered from dashboard", "restart"),
+        )
+        conn.commit()
+
+        conn.close()
+        return {"ok": True, "action": "restarted", "message": f"Container {name} restarted"}
+    except Exception as e:
+        conn.close()
+        raise HTTPException(500, f"Restart failed: {e}")
+
+
+
 @router.get("/metrics", response_class=PlainTextResponse)
 async def prometheus_metrics():
     """Prometheus-compatible /metrics endpoint."""
@@ -773,6 +879,8 @@ async def get_container_eval_history(
 async def get_events(
     container: Optional[str] = None,
     event_type: Optional[str] = None,
+    search: Optional[str] = None,
+    severity: Optional[str] = None,
     limit: int = Query(50, ge=1, le=500),
     offset: int = Query(0, ge=0),
 ) -> list[EventRecord]:
@@ -789,6 +897,13 @@ async def get_events(
     if event_type:
         query += " AND event_type = ?"
         params.append(event_type)
+    if search:
+        query += " AND (summary LIKE ? OR container LIKE ? OR root_cause_category LIKE ?)"
+        s = f"%{search}%"
+        params.extend([s, s, s])
+    if severity:
+        query += " AND ai_status = ?"
+        params.append(severity)
 
     query += " ORDER BY id DESC LIMIT ? OFFSET ?"
     params.extend([limit, offset])

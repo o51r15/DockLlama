@@ -69,6 +69,18 @@
 .range-btn { background:var(--surface); border:1px solid var(--border); color:var(--text-dim); padding:var(--sp-xs) 0.75rem; border-radius:4px; cursor:pointer; font-size:0.75rem; font-family:var(--font-mono); }
 .range-btn.active { background:var(--blue); color:white; border-color:var(--blue); }
 .card-actions { margin-top:var(--sp-sm); display:flex; gap:var(--sp-sm); }
+
+/* Tag filter bar */
+.tag-bar { display:flex; gap:var(--sp-sm); padding:var(--sp-sm) var(--sp-lg); flex-wrap:wrap; align-items:center; border-bottom:1px solid var(--border); }
+.tag-btn { background:var(--surface); border:1px solid var(--border); color:var(--text-dim); padding:2px 10px; border-radius:12px; cursor:pointer; font-size:0.75rem; font-family:var(--font-mono); transition:all 0.15s; }
+.tag-btn:hover { border-color:var(--text-dim); color:var(--text); }
+.tag-btn.active { background:var(--blue); color:white; border-color:var(--blue); }
+.tag-label { font-size:0.75rem; color:var(--text-dim); margin-right:var(--sp-xs); }
+/* Restart button */
+.btn-restart { background:transparent; border:1px solid var(--orange); color:var(--orange); font-size:0.7rem; padding:2px 8px; border-radius:4px; cursor:pointer; }
+.btn-restart:hover { background:var(--orange); color:white; }
+.btn-restart:disabled { opacity:0.4; cursor:not-allowed; }
+
 </style>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/Chart.js/4.4.1/chart.umd.min.js"></script>
 </head>
@@ -140,8 +152,17 @@
     </button>
   </div>
 </div>
+
+<!-- Tag filter bar -->
+<div class="tag-bar" x-show="!loading && allTags.length > 0" x-cloak>
+  <span class="tag-label">Filter:</span>
+  <button class="tag-btn" :class="!activeTag && 'active'" @click="activeTag=null">All</button>
+  <template x-for="t in allTags" :key="t">
+    <button class="tag-btn" :class="activeTag===t && 'active'" @click="activeTag = activeTag===t ? null : t" x-text="t"></button>
+  </template>
+</div>
 <div class="grid" x-show="!loading">
-  <template x-for="c in containers" :key="c.name">
+  <template x-for="c in filteredContainers" :key="c.name">
     <div class="card" :class="cardPriorityClass(c)" @click="openDetail(c)" style="cursor:pointer;">
       <div class="card-header">
         <span class="card-name" x-text="c.name"></span>
@@ -180,6 +201,7 @@
         <button class="btn btn-eval" @click.stop="evalNow(c.name)" :disabled="evaluating===c.name">
           <span x-text="evaluating===c.name ? 'Evaluating...' : 'Evaluate Now'"></span>
         </button>
+        <button class="btn-restart" @click.stop="restartContainer(c.name)" :disabled="restarting===c.name" x-text="restarting===c.name ? 'Restarting...' : '↻ Restart'"></button>
         <a class="btn" :href="'/insights.html?view=explorer&container=' + c.name">Logs</a>
       </div>
     </div>
@@ -248,6 +270,10 @@ function dashboard() {
     sseConnected: true,
     _sseRetryDelay: 1000,
     _setupDone: false,
+    allTags: [],
+    activeTag: null,
+    containerTags: {},
+    restarting: null,
 
     // Summary banner computed counts
     get healthyCount() {
@@ -258,6 +284,10 @@ function dashboard() {
     },
     get degradedCount() {
       return this.containers.filter(c => c.running && c.last_evaluation?.ai_status === 'degraded').length;
+    },
+    get filteredContainers() {
+      if (!this.activeTag) return this.containers;
+      return this.containers.filter(c => (this.containerTags[c.name] || []).includes(this.activeTag));
     },
     cardPriorityClass(c) {
       if (!c.last_evaluation) return '';
@@ -283,7 +313,7 @@ function dashboard() {
         const br = await fetch('/api/blackouts/active');
         if (br.ok) { const bd = await br.json(); this.blackout = bd.active ? bd.window : null; }
       } catch (e) {}
-      await Promise.all([this.fetchContainers(), this.fetchConfig()]);
+      await Promise.all([this.fetchContainers(), this.fetchConfig(), this.fetchTags()]);
       this.loading = false;
       this.connectSSE();
     },
@@ -420,6 +450,34 @@ function dashboard() {
       });
     },
 
+    async fetchTags() {
+      try {
+        const r = await fetch('/api/tags');
+        if (r.ok) this.allTags = await r.json();
+        // Load per-container tags
+        for (const c of this.containers) {
+          try {
+            const tr = await fetch('/api/containers/' + encodeURIComponent(c.name) + '/tags');
+            if (tr.ok) {
+              const tags = await tr.json();
+              this.containerTags[c.name] = tags.map(t => t.tag);
+            }
+          } catch(e) {}
+        }
+      } catch(e) {}
+    },
+    async restartContainer(name) {
+      if (!confirm('Restart ' + name + '?')) return;
+      this.restarting = name;
+      try {
+        const r = await fetch('/api/containers/' + name + '/restart', {method:'POST'});
+        const d = await r.json();
+        if (!r.ok) alert(d.detail || 'Restart failed');
+        else if (d.action === 'dry_run') alert('Dry run mode — restart not executed');
+        else await this.fetchContainers();
+      } catch(e) { alert('Restart failed: ' + e); }
+      this.restarting = null;
+    },
     scoreClass(s) { return s >= 80 ? 'conf-high' : s >= 40 ? 'conf-mid' : 'conf-low'; },
     confClass(c) { return c >= 70 ? 'conf-high' : c >= 40 ? 'conf-mid' : 'conf-low'; },
     timeAgo(ts) {

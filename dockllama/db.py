@@ -232,6 +232,14 @@ CREATE TABLE IF NOT EXISTS pending_patterns (
 
 CREATE UNIQUE INDEX IF NOT EXISTS idx_pending_container_hash ON pending_patterns(container, pattern_hash);
 
+
+CREATE TABLE IF NOT EXISTS container_tags (
+    container TEXT NOT NULL,
+    tag TEXT NOT NULL,
+    source TEXT DEFAULT 'user',
+    PRIMARY KEY (container, tag)
+);
+
 CREATE TABLE IF NOT EXISTS container_trend_analysis (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
     container TEXT NOT NULL,
@@ -318,7 +326,15 @@ def init_db(db_path: str | Path = DEFAULT_DB_PATH) -> sqlite3.Connection:
     # Migration: container_trend_analysis table
     try:
         conn.executescript("""
-            CREATE TABLE IF NOT EXISTS container_trend_analysis (
+            
+CREATE TABLE IF NOT EXISTS container_tags (
+    container TEXT NOT NULL,
+    tag TEXT NOT NULL,
+    source TEXT DEFAULT 'user',
+    PRIMARY KEY (container, tag)
+);
+
+CREATE TABLE IF NOT EXISTS container_trend_analysis (
                 id INTEGER PRIMARY KEY AUTOINCREMENT,
                 container TEXT NOT NULL,
                 analysis_date TEXT NOT NULL DEFAULT (datetime('now')),
@@ -1315,6 +1331,74 @@ def get_pending_pattern_counts(conn) -> dict:
 
 
 # ─── Container Trend Analysis ─────────────────────────────────
+
+
+def get_container_tags(conn, container=None):
+    """Get tags, optionally filtered by container."""
+    if container:
+        rows = conn.execute(
+            "SELECT container, tag, source FROM container_tags WHERE container = ? ORDER BY tag",
+            (container,),
+        ).fetchall()
+    else:
+        rows = conn.execute(
+            "SELECT container, tag, source FROM container_tags ORDER BY container, tag"
+        ).fetchall()
+    return [{"container": r[0], "tag": r[1], "source": r[2]} for r in rows]
+
+
+def get_all_tags(conn):
+    """Get all unique tags."""
+    rows = conn.execute(
+        "SELECT DISTINCT tag FROM container_tags ORDER BY tag"
+    ).fetchall()
+    return [r[0] for r in rows]
+
+
+def save_container_tag(conn, container, tag, source="user"):
+    """Add a tag to a container."""
+    conn.execute(
+        "INSERT OR REPLACE INTO container_tags (container, tag, source) VALUES (?, ?, ?)",
+        (container, tag, source),
+    )
+    conn.commit()
+
+
+def delete_container_tag(conn, container, tag):
+    """Remove a tag from a container."""
+    conn.execute(
+        "DELETE FROM container_tags WHERE container = ? AND tag = ?",
+        (container, tag),
+    )
+    conn.commit()
+
+
+def sync_docker_tags(conn, container, labels):
+    """Auto-derive tags from Docker labels."""
+    # Clear old auto-derived tags for this container
+    conn.execute(
+        "DELETE FROM container_tags WHERE container = ? AND source = 'docker'",
+        (container,),
+    )
+    if not labels:
+        conn.commit()
+        return
+    # Extract compose project
+    project = labels.get("com.docker.compose.project")
+    if project:
+        conn.execute(
+            "INSERT OR REPLACE INTO container_tags (container, tag, source) VALUES (?, ?, 'docker')",
+            (container, project),
+        )
+    # Extract compose service
+    service = labels.get("com.docker.compose.service")
+    if service and service != container:
+        conn.execute(
+            "INSERT OR REPLACE INTO container_tags (container, tag, source) VALUES (?, ?, 'docker')",
+            (container, "svc:" + service),
+        )
+    conn.commit()
+
 
 def analyze_container_trends(conn, container: str, period_days: int = 7) -> dict:
     """Analyze eval history for a container over the given period.
