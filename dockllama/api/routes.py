@@ -9,7 +9,7 @@ from typing import Optional
 from fastapi import APIRouter, Query, HTTPException
 from pydantic import BaseModel
 
-from dockllama.config import DockLlamaConfig, ContainerConfig, save_poll_interval, save_default_model, save_containers_to_config
+from dockllama.config import DockLlamaConfig, ContainerConfig, save_poll_interval, save_default_model, save_containers_to_config, save_digest_window, save_eval_retention
 from dockllama.db import init_db, save_benchmark_result, get_benchmark_results, archive_container_config, restore_container_config, purge_container_data, get_container_prompt, save_container_prompt, delete_container_prompt, get_tested_models, save_tested_model, get_health_check, get_all_health_checks, save_health_check, delete_health_check, get_health_check_history, save_health_check_result, save_eval_history, get_eval_history
 from dockllama.docker_client import get_client, get_logs, list_containers
 from dockllama.log_pipeline import process_logs
@@ -335,6 +335,56 @@ async def evaluate_container(name: str, req: EvalRequest):
     }
 
 
+
+
+
+
+@router.get("/settings/digest")
+async def get_digest_settings():
+    """Get digest configuration."""
+    cfg = _get_cfg()
+    return {
+        "enabled": cfg.digest.enabled,
+        "schedule_cron": cfg.digest.schedule_cron,
+        "digest_window_hours": cfg.digest.digest_window_hours,
+    }
+
+
+@router.put("/settings/digest")
+async def update_digest_settings(body: dict):
+    """Update digest configuration."""
+    cfg = _get_cfg()
+    if "digest_window_hours" in body:
+        hours = int(body["digest_window_hours"])
+        if hours < 1 or hours > 720:  # max 30 days
+            raise HTTPException(400, "digest_window_hours must be between 1 and 720")
+        cfg.digest.digest_window_hours = hours
+        save_digest_window(cfg)
+    return {"status": "ok", "digest_window_hours": cfg.digest.digest_window_hours}
+
+
+@router.get("/settings/retention")
+async def get_retention_settings():
+    """Get retention configuration."""
+    cfg = _get_cfg()
+    return {
+        "retention_days": cfg.monitoring.retention_days,
+        "stats_retention_days": cfg.monitoring.stats_retention_days,
+        "eval_retention_days": cfg.monitoring.eval_retention_days,
+    }
+
+
+@router.put("/settings/retention")
+async def update_retention_settings(body: dict):
+    """Update eval retention configuration."""
+    cfg = _get_cfg()
+    if "eval_retention_days" in body:
+        days = int(body["eval_retention_days"])
+        if days < 1 and days != -1:
+            raise HTTPException(400, "eval_retention_days must be >= 1 or -1 to disable")
+        cfg.monitoring.eval_retention_days = days
+        save_eval_retention(cfg)
+    return {"status": "ok", "eval_retention_days": cfg.monitoring.eval_retention_days}
 
 
 @router.get("/containers/{name}/eval-history")

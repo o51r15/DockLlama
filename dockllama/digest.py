@@ -117,7 +117,8 @@ def _extract_json(text: str) -> dict:
 
 async def generate_digest(cfg: DockLlamaConfig, conn: sqlite3.Connection) -> dict[str, Any]:
     """Generate a daily digest via the configured LLM."""
-    stats = _query_period_stats(conn)
+    hours = getattr(cfg.digest, "digest_window_hours", 24)
+    stats = _query_period_stats(conn, hours=hours)
 
     # Add trend data for richer digest
     try:

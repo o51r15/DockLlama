@@ -81,7 +81,7 @@ def startup_check(cfg: DockLlamaConfig) -> None:
     logger.info("Database OK: %s", tables)
     pruned = prune_old_events(conn, cfg.monitoring.retention_days)
     prune_container_stats(conn, cfg.monitoring.stats_retention_days)
-    prune_eval_history(conn, cfg.monitoring.retention_days)
+    prune_eval_history(conn, cfg.monitoring.eval_retention_days)
     if pruned:
         vacuum_db(conn)
         logger.info("DB maintenance: pruned %d old events, vacuumed", pruned)
@@ -526,7 +526,7 @@ async def run(cfg: DockLlamaConfig) -> None:
                 # Daily maintenance after digest
                 pruned = prune_old_events(conn, cfg.monitoring.retention_days)
                 prune_container_stats(conn, cfg.monitoring.stats_retention_days)
-                prune_eval_history(conn, cfg.monitoring.retention_days)
+                prune_eval_history(conn, cfg.monitoring.eval_retention_days)
                 if pruned:
                     vacuum_db(conn)
                 conn.close()

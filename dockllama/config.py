@@ -24,6 +24,7 @@ class MonitoringConfig(BaseModel):
     db_path: str = "/app/data/dockllama.db"
     retention_days: int = 90
     stats_retention_days: int = 7
+    eval_retention_days: int = 10
 
 
 class ContainerConfig(BaseModel):
@@ -51,6 +52,7 @@ class AlertConfig(BaseModel):
 class DigestConfig(BaseModel):
     enabled: bool = True
     schedule_cron: str = "0 7 * * *"
+    digest_window_hours: int = 24
 
 
 class DockLlamaConfig(BaseModel):
@@ -199,6 +201,16 @@ def save_default_model(cfg: "DockLlamaConfig", role: str = "eval") -> None:
     field = "default_model" if role == "eval" else "digest_model"
     value = cfg.ollama.default_model if role == "eval" else cfg.ollama.digest_model
     _update_yaml_field(cfg._config_path, field, value)
+
+
+def save_digest_window(cfg: "DockLlamaConfig") -> None:
+    """Persist digest_window_hours to config.yaml."""
+    _update_yaml_field(cfg._config_path, "digest_window_hours", cfg.digest.digest_window_hours)
+
+
+def save_eval_retention(cfg: "DockLlamaConfig") -> None:
+    """Persist eval_retention_days to config.yaml."""
+    _update_yaml_field(cfg._config_path, "eval_retention_days", cfg.monitoring.eval_retention_days)
 
 
 if __name__ == "__main__":
