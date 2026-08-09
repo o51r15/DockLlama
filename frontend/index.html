@@ -454,16 +454,18 @@ function dashboard() {
       try {
         const r = await fetch('/api/tags');
         if (r.ok) this.allTags = await r.json();
-        // Load per-container tags
+        // Load per-container tags — build new object for Alpine reactivity
+        const newTags = {};
         for (const c of this.containers) {
           try {
             const tr = await fetch('/api/containers/' + encodeURIComponent(c.name) + '/tags');
             if (tr.ok) {
               const tags = await tr.json();
-              this.containerTags[c.name] = tags.map(t => t.tag);
+              newTags[c.name] = tags.map(t => t.tag);
             }
           } catch(e) {}
         }
+        this.containerTags = newTags;
       } catch(e) {}
     },
     async restartContainer(name) {

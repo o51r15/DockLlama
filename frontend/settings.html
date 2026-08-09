@@ -1044,8 +1044,15 @@ function settingsApp() {
           }),
         });
         if (!r.ok) throw new Error('Clone failed');
-        this.showToast('Prompt cloned', 'success');
+        const data = await r.json();
+        this.showToast('Prompt cloned — rename it below', 'success');
         await this.loadBasePrompts();
+        // Switch to the newly created prompt so user can rename it
+        const newId = data.id || this.bpList[this.bpList.length - 1]?.id;
+        if (newId) {
+          this.bpActiveId = newId;
+          this.switchActivePrompt();
+        }
       } catch(e) { this.showToast(e.message, 'error'); }
     },
 
