@@ -393,6 +393,64 @@ async def update_retention_settings(body: dict):
 
 
 
+
+@router.get("/fleet/nodes")
+async def list_fleet_nodes():
+    """List all configured Docker nodes with connection status."""
+    cfg = _get_cfg()
+    from dockllama.docker_client import get_client
+    nodes = []
+    for node in cfg.docker_nodes:
+        node_info = {
+            "name": node.name,
+            "url": node.url,
+            "enabled": node.enabled,
+            "connected": False,
+            "version": None,
+            "containers": 0,
+        }
+        if node.enabled:
+            try:
+                client = get_client(node.url)
+                client.ping()
+                node_info["connected"] = True
+                node_info["version"] = client.version().get("Version", "unknown")
+                node_info["containers"] = len(client.containers.list())
+            except Exception as e:
+                node_info["error"] = str(e)
+        nodes.append(node_info)
+    return nodes
+
+
+@router.get("/fleet/containers")
+async def list_fleet_containers():
+    """List all containers across all fleet nodes."""
+    cfg = _get_cfg()
+    from dockllama.docker_client import get_clients_for_nodes
+    node_clients = get_clients_for_nodes(cfg.docker_nodes)
+    all_containers = []
+    for node_name, client in node_clients.items():
+        try:
+            for c in client.containers.list(all=True):
+                all_containers.append({
+                    "name": c.name,
+                    "node": node_name,
+                    "status": c.status,
+                    "image": c.image.tags[0] if c.image.tags else "untagged",
+                    "monitored": any(
+                        mc.name == c.name and mc.enabled
+                        for mc in cfg.containers
+                    ),
+                })
+        except Exception as e:
+            all_containers.append({
+                "node": node_name,
+                "error": str(e),
+            })
+    return all_containers
+
+
+
 @router.get("/help-links")
 async def get_help_links():
     """Get contextual help links for UI sections."""

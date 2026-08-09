@@ -15,7 +15,7 @@ from fastapi.staticfiles import StaticFiles
 
 from dockllama.config import load_config, DockLlamaConfig
 from dockllama.db import init_db, save_container_stats, prune_container_stats, get_container_prompt, verify_tables, prune_old_events, vacuum_db, is_blackout_active, save_eval_history, prune_eval_history
-from dockllama.docker_client import get_client, get_logs, list_containers, get_container_stats
+from dockllama.docker_client import get_client, get_logs, list_containers, get_container_stats, get_clients_for_nodes
 from dockllama.log_pipeline import process_logs
 from dockllama.log_analyzer import analyze_logs
 from dockllama.ai_engine import evaluate, EvaluationContext, EvaluationResult
@@ -170,9 +170,22 @@ def startup_check(cfg: DockLlamaConfig) -> None:
 
 async def monitor_cycle(cfg: DockLlamaConfig) -> None:
     """Run one full monitoring cycle across all enabled containers."""
-    client = get_client()
+    # Build per-node client map
+    node_clients = get_clients_for_nodes(cfg.docker_nodes)
+    if not node_clients:
+        logger.error("No Docker nodes available, skipping cycle")
+        return
+    client = node_clients.get("local") or next(iter(node_clients.values()))
     enabled = [c for c in cfg.containers if c.enabled]
-    running = list_containers(client, [c.name for c in enabled])
+    # List containers across all nodes
+    running = []
+    container_node_map = {}
+    all_names = [c.name for c in enabled]
+    for node_name, nc in node_clients.items():
+        node_containers = list_containers(nc, all_names)
+        for nc_obj in node_containers:
+            running.append(nc_obj)
+            container_node_map[nc_obj.name] = node_name
     running_map = {c.name: c for c in running}
 
     conn = init_db(cfg.monitoring.db_path)

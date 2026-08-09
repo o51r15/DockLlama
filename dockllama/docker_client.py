@@ -6,9 +6,62 @@ import docker
 from docker.models.containers import Container
 
 
-def get_client() -> docker.DockerClient:
-    """Connect to Docker via the mounted socket."""
-    return docker.from_env()
+# Cache of Docker clients per node
+_node_clients: dict[str, docker.DockerClient] = {}
+
+
+def get_client(node_url: str = None) -> docker.DockerClient:
+    """Connect to Docker. Supports local socket and remote TCP endpoints.
+
+    Args:
+        node_url: Docker endpoint URL. None or unix:// for local socket,
+                  tcp://host:port for remote. Supports TLS via tls:// prefix.
+    """
+    if node_url is None or node_url.startswith("unix://"):
+        return docker.from_env()
+
+    if node_url in _node_clients:
+        try:
+            _node_clients[node_url].ping()
+            return _node_clients[node_url]
+        except Exception:
+            del _node_clients[node_url]
+
+    if node_url.startswith("tcp://") or node_url.startswith("http://"):
+        client = docker.DockerClient(base_url=node_url, timeout=30)
+    elif node_url.startswith("ssh://"):
+        client = docker.DockerClient(base_url=node_url, timeout=30)
+    else:
+        client = docker.DockerClient(base_url=node_url, timeout=30)
+
+    _node_clients[node_url] = client
+    return client
+
+
+def get_clients_for_nodes(nodes: list) -> dict[str, docker.DockerClient]:
+    """Get Docker clients for all configured nodes.
+
+    Args:
+        nodes: List of DockerNodeConfig objects
+
+    Returns:
+        Dict mapping node name to Docker client
+    """
+    clients = {}
+    for node in nodes:
+        if not node.enabled:
+            continue
+        try:
+            client = get_client(node.url)
+            client.ping()
+            clients[node.name] = client
+        except Exception as e:
+            import logging
+            logging.getLogger("dockllama").warning(
+                "Failed to connect to Docker node '%s' at %s: %s",
+                node.name, node.url, e
+            )
+    return clients
 
 
 def list_containers(client: docker.DockerClient, names: list[str] | None = None) -> list[Container]:

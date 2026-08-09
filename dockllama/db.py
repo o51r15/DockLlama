@@ -302,6 +302,13 @@ def init_db(db_path: str | Path = DEFAULT_DB_PATH) -> sqlite3.Connection:
             conn.commit()
         except Exception:
             pass  # column already exists
+    # Migration: node_name columns
+    for tbl in ["events", "eval_history"]:
+        try:
+            conn.execute(f"ALTER TABLE {tbl} ADD COLUMN node_name TEXT DEFAULT 'local'")
+            conn.commit()
+        except Exception:
+            pass
     # Migration: baselines.image_id column
     try:
         conn.execute("ALTER TABLE baselines ADD COLUMN image_id TEXT")

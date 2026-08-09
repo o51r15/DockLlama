@@ -17,6 +17,18 @@ class OllamaConfig(BaseModel):
     timeout_seconds: int = 30
 
 
+
+class DockerNodeConfig(BaseModel):
+    """Configuration for a Docker endpoint (local or remote)."""
+    name: str = "local"
+    url: str = "unix:///var/run/docker.sock"
+    tls: bool = False
+    tls_ca: Optional[str] = None
+    tls_cert: Optional[str] = None
+    tls_key: Optional[str] = None
+    enabled: bool = True
+
+
 class MonitoringConfig(BaseModel):
     poll_interval_seconds: int = 60
     log_lines_per_check: int = 200
@@ -30,6 +42,7 @@ class MonitoringConfig(BaseModel):
 class ContainerConfig(BaseModel):
     name: str
     enabled: bool = True
+    node: str = "local"
     model_override: Optional[str] = None
     ignore_patterns: list[str] = []
     compose_group: Optional[str] = None
@@ -63,6 +76,7 @@ class DockLlamaConfig(BaseModel):
     cooldowns: CooldownConfig = CooldownConfig()
     alerts: AlertConfig = AlertConfig()
     digest: DigestConfig = DigestConfig()
+    docker_nodes: list[DockerNodeConfig] = [DockerNodeConfig()]
     dependency_groups: dict[str, list[str]] = {}
 
     @field_validator("containers")
