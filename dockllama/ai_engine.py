@@ -146,6 +146,36 @@ def _build_messages(ctx: EvaluationContext, db_path: str = None) -> tuple[str, s
                 parts.append(f"Reasoning: {reasoning}")
         system_prompt += "\n".join(parts)
 
+
+    # Inject knowledge base entries if available
+    if db_path:
+        try:
+            from dockllama.db import get_connection
+            kb_conn = get_connection(db_path)
+            kb_entries = get_container_knowledge(kb_conn, ctx.container_name)
+            kb_conn.close()
+            if kb_entries:
+                kb_parts = ["\n\n## Known Patterns (User-Classified)"]
+                kb_parts.append("The following patterns have been classified by the operator for this container:")
+                for entry in kb_entries:
+                    cls = entry["classification"].upper()
+                    sample = entry["sample_log_line"] or ""
+                    explanation = entry.get("user_explanation") or ""
+                    times = entry.get("times_seen", 1)
+                    line = f"- {cls}: \"{sample}\""
+                    if explanation:
+                        line += f" — \"{explanation}\""
+                    line += f" (seen {times} times)"
+                    kb_parts.append(line)
+                kb_parts.append("")
+                kb_parts.append("Scoring guidance: EXPECTED patterns should not lower the health score. "
+                               "WATCH patterns require extra attention and detailed reporting. "
+                               "IGNORE patterns should be excluded from findings. "
+                               "PROBLEM patterns should always be flagged and scored negatively.")
+                system_prompt += "\n".join(kb_parts)
+        except Exception:
+            pass  # Knowledge base not available, continue without it
+
     # v5: use structured summary from log_analyzer if available
     if ctx.structured_summary:
         return system_prompt, ctx.structured_summary

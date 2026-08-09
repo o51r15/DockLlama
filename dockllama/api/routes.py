@@ -10,6 +10,7 @@ from fastapi import APIRouter, Query, HTTPException
 from pydantic import BaseModel
 
 from dockllama.config import DockLlamaConfig, ContainerConfig, save_poll_interval, save_default_model, save_containers_to_config, save_digest_window, save_eval_retention
+from dockllama.db import get_container_knowledge, get_knowledge_entry, save_knowledge_entry, update_knowledge_entry, delete_knowledge_entry
 from dockllama.db import init_db, save_benchmark_result, get_benchmark_results, archive_container_config, restore_container_config, purge_container_data, get_container_prompt, save_container_prompt, delete_container_prompt, get_tested_models, save_tested_model, get_health_check, get_all_health_checks, save_health_check, delete_health_check, get_health_check_history, save_health_check_result, save_eval_history, get_eval_history
 from dockllama.docker_client import get_client, get_logs, list_containers
 from dockllama.log_pipeline import process_logs
@@ -385,6 +386,84 @@ async def update_retention_settings(body: dict):
         cfg.monitoring.eval_retention_days = days
         save_eval_retention(cfg)
     return {"status": "ok", "eval_retention_days": cfg.monitoring.eval_retention_days}
+
+
+
+import hashlib
+import re as _re
+
+
+def _normalize_pattern(line: str) -> str:
+    """Normalize a log line for pattern hashing — strip timestamps, UUIDs, ports, IPs."""
+    s = line.strip()
+    s = _re.sub(r"\d{4}-\d{2}-\d{2}[T ]\d{2}:\d{2}:\d{2}[.\d]*Z?", "<TS>", s)
+    s = _re.sub(r"[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}", "<UUID>", s, flags=_re.IGNORECASE)
+    s = _re.sub(r"\b\d{1,3}\.\d{1,3}\.\d{1,3}\.\d{1,3}(:\d+)?\b", "<IP>", s)
+    s = _re.sub(r":\d{4,5}\b", ":<PORT>", s)
+    return hashlib.sha256(s.encode()).hexdigest()[:16]
+
+
+@router.get("/containers/{name}/knowledge")
+async def get_knowledge(name: str):
+    """Get all knowledge base entries for a container."""
+    conn = get_connection()
+    try:
+        entries = get_container_knowledge(conn, name)
+        return entries
+    finally:
+        conn.close()
+
+
+@router.post("/containers/{name}/knowledge")
+async def add_knowledge(name: str, body: dict):
+    """Add a knowledge base entry for a container."""
+    sample = body.get("sample_log_line", "")
+    classification = body.get("classification", "expected")
+    explanation = body.get("user_explanation", "")
+    pattern_hash = body.get("pattern_hash") or _normalize_pattern(sample)
+
+    if classification not in ("expected", "problem", "watch", "ignore"):
+        raise HTTPException(400, "classification must be: expected, problem, watch, or ignore")
+
+    conn = get_connection()
+    try:
+        entry_id = save_knowledge_entry(conn, name, pattern_hash, sample, classification, explanation)
+        entry = get_knowledge_entry(conn, entry_id)
+        return entry
+    finally:
+        conn.close()
+
+
+@router.put("/containers/{name}/knowledge/{entry_id}")
+async def update_knowledge(name: str, entry_id: int, body: dict):
+    """Update a knowledge base entry."""
+    conn = get_connection()
+    try:
+        entry = get_knowledge_entry(conn, entry_id)
+        if not entry or entry["container"] != name:
+            raise HTTPException(404, "Knowledge entry not found")
+        classification = body.get("classification")
+        explanation = body.get("user_explanation")
+        if classification and classification not in ("expected", "problem", "watch", "ignore"):
+            raise HTTPException(400, "classification must be: expected, problem, watch, or ignore")
+        update_knowledge_entry(conn, entry_id, classification, explanation)
+        return get_knowledge_entry(conn, entry_id)
+    finally:
+        conn.close()
+
+
+@router.delete("/containers/{name}/knowledge/{entry_id}")
+async def remove_knowledge(name: str, entry_id: int):
+    """Delete a knowledge base entry."""
+    conn = get_connection()
+    try:
+        entry = get_knowledge_entry(conn, entry_id)
+        if not entry or entry["container"] != name:
+            raise HTTPException(404, "Knowledge entry not found")
+        delete_knowledge_entry(conn, entry_id)
+        return {"status": "ok", "deleted": entry_id}
+    finally:
+        conn.close()
 
 
 @router.get("/containers/{name}/eval-history")

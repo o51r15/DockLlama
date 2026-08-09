@@ -201,6 +201,22 @@ CREATE TABLE IF NOT EXISTS eval_history (
 
 CREATE INDEX IF NOT EXISTS idx_eval_history_container_time ON eval_history(container, timestamp);
 CREATE INDEX IF NOT EXISTS idx_eval_history_type ON eval_history(eval_type);
+
+CREATE TABLE IF NOT EXISTS container_knowledge (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    container TEXT NOT NULL,
+    pattern_hash TEXT NOT NULL,
+    sample_log_line TEXT,
+    classification TEXT NOT NULL DEFAULT 'expected',
+    user_explanation TEXT,
+    times_seen INTEGER DEFAULT 1,
+    first_seen TEXT NOT NULL DEFAULT (datetime('now')),
+    last_seen TEXT NOT NULL DEFAULT (datetime('now')),
+    created_at TEXT NOT NULL DEFAULT (datetime('now')),
+    updated_at TEXT NOT NULL DEFAULT (datetime('now'))
+);
+
+CREATE INDEX IF NOT EXISTS idx_knowledge_container_hash ON container_knowledge(container, pattern_hash);
 """
 
 
@@ -252,6 +268,27 @@ def init_db(db_path: str | Path = DEFAULT_DB_PATH) -> sqlite3.Connection:
             conn.commit()
         except Exception:
             pass  # column already exists
+    # Migration: container_knowledge table
+    try:
+        conn.executescript("""
+            CREATE TABLE IF NOT EXISTS container_knowledge (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                container TEXT NOT NULL,
+                pattern_hash TEXT NOT NULL,
+                sample_log_line TEXT,
+                classification TEXT NOT NULL DEFAULT 'expected',
+                user_explanation TEXT,
+                times_seen INTEGER DEFAULT 1,
+                first_seen TEXT NOT NULL DEFAULT (datetime('now')),
+                last_seen TEXT NOT NULL DEFAULT (datetime('now')),
+                created_at TEXT NOT NULL DEFAULT (datetime('now')),
+                updated_at TEXT NOT NULL DEFAULT (datetime('now'))
+            );
+            CREATE INDEX IF NOT EXISTS idx_knowledge_container_hash ON container_knowledge(container, pattern_hash);
+        """)
+        conn.commit()
+    except Exception:
+        pass
     seed_base_prompts(conn)
     return conn
 
@@ -318,6 +355,7 @@ def purge_container_data(conn, container: str) -> dict:
         ("container_prompts", "container"),
         ("container_config_archive", "container"),
         ("eval_history", "container"),
+        ("container_knowledge", "container"),
     ]:
         cursor = conn.execute(f"DELETE FROM {table} WHERE {col} = ?", (container,))
         if cursor.rowcount:
@@ -969,6 +1007,99 @@ def prune_eval_history(conn, retention_days: int = 10) -> int:
     cursor = conn.execute("DELETE FROM eval_history WHERE timestamp < ?", (cutoff,))
     conn.commit()
     return cursor.rowcount
+
+
+
+# ─── Container Knowledge Base ─────────────────────────────────
+
+def get_container_knowledge(conn, container: str) -> list[dict]:
+    """Get all knowledge entries for a container."""
+    rows = conn.execute(
+        "SELECT id, container, pattern_hash, sample_log_line, classification, "
+        "user_explanation, times_seen, first_seen, last_seen, created_at, updated_at "
+        "FROM container_knowledge WHERE container = ? ORDER BY last_seen DESC",
+        (container,),
+    ).fetchall()
+    return [
+        {"id": r[0], "container": r[1], "pattern_hash": r[2], "sample_log_line": r[3],
+         "classification": r[4], "user_explanation": r[5], "times_seen": r[6],
+         "first_seen": r[7], "last_seen": r[8], "created_at": r[9], "updated_at": r[10]}
+        for r in rows
+    ]
+
+
+def get_knowledge_entry(conn, entry_id: int) -> dict | None:
+    """Get a single knowledge entry by ID."""
+    r = conn.execute(
+        "SELECT id, container, pattern_hash, sample_log_line, classification, "
+        "user_explanation, times_seen, first_seen, last_seen, created_at, updated_at "
+        "FROM container_knowledge WHERE id = ?",
+        (entry_id,),
+    ).fetchone()
+    if not r:
+        return None
+    return {
+        "id": r[0], "container": r[1], "pattern_hash": r[2], "sample_log_line": r[3],
+        "classification": r[4], "user_explanation": r[5], "times_seen": r[6],
+        "first_seen": r[7], "last_seen": r[8], "created_at": r[9], "updated_at": r[10],
+    }
+
+
+def save_knowledge_entry(conn, container: str, pattern_hash: str,
+                         sample_log_line: str, classification: str,
+                         user_explanation: str = None) -> int:
+    """Create or update a knowledge entry. If pattern_hash exists for the container,
+    updates times_seen and last_seen. Returns the entry ID."""
+    now = datetime.now(timezone.utc).strftime("%Y-%m-%d %H:%M:%S")
+    existing = conn.execute(
+        "SELECT id, times_seen FROM container_knowledge WHERE container = ? AND pattern_hash = ?",
+        (container, pattern_hash),
+    ).fetchone()
+    if existing:
+        conn.execute(
+            "UPDATE container_knowledge SET classification = ?, user_explanation = ?, "
+            "sample_log_line = ?, times_seen = ?, last_seen = ?, updated_at = ? WHERE id = ?",
+            (classification, user_explanation, sample_log_line,
+             existing[1] + 1, now, now, existing[0]),
+        )
+        conn.commit()
+        return existing[0]
+    else:
+        cursor = conn.execute(
+            "INSERT INTO container_knowledge "
+            "(container, pattern_hash, sample_log_line, classification, user_explanation, "
+            "times_seen, first_seen, last_seen, created_at, updated_at) "
+            "VALUES (?, ?, ?, ?, ?, 1, ?, ?, ?, ?)",
+            (container, pattern_hash, sample_log_line, classification, user_explanation,
+             now, now, now, now),
+        )
+        conn.commit()
+        return cursor.lastrowid
+
+
+def update_knowledge_entry(conn, entry_id: int, classification: str = None,
+                           user_explanation: str = None) -> bool:
+    """Update classification and/or explanation for a knowledge entry."""
+    entry = get_knowledge_entry(conn, entry_id)
+    if not entry:
+        return False
+    now = datetime.now(timezone.utc).strftime("%Y-%m-%d %H:%M:%S")
+    new_class = classification if classification is not None else entry["classification"]
+    new_expl = user_explanation if user_explanation is not None else entry["user_explanation"]
+    conn.execute(
+        "UPDATE container_knowledge SET classification = ?, user_explanation = ?, updated_at = ? WHERE id = ?",
+        (new_class, new_expl, now, entry_id),
+    )
+    conn.commit()
+    return True
+
+
+def delete_knowledge_entry(conn, entry_id: int) -> bool:
+    """Delete a knowledge entry. Returns True if deleted."""
+    cursor = conn.execute("DELETE FROM container_knowledge WHERE id = ?", (entry_id,))
+    conn.commit()
+    return cursor.rowcount > 0
+
 
 
 if __name__ == "__main__":
