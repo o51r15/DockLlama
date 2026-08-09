@@ -310,6 +310,26 @@ label { display:block; font-size:0.85rem; color:var(--text-dim); margin-bottom:0
 
         <template x-if="selectedContainer && promptLoaded">
           <div>
+
+            <div class="section" style="border:1px solid var(--orange); border-radius:8px; padding:1.25rem;">
+              <div style="display:flex; align-items:center; gap:0.75rem; margin-bottom:0.75rem;">
+                <input type="checkbox" id="baseOverrideToggle" x-model="baseOverrideEnabled"
+                       style="width:18px; height:18px; accent-color:var(--orange); cursor:pointer;">
+                <label for="baseOverrideToggle" style="font-weight:600; font-size:1rem; cursor:pointer; color:var(--orange);">
+                  Base Prompt Override
+                </label>
+              </div>
+              <p class="desc" style="margin-bottom:0.75rem;">
+                <strong style="color:var(--orange);">Warning:</strong> When enabled, this completely replaces the global base system prompt for this container only. Other containers continue using the active base prompt from Base Prompts settings. Leave unchecked to use the global base prompt.
+              </p>
+              <div x-show="baseOverrideEnabled" x-transition>
+                <div class="field">
+                  <label>Custom Base System Prompt for This Container</label>
+                  <textarea x-model="basePromptOverride" rows="12" placeholder="You are a Docker container health monitoring AI..."></textarea>
+                </div>
+              </div>
+            </div>
+
             <div class="section">
               <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:1rem;">
                 <h2>Context Prompt</h2>
@@ -812,6 +832,8 @@ function settingsApp() {
     selectedContainer: '',
     promptLoaded: false,
     promptSource: 'config',
+    basePromptOverride: '',
+    baseOverrideEnabled: false,
     contextPrompt: '',
     examples: [],
     knownPatterns: [],
@@ -1182,6 +1204,8 @@ function settingsApp() {
         if (!r.ok) throw new Error('Not found');
         const data = await r.json();
         this.contextPrompt = data.context_prompt || '';
+        this.basePromptOverride = data.base_prompt_override || '';
+        this.baseOverrideEnabled = !!data.base_prompt_override;
         this.examples = (data.examples || []).map(e => ({...e}));
         this.knownPatterns = (data.known_patterns || []).map(p => ({...p}));
         this.promptSource = data.source;
@@ -1196,6 +1220,7 @@ function settingsApp() {
           context_prompt: this.contextPrompt || null,
           examples: this.examples.filter(e => e.label || e.log_snippet),
           known_patterns: this.knownPatterns.filter(p => p.pattern),
+          base_prompt_override: this.baseOverrideEnabled ? (this.basePromptOverride || null) : null,
         };
         const r = await fetch(`/api/containers/${this.selectedContainer}/prompt`, {
           method: 'PUT', headers: {'Content-Type': 'application/json'}, body: JSON.stringify(body),

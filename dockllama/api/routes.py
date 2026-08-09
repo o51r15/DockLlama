@@ -52,6 +52,7 @@ class ContainerStatus(BaseModel):
 
 
 class PromptConfig(BaseModel):
+    base_prompt_override: Optional[str] = None
     context_prompt: Optional[str] = None
     examples: Optional[list[dict]] = None
     known_patterns: Optional[list[dict]] = None
@@ -1095,6 +1096,7 @@ async def get_prompt(name: str):
             "context_prompt": None,
             "examples": [],
             "known_patterns": [],
+            "base_prompt_override": None,
             "source": "config",
             "updated_at": None,
         }
@@ -1106,6 +1108,7 @@ async def get_prompt(name: str):
             effective["context_prompt"] = db_prompt["context_prompt"]
             effective["examples"] = db_prompt["examples"]
             effective["known_patterns"] = db_prompt["known_patterns"]
+            effective["base_prompt_override"] = db_prompt.get("base_prompt_override")
             effective["source"] = "database"
             effective["updated_at"] = db_prompt["updated_at"]
 
@@ -1131,6 +1134,7 @@ async def update_prompt(name: str, prompt: PromptConfig):
             context_prompt=prompt.context_prompt,
             examples=prompt.examples,
             known_patterns=prompt.known_patterns,
+            base_prompt_override=prompt.base_prompt_override,
         )
         return {"status": "ok", "container": name, "source": "database"}
     finally:

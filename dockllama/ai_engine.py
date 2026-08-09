@@ -83,6 +83,7 @@ class EvaluationContext:
     context_prompt: Optional[str] = None
     examples: list[dict] = field(default_factory=list)
     prompt_version: str = DEFAULT_PROMPT_VERSION
+    base_prompt_override: Optional[str] = None
 
 
 def _load_prompt(version: str) -> str:
@@ -123,7 +124,10 @@ def _load_prompt_with_fallback(prompt_type: str, file_version: str, db_path: str
 
 def _build_messages(ctx: EvaluationContext, db_path: str = None) -> tuple[str, str]:
     """Build system and user prompts for the LLM."""
-    system_prompt = _load_prompt_with_fallback("eval", ctx.prompt_version, db_path)
+    if ctx.base_prompt_override:
+        system_prompt = ctx.base_prompt_override
+    else:
+        system_prompt = _load_prompt_with_fallback("eval", ctx.prompt_version, db_path)
 
     # Append container-specific context if provided
     if ctx.context_prompt:

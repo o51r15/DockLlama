@@ -374,6 +374,7 @@ async def _process_container(container_cfg, container, cfg: DockLlamaConfig, con
     effective_context_prompt = container_cfg.context_prompt
     effective_examples = container_cfg.examples
     effective_known_patterns = container_cfg.known_patterns
+    effective_base_prompt_override = None
     db_prompt = get_container_prompt(conn, container_cfg.name)
     if db_prompt:
         if db_prompt.get("context_prompt") is not None:
@@ -382,6 +383,8 @@ async def _process_container(container_cfg, container, cfg: DockLlamaConfig, con
             effective_examples = db_prompt["examples"]
         if db_prompt.get("known_patterns"):
             effective_known_patterns = db_prompt["known_patterns"]
+        if db_prompt.get("base_prompt_override"):
+            effective_base_prompt_override = db_prompt["base_prompt_override"]
 
     ctx = EvaluationContext(
         container_name=container_cfg.name,
@@ -391,6 +394,7 @@ async def _process_container(container_cfg, container, cfg: DockLlamaConfig, con
         baseline_sample=baseline,
         context_prompt=effective_context_prompt,
         examples=effective_examples,
+        base_prompt_override=effective_base_prompt_override,
     )
 
     result, prompt_version = await evaluate(ctx, cfg.ollama)

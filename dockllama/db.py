@@ -104,6 +104,7 @@ CREATE TABLE IF NOT EXISTS container_prompts (
     context_prompt TEXT,
     examples TEXT,
     known_patterns TEXT,
+    base_prompt_override TEXT,
     updated_at TEXT NOT NULL DEFAULT (datetime('now'))
 );
 
@@ -396,6 +397,12 @@ CREATE TABLE IF NOT EXISTS container_trend_analysis (
         conn.commit()
     except Exception:
         pass
+    # Migration: container_prompts.base_prompt_override column
+    try:
+        conn.execute("ALTER TABLE container_prompts ADD COLUMN base_prompt_override TEXT")
+        conn.commit()
+    except Exception:
+        pass
     seed_base_prompts(conn)
     return conn
 
@@ -476,7 +483,7 @@ def purge_container_data(conn, container: str) -> dict:
 def get_container_prompt(conn, container: str) -> dict | None:
     """Fetch prompt overrides for a container from DB. Returns None if not set."""
     row = conn.execute(
-        "SELECT context_prompt, examples, known_patterns, updated_at "
+        "SELECT context_prompt, examples, known_patterns, updated_at, base_prompt_override "
         "FROM container_prompts WHERE container = ?",
         (container,),
     ).fetchone()
@@ -488,24 +495,27 @@ def get_container_prompt(conn, container: str) -> dict | None:
         "examples": json.loads(row[1]) if row[1] else [],
         "known_patterns": json.loads(row[2]) if row[2] else [],
         "updated_at": row[3],
+        "base_prompt_override": row[4],
     }
 
 
 def save_container_prompt(conn, container: str, context_prompt: str | None,
-                          examples: list | None, known_patterns: list | None) -> None:
+                          examples: list | None, known_patterns: list | None,
+                          base_prompt_override: str | None = None) -> None:
     """Save or update prompt overrides for a container."""
     now = datetime.now(timezone.utc).isoformat()
     examples_json = json.dumps(examples) if examples else None
     patterns_json = json.dumps(known_patterns) if known_patterns else None
     conn.execute(
-        """INSERT INTO container_prompts (container, context_prompt, examples, known_patterns, updated_at)
-           VALUES (?, ?, ?, ?, ?)
+        """INSERT INTO container_prompts (container, context_prompt, examples, known_patterns, base_prompt_override, updated_at)
+           VALUES (?, ?, ?, ?, ?, ?)
            ON CONFLICT(container) DO UPDATE SET
              context_prompt = excluded.context_prompt,
              examples = excluded.examples,
              known_patterns = excluded.known_patterns,
+             base_prompt_override = excluded.base_prompt_override,
              updated_at = excluded.updated_at""",
-        (container, context_prompt, examples_json, patterns_json, now),
+        (container, context_prompt, examples_json, patterns_json, base_prompt_override, now),
     )
     conn.commit()
 
