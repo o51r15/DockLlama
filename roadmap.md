@@ -625,7 +625,7 @@ When a pattern is classified as `watch`:
 
 ---
 
-### Phase 11 — Fleet Management (Distributed Architecture) ⬅️ START HERE
+### Phase 11 — Fleet Management (Distributed Architecture) ✅ DONE (Session 11)
 
 **Objective:** Scale Dockmon to monitor multiple servers across an entire homelab or production environment.
 
@@ -644,7 +644,7 @@ When a pattern is classified as `watch`:
 
 ---
 
-### Phase 12 — Open-Source Readiness
+### Phase 12 — Open-Source Readiness ⬅️ START HERE
 
 **Objective:** Prepare the repository for public consumption and community contributions.
 
