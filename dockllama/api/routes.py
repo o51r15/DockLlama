@@ -406,7 +406,8 @@ def _normalize_pattern(line: str) -> str:
 @router.get("/containers/{name}/knowledge")
 async def get_knowledge(name: str):
     """Get all knowledge base entries for a container."""
-    conn = get_connection()
+    cfg = _get_cfg()
+    conn = init_db(cfg.monitoring.db_path)
     try:
         entries = get_container_knowledge(conn, name)
         return entries
@@ -425,7 +426,8 @@ async def add_knowledge(name: str, body: dict):
     if classification not in ("expected", "problem", "watch", "ignore"):
         raise HTTPException(400, "classification must be: expected, problem, watch, or ignore")
 
-    conn = get_connection()
+    cfg = _get_cfg()
+    conn = init_db(cfg.monitoring.db_path)
     try:
         entry_id = save_knowledge_entry(conn, name, pattern_hash, sample, classification, explanation)
         entry = get_knowledge_entry(conn, entry_id)
@@ -437,7 +439,8 @@ async def add_knowledge(name: str, body: dict):
 @router.put("/containers/{name}/knowledge/{entry_id}")
 async def update_knowledge(name: str, entry_id: int, body: dict):
     """Update a knowledge base entry."""
-    conn = get_connection()
+    cfg = _get_cfg()
+    conn = init_db(cfg.monitoring.db_path)
     try:
         entry = get_knowledge_entry(conn, entry_id)
         if not entry or entry["container"] != name:
@@ -455,7 +458,8 @@ async def update_knowledge(name: str, entry_id: int, body: dict):
 @router.delete("/containers/{name}/knowledge/{entry_id}")
 async def remove_knowledge(name: str, entry_id: int):
     """Delete a knowledge base entry."""
-    conn = get_connection()
+    cfg = _get_cfg()
+    conn = init_db(cfg.monitoring.db_path)
     try:
         entry = get_knowledge_entry(conn, entry_id)
         if not entry or entry["container"] != name:
