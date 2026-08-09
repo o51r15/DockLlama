@@ -392,6 +392,29 @@ async def update_retention_settings(body: dict):
 
 
 
+
+@router.get("/help-links")
+async def get_help_links():
+    """Get contextual help links for UI sections."""
+    base = "https://github.com/o51r15/DockLlama/blob/main/docs"
+    return {
+        "setup": f"{base}/setup-guide.md",
+        "configuration": f"{base}/configuration.md",
+        "knowledge_base": f"{base}/knowledge-base.md",
+        "prompts": f"{base}/prompt-customization.md",
+        "api": f"{base}/api-reference.md",
+        "troubleshooting": f"{base}/troubleshooting.md",
+        "models": f"{base}/setup-guide.md#ollama-model-recommendations",
+        "retention": f"{base}/configuration.md#per-container-overrides",
+        "digest": f"{base}/configuration.md",
+        "health_checks": f"{base}/api-reference.md#health-checks",
+        "blackouts": f"{base}/api-reference.md#blackout-windows",
+        "patterns": f"{base}/knowledge-base.md#how-it-works",
+        "trends": f"{base}/api-reference.md#trend-analysis",
+    }
+
+
+
 @router.get("/containers/{name}/trend-analysis")
 async def get_container_trend_analysis(name: str, limit: int = Query(10, ge=1, le=100)):
     """Get recent trend analyses for a container."""
