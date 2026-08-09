@@ -2,17 +2,16 @@ FROM python:3.12-slim
 
 WORKDIR /app
 
-# Create non-root user
-RUN groupadd -g 999 docker && \
-    useradd -r -u 1000 -g docker -m dockllama && \
+# Create non-root user (docker socket access via runtime --group-add)
+RUN useradd -r -u 1000 -m dockllama && \
     mkdir -p /app/data && \
-    chown -R dockllama:docker /app
+    chown -R dockllama:dockllama /app
 
 COPY requirements.txt .
 RUN pip install --no-cache-dir -r requirements.txt
 
-COPY --chown=dockllama:docker dockllama/ dockllama/
-COPY --chown=dockllama:docker frontend/ frontend/
+COPY --chown=dockllama:dockllama dockllama/ dockllama/
+COPY --chown=dockllama:dockllama frontend/ frontend/
 
 USER dockllama
 
