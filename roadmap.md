@@ -694,6 +694,40 @@ When a pattern is classified as `watch`:
 
 ---
 
+### Phase 14 — Community Container Profiles ⬅️ START HERE
+
+**Objective:** Build a community-driven repository of tuned container configurations (prompts, patterns, scoring references, base prompt overrides) that users can browse, import, and contribute to — with multi-layer security.
+
+**Design doc:** [docs/community-profiles.md](docs/community-profiles.md)
+
+#### 14A — Repository Setup
+- [ ] Create `dockllama-profiles` GitHub repo with schema, validation tooling, CI
+- [ ] Seed with production profiles (Gluetun, Plex, PostgreSQL, etc.)
+- [ ] GitHub Actions: PR validation (schema + content scan) and post-merge benchmarking
+
+#### 14B — Import Flow
+- [ ] DB: `community_profiles` + `profile_index_cache` tables
+- [ ] Profile index sync from GitHub with local caching
+- [ ] Image name resolution with alias support
+- [ ] Browse/search/preview API endpoints
+- [ ] LLM safety check on import
+- [ ] Selective section import (context, patterns, references, base prompt override)
+- [ ] Staged → active workflow with diff view
+- [ ] Settings UI: browse, preview, import, activate
+
+#### 14C — Export & Submission Flow
+- [ ] Package current config as community profile
+- [ ] Privacy scrub (strip IPs, hostnames, paths)
+- [ ] Submit via GitHub API (fork + PR) or manual export
+- [ ] Version management for profile updates
+
+#### 14D — Dashboard Integration
+- [ ] Profile suggestion badges on containers with matching community profiles
+- [ ] Rating/feedback system
+
+
+---
+
 ## Other Ideas (Unscheduled)
 
 - Container image update detection: check Docker Hub/GHCR for newer image digests, notify via alerts *(from dockmon)*
