@@ -644,7 +644,7 @@ When a pattern is classified as `watch`:
 
 ---
 
-### Phase 12 — Open-Source Readiness ⬅️ START HERE
+### Phase 12 — Open-Source Readiness ✅ DONE (Session 12)
 
 **Objective:** Prepare the repository for public consumption and community contributions.
 
@@ -654,7 +654,7 @@ When a pattern is classified as `watch`:
 - **Config hot-reload:** Watch config file for changes, reload without restart
 - **Prometheus metrics:** `/metrics` endpoint for external monitoring (Grafana dashboards)
 
-### Phase 13 — Dashboard & UI Improvements *(inspired by darthnorse/dockmon)*
+### Phase 13 — Dashboard & UI Improvements ⬅️ START HERE *(inspired by darthnorse/dockmon)*
 
 **Status:** NOT STARTED
 **Objective:** Elevate the dashboard from a health grid to a full container management interface. Borrow proven UI patterns while keeping DockLlama's AI-first identity.
