@@ -9,13 +9,22 @@ files, no group IDs to look up.
 > v2 is not finished. The v1 code is kept under the [`v1-final`](../../tree/v1-final) tag.
 > Progress follows the build phases in the v2 plan.
 
-## What works so far (phases 1–2)
+## What works so far (phases 1–3)
 
 - One-command install with Docker Compose
 - First-run password setup and sign-in; change password in Settings
 - Automatic Docker socket permissions (no `--group-add`)
 - Settings → Containers: every container on this machine with its state in plain words, and a
   switch to choose which ones DockLlama watches
+- Settings → AI: finds Ollama automatically (or type its address), suggests a model that fits your
+  hardware, lets you pick any installed model, one-click downloads of suggested models, and an
+  Advanced panel per model (thinking, context size, and more — only what that model supports)
+
+### Ollama on another computer
+
+Ollama only listens on its own computer by default. On the Ollama machine set `OLLAMA_HOST=0.0.0.0`
+and restart Ollama (Settings → AI shows the exact steps for Windows, Mac, Linux and Docker).
+Ollama 0.9.0 or newer is required.
 
 ## Install
 

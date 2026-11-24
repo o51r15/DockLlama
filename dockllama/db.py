@@ -59,9 +59,18 @@ def _run(conn: sqlite3.Connection, script: str) -> None:
     Not executescript(): that issues an implicit COMMIT first, which would
     break the one-transaction-per-migration guarantee.
     """
-    for statement in script.split(";"):
-        if statement.strip():
-            conn.execute(statement)
+    # Split with SQLite's own parser (sqlite3.complete_statement), so semicolons inside
+    # comments or strings don't break a statement in two.
+    buffer = ""
+    for line in script.splitlines(keepends=True):
+        buffer += line
+        if sqlite3.complete_statement(buffer):
+            conn.execute(buffer)
+            buffer = ""
+    if buffer.strip():
+        if not sqlite3.complete_statement(buffer + "\n;"):
+            raise ValueError(f"Incomplete SQL in migration: {buffer.strip()[:80]}")
+        conn.execute(buffer)
 
 
 def _m001_initial(conn: sqlite3.Connection) -> None:
@@ -122,9 +131,53 @@ def _m002_machines_containers(conn: sqlite3.Connection) -> None:
     )
 
 
+def _m003_ai(conn: sqlite3.Connection) -> None:
+    _run(
+        conn,
+        """
+        CREATE TABLE ai_servers (
+            id          INTEGER PRIMARY KEY,
+            name        TEXT NOT NULL,
+            address     TEXT NOT NULL,
+            model       TEXT,                       -- the model the user chose for checks
+            hardware    TEXT NOT NULL DEFAULT 'unknown',
+            version     TEXT,
+            fingerprint TEXT NOT NULL DEFAULT '[]', -- JSON list, see ollama.inventory_fingerprint
+            connected   INTEGER NOT NULL DEFAULT 0, -- exactly one row is 1 once set up
+            created_at  REAL NOT NULL,
+            last_seen   REAL
+        );
+        CREATE TABLE models (
+            server_id    INTEGER NOT NULL REFERENCES ai_servers(id) ON DELETE CASCADE,
+            name         TEXT NOT NULL,
+            digest       TEXT NOT NULL DEFAULT '',
+            modified_at  TEXT NOT NULL DEFAULT '',
+            size         INTEGER NOT NULL DEFAULT 0,
+            family       TEXT NOT NULL DEFAULT '',
+            parameter_size TEXT NOT NULL DEFAULT '',
+            capabilities TEXT NOT NULL DEFAULT '[]',
+            max_context  INTEGER,
+            thinking     TEXT NOT NULL DEFAULT 'none',
+            think_levels TEXT NOT NULL DEFAULT '[]',
+            is_cloud     INTEGER NOT NULL DEFAULT 0,
+            installed    INTEGER NOT NULL DEFAULT 1,
+            first_seen   REAL NOT NULL,
+            PRIMARY KEY (server_id, name)
+        );
+        CREATE TABLE model_settings (
+            server_id INTEGER NOT NULL REFERENCES ai_servers(id) ON DELETE CASCADE,
+            name      TEXT NOT NULL,
+            settings  TEXT NOT NULL,                -- JSON; missing keys = recommended
+            PRIMARY KEY (server_id, name)
+        )
+        """,
+    )
+
+
 MIGRATIONS: list[Callable[[sqlite3.Connection], None]] = [
     _m001_initial,
     _m002_machines_containers,
+    _m003_ai,
 ]
 
 LATEST = len(MIGRATIONS)

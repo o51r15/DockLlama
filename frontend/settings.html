@@ -8,7 +8,7 @@
 <link rel="stylesheet" href="static/app.css">
 <script defer src="static/vendor/alpine-3.17.5.min.js"></script>
 </head>
-<body x-data="settingsPage()" x-init="init()" x-cloak>
+<body x-data="settingsPage()" x-init="init()" x-cloak @toast.window="showToast($event.detail)">
 <header class="top">
   <a class="brand" href="./" style="margin:0"><img src="static/favicon.svg" alt=""><span>DockLlama</span></a>
   <nav class="topnav">
@@ -27,9 +27,217 @@
 
   <main class="settings-main">
     <!-- AI -->
-    <section x-show="section === 'ai'">
+    <section x-show="section === 'ai'" x-data="aiSection()" x-init="load()">
       <h1>AI</h1>
-      <p class="sub">Connecting to Ollama and choosing a model come in the next build step.</p>
+      <p class="sub">DockLlama uses Ollama to read container logs and explain problems.</p>
+
+      <!-- Connected server -->
+      <div class="panel" x-show="status.connected && !changing">
+        <div class="row-between">
+          <div>
+            <strong x-text="status.name"></strong>
+            <div class="hint" x-text="status.address + (status.version ? ' · Ollama ' + status.version : '')"></div>
+          </div>
+          <span class="pill" :class="status.reachable ? 'ok' : 'bad'" x-text="status.reachable ? 'Connected' : 'Not answering'"></span>
+        </div>
+        <div class="error" x-show="status.problem" x-text="status.problem && status.problem.message"></div>
+        <div class="actions-row">
+          <button class="secondary small" @click="changing = true; address = ''; discover()">Use a different Ollama server</button>
+          <button class="secondary small" @click="renameServer()">Rename</button>
+        </div>
+      </div>
+
+      <!-- Connect form -->
+      <div class="panel" x-show="!status.connected || changing">
+        <h2>Connect to Ollama</h2>
+        <div class="hint" x-show="discovering">Looking for Ollama…</div>
+        <template x-for="f in found" :key="f.url">
+          <div class="found row-between">
+            <span x-text="'Found Ollama ' + f.version + ' at ' + f.url"></span>
+            <button class="small" @click="connect(f.url)">Use this</button>
+          </div>
+        </template>
+        <label for="ollama-addr">Address of the machine running Ollama</label>
+        <div class="inline-form">
+          <input id="ollama-addr" type="text" x-model="address" placeholder="e.g. 192.168.1.125" @keydown.enter.prevent="connect(address)">
+          <button class="small" :disabled="busy || !address.trim()" @click="connect(address)" x-text="busy ? 'Connecting…' : 'Connect'"></button>
+        </div>
+        <div class="hint">Just the IP or name is fine; DockLlama adds the port (11434).</div>
+        <div class="error" x-show="problem" x-text="problem && problem.message"></div>
+
+        <div class="help-box" x-show="problem && problem.kind === 'unreachable'">
+          <strong>Ollama only listens on its own machine unless you change one setting.</strong>
+          <div class="tabs">
+            <template x-for="p in ['Windows','Mac','Linux','Ollama in Docker']" :key="p">
+              <button class="tab" :class="{active: helpTab === p}" @click="helpTab = p" x-text="p"></button>
+            </template>
+          </div>
+          <ol x-show="helpTab === 'Windows'">
+            <li>Quit Ollama from the system tray (right-click the llama icon → Quit).</li>
+            <li>Open the Start menu, search for <em>Edit environment variables for your account</em>.</li>
+            <li>Add a new variable: name <code>OLLAMA_HOST</code>, value <code>0.0.0.0:11434</code>.</li>
+            <li>Start Ollama again. If Windows asks about the firewall, allow private networks.</li>
+          </ol>
+          <ol x-show="helpTab === 'Mac'">
+            <li>In Terminal, run <code>launchctl setenv OLLAMA_HOST "0.0.0.0:11434"</code></li>
+            <li>Quit Ollama from the menu bar and open it again.</li>
+          </ol>
+          <ol x-show="helpTab === 'Linux'">
+            <li>Run <code>sudo systemctl edit ollama.service</code></li>
+            <li>Add these two lines and save:<br><code>[Service]</code><br><code>Environment="OLLAMA_HOST=0.0.0.0:11434"</code></li>
+            <li>Run <code>sudo systemctl daemon-reload &amp;&amp; sudo systemctl restart ollama</code></li>
+          </ol>
+          <ol x-show="helpTab === 'Ollama in Docker'">
+            <li>Make sure the Ollama container publishes its port: <code>ports: ["11434:11434"]</code> in its compose file.</li>
+            <li>Then use the IP address of the machine it runs on.</li>
+          </ol>
+          <button class="small" @click="connect(address)">Try again</button>
+        </div>
+        <div class="help-box" x-show="problem && problem.kind === 'none_found'">
+          <strong>Don't have Ollama yet?</strong> Install it from <a href="https://ollama.com/download" target="_blank" rel="noopener">ollama.com/download</a>
+          on a machine with a graphics card if you have one, then come back here.
+        </div>
+        <div class="actions-row" x-show="changing"><button class="secondary small" @click="changing = false; problem = null">Cancel</button></div>
+      </div>
+
+      <!-- Same server? -->
+      <div class="panel confirm" x-show="confirm">
+        <strong>Is this the same server as <span x-text="confirm && confirm.name"></span>?</strong>
+        <p class="hint" x-text="confirm && (confirm.how === 'fingerprint'
+            ? 'It has the same models, installed at the same times, as the server last seen at ' + confirm.last_address + '.'
+            : 'DockLlama used this address before for a server called ' + confirm.name + '.')"></p>
+        <div class="actions-row">
+          <button class="small" @click="connect(pendingAddress, 'same', confirm.server_id)">Yes, bring back its settings and results</button>
+          <button class="secondary small" @click="connect(pendingAddress, 'new')">No, it's a different server</button>
+        </div>
+      </div>
+
+      <template x-if="status.connected">
+        <div>
+          <h2>What does the machine running Ollama have?</h2>
+          <p class="hint">Ollama can't report this, so DockLlama asks once. It's used to suggest models that fit.
+            Not sure? On Windows: Task Manager → Performance → GPU → Dedicated GPU memory.</p>
+          <select x-model="status.hardware" @change="saveHardware()">
+            <template x-for="[key, label] in Object.entries(status.hardware_choices || {})" :key="key">
+              <option :value="key" x-text="label" :selected="key === status.hardware"></option>
+            </template>
+          </select>
+
+          <h2>Model</h2>
+          <div class="error" x-show="modelsProblem" x-text="modelsProblem"></div>
+          <div class="suggestion" x-show="suggestion && suggestion.name !== status.model">
+            <div><strong>Suggested: <span x-text="suggestion && suggestion.name"></span></strong>
+              <div class="hint" x-text="suggestion && suggestion.reason"></div></div>
+            <button class="small" @click="useModel(suggestion.name)">Use this model</button>
+          </div>
+          <div class="hint" x-show="loadingModels">Reading models from Ollama…</div>
+          <template x-for="m in models" :key="m.name">
+            <div class="mrow" :class="{inuse: m.in_use, unusable: !m.usable}">
+              <div class="cmain">
+                <div>
+                  <strong x-text="m.name"></strong>
+                  <span class="badge on" x-show="m.in_use">In use</span>
+                  <span class="badge sug" x-show="m.suggested">Suggested</span>
+                  <span class="badge" x-show="m.catalog_score" x-text="'Tested by DockLlama: ' + Number(m.catalog_score || 0).toFixed(1) + '/100'"></span>
+                  <span class="badge" x-show="m.usable && !m.catalog_score">Not tested yet</span>
+                  <span class="badge" x-show="m.loaded">Loaded now</span>
+                  <span class="badge warnb" x-show="m.usable && !m.fits">May not fit your graphics card</span>
+                  <span class="badge" x-show="m.customised">Custom settings</span>
+                </div>
+                <div class="hint" x-text="m.usable ? (m.size_gb + ' GB · ' + (m.parameter_size || '') + (m.thinking !== 'none' ? ' · can think' : ''))
+                                               : ('Can\'t be used: ' + m.unusable_reason)"></div>
+              </div>
+              <template x-if="m.usable">
+                <div class="actions-row tight">
+                  <button class="secondary small" @click="openAdvanced(m.name)">Advanced</button>
+                  <button class="small" x-show="!m.in_use" @click="useModel(m.name)">Use this model</button>
+                </div>
+              </template>
+            </div>
+          </template>
+
+          <h2 x-show="downloads.length">Suggested downloads</h2>
+          <p class="hint" x-show="downloads.length">Models DockLlama has tested that fit your hardware. Downloading happens on the Ollama machine.</p>
+          <template x-for="d in downloads" :key="d.name">
+            <div class="mrow">
+              <div class="cmain">
+                <strong x-text="d.name"></strong>
+                <span class="badge" x-text="'Tested by DockLlama: ' + d.score.toFixed(1) + '/100'"></span>
+                <div class="hint" x-text="'About ' + d.size_gb + ' GB to download' + (d.notes ? ' · ' + d.notes : '')"></div>
+                <template x-if="pulls[d.name]">
+                  <div class="progress-wrap">
+                    <div class="progress"><span :style="'width:' + pullPercent(d.name) + '%'"></span></div>
+                    <div class="hint" x-text="pullText(d.name)"></div>
+                  </div>
+                </template>
+              </div>
+              <button class="small" :disabled="anyPullRunning()" x-show="!pulls[d.name] || pulls[d.name].error" @click="download(d.name)">Download</button>
+            </div>
+          </template>
+        </div>
+      </template>
+
+      <!-- Advanced panel -->
+      <div class="modal-back" x-show="adv" @click.self="adv = null" @keydown.escape.window="adv = null">
+        <div class="modal" x-show="adv">
+          <template x-if="adv">
+            <div>
+              <div class="row-between"><h2 style="margin:0" x-text="'Advanced: ' + adv.name"></h2>
+                <button class="secondary small" @click="adv = null">Close</button></div>
+              <p class="hint">For people who want to tune things. DockLlama's recommended values work well for most setups.</p>
+
+              <label>Thinking</label>
+              <div x-show="adv.options.thinking === 'none'" class="greyed">
+                <select disabled><option>Not available</option></select>
+                <div class="hint">This model doesn't think.</div>
+              </div>
+              <select x-show="adv.options.thinking === 'toggle'" x-model="adv.form.think">
+                <option value="false">Off (recommended)</option><option value="true">On</option>
+              </select>
+              <select x-show="adv.options.thinking === 'levels'" x-model="adv.form.think">
+                <template x-for="l in adv.options.think_levels" :key="l">
+                  <option :value="l" x-text="l + (l === recThink() ? ' (recommended)' : '')"></option>
+                </template>
+              </select>
+              <div class="hint" x-show="adv.options.thinking === 'levels' && !adv.options.think_levels.includes('off')">This model can't turn thinking off; lower levels are faster.</div>
+
+              <label x-text="'Context size: ' + fmtK(ctxValue())"></label>
+              <input type="range" min="0" :max="adv.options.context_steps.length - 1" step="1" x-model.number="adv.form.ctxIndex">
+              <div class="slider-scale"><span x-text="fmtK(adv.options.context_steps[0])"></span>
+                <span x-text="'max for this model: ' + fmtK(adv.options.context_max)"></span></div>
+              <div class="hint">DockLlama's checks use about 4K. Recommended: <span x-text="fmtK(adv.options.context_recommended)"></span>.</div>
+
+              <label>Keep the model loaded</label>
+              <select x-model="adv.form.keep_alive">
+                <option value="">Between checks (recommended)</option>
+                <option value="always">Always</option>
+                <option value="unload">Unload after each round (frees GPU memory)</option>
+              </select>
+
+              <label x-text="'Max answer length: ' + adv.form.num_predict + ' tokens'"></label>
+              <input type="range" min="100" max="8192" step="100" x-model.number="adv.form.num_predict">
+
+              <label x-text="'Temperature: ' + Number(adv.form.temperature).toFixed(2)"></label>
+              <input type="range" min="0" max="1" step="0.05" x-model.number="adv.form.temperature">
+              <div class="hint">Lower is more consistent. Recommended: 0.10.</div>
+
+              <label x-text="'Timeout: ' + (adv.form.timeout ? adv.form.timeout + ' seconds' : 'automatic (recommended)')"></label>
+              <input type="range" min="0" max="900" step="30" x-model.number="adv.form.timeout">
+
+              <label class="check"><input type="checkbox" x-model="adv.form.retry"> <span>Retry once if the answer is unreadable (recommended)</span></label>
+              <label class="check"><input type="checkbox" x-model="adv.form.schema_format"> <span>Ask for answers in DockLlama's exact format (recommended)</span></label>
+
+              <template x-for="w in adv.warnings" :key="w"><div class="warning" x-text="w"></div></template>
+              <div class="error" x-show="adv.error" x-text="adv.error"></div>
+              <div class="success" x-show="adv.saved">Saved.</div>
+              <div class="actions-row">
+                <button class="small" @click="saveAdvanced()">Save</button>
+                <button class="secondary small" @click="resetAdvanced()">Reset to recommended</button>
+              </div>
+            </div>
+          </template>
+        </div>
+      </div>
     </section>
 
     <!-- Machines -->
@@ -118,5 +326,6 @@
 <div class="toast" x-show="toast" x-text="toast" x-transition.opacity></div>
 
 <script src="static/settings.js"></script>
+<script src="static/settings-ai.js"></script>
 </body>
 </html>

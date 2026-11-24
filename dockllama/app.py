@@ -11,6 +11,7 @@ from fastapi.staticfiles import StaticFiles
 from starlette.concurrency import run_in_threadpool
 
 from . import __version__, db, paths
+from .api import ai as ai_api
 from .api import auth as auth_api
 from .api import containers as containers_api
 
@@ -69,6 +70,7 @@ def create_app() -> FastAPI:
 
     app.include_router(auth_api.router)
     app.include_router(containers_api.router)
+    app.include_router(ai_api.router)
 
     for route, filename in PAGES.items():
         app.add_api_route(route, _page(filename), methods=["GET"], include_in_schema=False)

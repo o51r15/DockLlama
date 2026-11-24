@@ -85,3 +85,14 @@ def test_export_never_includes_password_hash(conn):
 def test_db_path_follows_paths_module(data_dir):
     db.migrate()
     assert paths.DB_PATH.exists()
+
+
+def test_run_handles_semicolons_in_comments_and_strings(conn):
+    db._run(conn, """
+        CREATE TABLE t1 (a TEXT DEFAULT 'x;y');  -- a comment; with a semicolon
+        CREATE TABLE t2 (b TEXT)                 -- last statement without a semicolon
+    """)
+    names = {r["name"] for r in conn.execute("SELECT name FROM sqlite_master WHERE type='table'")}
+    assert {"t1", "t2"} <= names
+    conn.execute("INSERT INTO t1 DEFAULT VALUES")
+    assert conn.execute("SELECT a FROM t1").fetchone()["a"] == "x;y"
