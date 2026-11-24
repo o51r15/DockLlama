@@ -6,6 +6,7 @@
 <title>Settings · DockLlama</title>
 <link rel="icon" href="static/favicon.svg" type="image/svg+xml">
 <link rel="stylesheet" href="static/app.css">
+<script src="static/banner.js"></script>
 <script defer src="static/vendor/alpine-3.17.5.min.js"></script>
 </head>
 <body x-data="settingsPage()" x-init="init()" x-cloak @toast.window="showToast($event.detail)">
@@ -17,6 +18,27 @@
     <button class="secondary" x-show="loginRequired" @click="logout()">Sign out</button>
   </nav>
 </header>
+<div class="test-banner" x-data="testBanner()" x-init="load()" x-show="b" x-cloak>
+  <div class="test-banner-inner">
+    <span x-text="b && b.text"></span>
+    <div class="actions-row tight">
+      <template x-if="b && b.type === 'better'">
+        <span class="actions-row tight">
+          <button class="secondary small" @click="review()">Review results</button>
+          <button class="small" @click="switchTo()" x-text="'Switch to ' + b.name"></button>
+          <button class="secondary small" @click="dismiss()">Keep current</button>
+        </span>
+      </template>
+      <template x-if="b && b.type === 'best'">
+        <span class="actions-row tight">
+          <button class="secondary small" @click="review()">Review results</button>
+          <button class="small" @click="dismiss()">OK</button>
+        </span>
+      </template>
+    </div>
+    <div class="error" x-show="error" x-text="error"></div>
+  </div>
+</div>
 
 <div class="settings-layout">
   <nav class="side">
@@ -27,7 +49,7 @@
 
   <main class="settings-main">
     <!-- AI -->
-    <section x-show="section === 'ai'" x-data="aiSection()" x-init="load()">
+    <section x-show="section === 'ai'" x-data="aiSection()" x-init="load()" @model-changed.window="loadModels()">
       <h1>AI</h1>
       <p class="sub">DockLlama uses Ollama to read container logs and explain problems.</p>
 
@@ -130,6 +152,32 @@
               <div class="hint" x-text="suggestion && suggestion.reason"></div></div>
             <button class="small" @click="useModel(suggestion.name)">Use this model</button>
           </div>
+          <div class="panel testbar" x-show="tests.active">
+            <div class="row-between">
+              <div>
+                <strong x-text="activeLine()"></strong>
+                <div class="hint" x-show="tests.active && tests.active.note" x-text="tests.active && tests.active.note"></div>
+                <div class="hint" x-show="tests.active && tests.active.status === 'waiting'">New models are waiting to be tested.</div>
+              </div>
+              <div class="actions-row tight">
+                <button class="secondary small" x-show="tests.active && tests.active.mode === 'watch'" @click="watching = tests.active.run_id">Watch</button>
+                <button class="secondary small" x-show="tests.active && tests.active.status === 'running'" @click="runAction(tests.active.run_id, 'pause')">Pause</button>
+                <button class="small" x-show="tests.active && tests.active.status === 'paused'" @click="runAction(tests.active.run_id, 'resume')">Resume</button>
+                <button class="secondary small" @click="runAction(tests.active.run_id, 'cancel')">Cancel</button>
+              </div>
+            </div>
+            <div class="progress"><span :style="'width:' + runPercent(tests.active) + '%'"></span></div>
+          </div>
+          <div class="panel testbar" x-show="tests.scheduled">
+            <div class="row-between">
+              <span x-text="tests.scheduled && ('Testing ' + tests.scheduled.total + ' models is set to start at ' + fmtClock(tests.scheduled.start_after) + '.')"></span>
+              <button class="secondary small" @click="runAction(tests.scheduled.run_id, 'cancel')">Cancel</button>
+            </div>
+          </div>
+          <div class="row-between models-head">
+            <p class="hint">Every system is different, so DockLlama can test each model on this server. One test asks 8 practice questions and takes a minute or two.</p>
+            <button class="secondary small" :disabled="tests.busy" :title="tests.busy_message || ''" @click="openPlan()">Test all models</button>
+          </div>
           <div class="hint" x-show="loadingModels">Reading models from Ollama…</div>
           <template x-for="m in models" :key="m.name">
             <div class="mrow" :class="{inuse: m.in_use, unusable: !m.usable}">
@@ -138,8 +186,24 @@
                   <strong x-text="m.name"></strong>
                   <span class="badge on" x-show="m.in_use">In use</span>
                   <span class="badge sug" x-show="m.suggested">Suggested</span>
-                  <span class="badge" x-show="m.catalog_score" x-text="'Tested by DockLlama: ' + Number(m.catalog_score || 0).toFixed(1) + '/100'"></span>
-                  <span class="badge" x-show="m.usable && !m.catalog_score">Not tested yet</span>
+                  <template x-if="liveFor(m.name)">
+                    <span class="badge on" x-text="liveText(liveFor(m.name))"></span>
+                  </template>
+                  <template x-if="!liveFor(m.name) && resultFor(m.name)">
+                    <span>
+                      <span class="badge" :class="resultFor(m.name).status === 'done' ? 'res' : 'warnb'"
+                            :title="resultFor(m.name).error || resultText(resultFor(m.name))" x-text="resultShort(resultFor(m.name))"></span>
+                      <span class="badge" :class="resultFor(m.name).fit === 'gpu' ? '' : 'warnb'"
+                            x-show="resultFor(m.name).status === 'done' && fitShort(resultFor(m.name).fit)"
+                            x-text="fitShort(resultFor(m.name).fit)"></span>
+                    </span>
+                  </template>
+                  <span class="badge warnb" x-show="resultFor(m.name) && resultFor(m.name).older_version"
+                        title="This model was downloaded again since its test. Retest to compare.">Older version tested</span>
+                  <span class="badge" x-show="!resultFor(m.name) && !liveFor(m.name) && m.catalog_score"
+                        title="From DockLlama's own test runs, not on this server"
+                        x-text="'DockLlama\'s reference: ' + Number(m.catalog_score || 0).toFixed(1) + '/100'"></span>
+                  <span class="badge" x-show="m.usable && !m.catalog_score && !resultFor(m.name) && !liveFor(m.name)">Not tested yet</span>
                   <span class="badge" x-show="m.loaded">Loaded now</span>
                   <span class="badge warnb" x-show="m.usable && !m.fits">May not fit your graphics card</span>
                   <span class="badge" x-show="m.customised">Custom settings</span>
@@ -149,6 +213,9 @@
               </div>
               <template x-if="m.usable">
                 <div class="actions-row tight">
+                  <button class="link small" x-show="resultFor(m.name)" @click="openHistory(m.name)">Results</button>
+                  <button class="secondary small" :disabled="tests.busy" :title="tests.busy_message || ''"
+                          @click="startTest(m.name)" x-text="resultFor(m.name) ? 'Retest' : 'Test'"></button>
                   <button class="secondary small" @click="openAdvanced(m.name)">Advanced</button>
                   <button class="small" x-show="!m.in_use" @click="useModel(m.name)">Use this model</button>
                 </div>
@@ -232,8 +299,121 @@
               <div class="success" x-show="adv.saved">Saved.</div>
               <div class="actions-row">
                 <button class="small" @click="saveAdvanced()">Save</button>
+                <button class="secondary small" :disabled="tests.busy" :title="tests.busy_message || ''"
+                        @click="testWithSettings()">Save and test with these settings</button>
                 <button class="secondary small" @click="resetAdvanced()">Reset to recommended</button>
               </div>
+            </div>
+          </template>
+        </div>
+      </div>
+
+      <!-- Test all: pick models and how to run it -->
+      <div class="modal-back" x-show="plan" @click.self="plan = null">
+        <div class="modal" x-show="plan">
+          <template x-if="plan">
+            <div>
+              <div class="row-between"><h2 style="margin:0">Test all models</h2>
+                <button class="secondary small" @click="plan = null">Close</button></div>
+              <p class="hint">Each model answers the same 8 practice questions about container logs. Models that probably
+                won't fit your graphics card start unticked.</p>
+              <div class="plan-list">
+                <template x-for="m in plan.models" :key="m.name">
+                  <label class="check plan-row">
+                    <input type="checkbox" x-model="m.ticked">
+                    <span class="grow"><strong x-text="m.name"></strong>
+                      <span class="hint" x-text="' · ' + m.size_gb + ' GB · ' + fmtDuration(m.estimate_s)"></span>
+                      <span class="badge warnb" x-show="!m.fits">May not fit</span>
+                      <span class="badge" x-show="m.last" x-text="m.last && ('last time: ' + resultShort(m.last))"></span></span>
+                  </label>
+                </template>
+              </div>
+              <p><strong x-text="planCount() + ' models, ' + fmtDuration(planTotal())"></strong></p>
+              <div class="warning">While testing, the Ollama machine loads each model in turn. Other apps using the same
+                Ollama (chat apps, bookmark taggers) will be slower until it finishes. Container checks keep running between models.</div>
+              <div class="error" x-show="plan.error" x-text="plan.error"></div>
+              <div class="actions-row wrap">
+                <button class="small" @click="startPlan('background')">Test in the background</button>
+                <button class="secondary small" @click="startPlan('watch')">Test now and watch</button>
+                <button class="secondary small" @click="startPlan('tonight')" x-text="'Run tonight at ' + fmtClock(plan.tonight_at)"></button>
+              </div>
+            </div>
+          </template>
+        </div>
+      </div>
+
+      <!-- Wait and watch -->
+      <div class="modal-back" x-show="watching">
+        <div class="modal wide" x-show="watching">
+          <template x-if="watching && watchedRun()">
+            <div>
+              <div class="row-between"><h2 style="margin:0" x-text="watchedRun().status === 'done' ? 'Testing finished' : 'Testing models'"></h2>
+                <button class="secondary small" @click="closeWatch()" x-text="watchedRun().status === 'done' ? 'Close' : 'Close (keep testing in the background)'"></button></div>
+              <template x-if="watchedRun().status !== 'done'">
+                <div>
+                  <p class="hint" x-text="activeLine() || 'Starting…'"></p>
+                  <div class="progress"><span :style="'width:' + runPercent(watchedRun()) + '%'"></span></div>
+                  <p class="hint">Container checks are paused while you watch.</p>
+                </div>
+              </template>
+              <p class="hint" x-show="watchedRun().status === 'done'">Best first. DockLlama suggests; you choose.</p>
+              <table class="watch-table">
+                <thead><tr><th>Model</th><th>Status</th><th>Score</th><th>Per check</th><th>Runs</th><th></th></tr></thead>
+                <tbody>
+                  <template x-for="(m, i) in (watchedRun().status === 'done' ? watchRanked() : watchedRun().models)" :key="m.name">
+                    <tr>
+                      <td><strong x-text="m.name"></strong>
+                        <span class="badge sug" x-show="watchedRun().status === 'done' && i === 0 && m.status === 'done'">Suggested</span>
+                        <span class="badge on" x-show="m.name === status.model">In use</span></td>
+                      <td x-text="m.status === 'running' ? liveText(m) : ({queued: 'Waiting', done: 'Done', too_slow: 'Too slow here', failed: 'Failed', cancelled: 'Cancelled'}[m.status] || m.status)"
+                          :title="m.error || ''"></td>
+                      <td x-text="m.score != null ? Math.round(m.score) : ''"></td>
+                      <td x-text="m.sec_per_check ? m.sec_per_check.toFixed(1) + ' s' : ''"></td>
+                      <td x-text="fitText(m.fit)"></td>
+                      <td><button class="small" x-show="watchedRun().status === 'done' && m.status === 'done' && m.name !== status.model"
+                                  @click="watchUse(m.name)">Use this model</button></td>
+                    </tr>
+                  </template>
+                </tbody>
+              </table>
+              <div class="actions-row" x-show="watchedRun().status !== 'done'">
+                <button class="secondary small" @click="runAction(watching, 'cancel'); watching = null">Cancel testing</button>
+              </div>
+            </div>
+          </template>
+        </div>
+      </div>
+
+      <!-- Past results for one model -->
+      <div class="modal-back" x-show="hist" @click.self="hist = null">
+        <div class="modal wide" x-show="hist">
+          <template x-if="hist">
+            <div>
+              <div class="row-between"><h2 style="margin:0" x-text="'Results: ' + hist.name"></h2>
+                <button class="secondary small" @click="hist = null">Close</button></div>
+              <p class="hint">Every test on this server, newest first, with the settings it used.</p>
+              <template x-for="r in hist.results" :key="r.id">
+                <div class="hist-row">
+                  <div class="row-between">
+                    <div><strong x-text="resultText(r)"></strong>
+                      <span class="badge warnb" x-show="r.older_version">Older version</span>
+                      <span class="badge warnb" x-show="r.cut_off">An answer was cut off</span>
+                      <div class="hint" x-text="fmtDate(r.finished_at) + ' · ' + settingsText(r.settings) + (r.load_s ? ' · loaded in ' + r.load_s.toFixed(1) + ' s' : '')"></div>
+                      <div class="hint" x-show="r.error" x-text="r.error"></div>
+                    </div>
+                    <button class="link small" x-show="r.details.length" @click="hist.open = hist.open === r.id ? null : r.id"
+                            x-text="hist.open === r.id ? 'Hide questions' : 'Show questions'"></button>
+                  </div>
+                  <template x-if="hist.open === r.id">
+                    <ul class="qlist">
+                      <template x-for="d in r.details" :key="d.id">
+                        <li><span x-text="d.name + ': ' + Math.round(d.score * 100) + '/100'"></span>
+                          <span class="hint" x-text="d.notes.length ? ' — ' + d.notes.join('; ') : ' — all correct'"></span></li>
+                      </template>
+                    </ul>
+                  </template>
+                </div>
+              </template>
             </div>
           </template>
         </div>

@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import inspect
 import json
 
 import httpx
@@ -47,6 +48,9 @@ class FakeServer:
         self.generate_response = {"response": '{"ok": true}', "done": True, "done_reason": "stop",
                                   "prompt_eval_count": 900, "eval_count": 12}
         self.pull_fails = False
+        self.generate_handler = None  # optional: fn(payload) -> response dict, or raise httpx error
+        self.unloaded: list[str] = []
+        self.vram_fraction = 1.0  # for /api/ps size_vram
 
 
 class FakeOllama:
@@ -72,7 +76,9 @@ class FakeOllama:
         if path == "/api/tags":
             return httpx.Response(200, json={"models": server.tags})
         if path == "/api/ps":
-            return httpx.Response(200, json={"models": [{"name": n, "model": n} for n in server.loaded]})
+            return httpx.Response(200, json={"models": [
+                {"name": n, "model": n, "size": 8 * GB, "size_vram": int(8 * GB * server.vram_fraction)}
+                for n in server.loaded]})
         if path == "/api/show":
             name = json.loads(request.content)["model"]
             if name not in {t["name"] for t in server.tags}:
@@ -89,6 +95,36 @@ class FakeOllama:
             server.tags.append(tag(name, 5.0, "llama", "8.0B", pulled="2026-11-24T03:00:00-05:00"))
             return httpx.Response(200, text="\n".join(json.dumps(x) for x in lines) + "\n")
         if path == "/api/generate":
-            server.generate_calls.append(json.loads(request.content))
+            payload = json.loads(request.content)
+            if payload.get("keep_alive") == 0 and "prompt" not in payload:
+                server.unloaded.append(payload["model"])
+                if payload["model"] in server.loaded:
+                    server.loaded.remove(payload["model"])
+                return httpx.Response(200, json={"done": True, "done_reason": "unload"})
+            server.generate_calls.append(payload)
+            if payload["model"] not in server.loaded:
+                server.loaded.append(payload["model"])
+            if server.generate_handler is not None:
+                result = server.generate_handler(payload, request)
+                if inspect.isawaitable(result):  # async handlers can wait without blocking the app
+                    async def later():
+                        return httpx.Response(200, json=await result)
+                    return later()
+                return httpx.Response(200, json=result)
             return httpx.Response(200, json=server.generate_response)
         return httpx.Response(404, json={"error": "not found"})
+
+
+def perfect_answer(payload: dict, request=None) -> dict:
+    """Answer each benchmark scenario the way the rubric wants (a 100-point model)."""
+    from dockllama.scenarios import SCENARIOS
+    sc = next(s for s in SCENARIOS if s["summary"] in payload["prompt"])
+    lo, hi = sc["score_min"], sc["score_max"]
+    verdict = {"status": sc["expect_status"], "health_score": (lo + hi) // 2, "confidence": 90,
+               "root_cause_category": "none", "error_origin": "none",
+               "summary": "A clear, sufficiently long summary of what is going on.",
+               "what_to_do": "Nothing.", "restart_would_help": sc["expect_restart"],
+               "restart_reasoning": "n/a", "recommended_action": sc["expect_action"]}
+    return {"response": json.dumps(verdict), "done": True, "done_reason": "stop", "prompt_eval_count": 900,
+            "eval_count": 80, "eval_duration": 1_000_000_000, "load_duration": 500_000_000,
+            "total_duration": 2_000_000_000}

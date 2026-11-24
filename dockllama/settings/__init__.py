@@ -49,11 +49,24 @@ def _timezone(v: Any) -> str:
     return v
 
 
+def _clock(v: Any) -> str:
+    if isinstance(v, str):
+        parts = v.split(":")
+        if len(parts) == 2 and all(p.isdigit() for p in parts):
+            h, m = int(parts[0]), int(parts[1])
+            if 0 <= h <= 23 and 0 <= m <= 59:
+                return f"{h:02d}:{m:02d}"
+    raise SettingError("must be a time like 01:00")
+
+
 REGISTRY: dict[str, Setting] = {
     "auth.password_hash": Setting(None, _opt_str, exportable=False),
     "auth.login_required": Setting(True, _bool),
     "general.timezone": Setting("UTC", _timezone),
     "setup.complete": Setting(False, _bool),
+    "ai.auto_test_new": Setting(True, _bool),
+    # Start of quiet hours, local time; "Run tonight" starts model tests then. Phase 8 adds the rest.
+    "quiet.start": Setting("01:00", _clock),
 }
 
 

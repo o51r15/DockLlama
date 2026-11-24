@@ -324,6 +324,14 @@ class OllamaClient:
         except httpx.HTTPError as exc:
             raise OllamaError("unreachable", f"The download from {self.base_url} stopped: {exc}") from exc
 
+    async def unload(self, name: str) -> None:
+        """Free the model's memory now (keep_alive 0). Best effort: never raises."""
+        try:
+            async with self._http(30) as http:
+                await http.post("/api/generate", json={"model": name, "keep_alive": 0})
+        except httpx.HTTPError:
+            pass
+
     async def generate(self, payload: dict, timeout: float = 120.0) -> dict:
         try:
             async with self._http(timeout) as http:

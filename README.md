@@ -9,7 +9,7 @@ files, no group IDs to look up.
 > v2 is not finished. The v1 code is kept under the [`v1-final`](../../tree/v1-final) tag.
 > Progress follows the build phases in the v2 plan.
 
-## What works so far (phases 1–3)
+## What works so far (phases 1–3b)
 
 - One-command install with Docker Compose
 - First-run password setup and sign-in; change password in Settings
@@ -19,6 +19,10 @@ files, no group IDs to look up.
 - Settings → AI: finds Ollama automatically (or type its address), suggests a model that fits your
   hardware, lets you pick any installed model, one-click downloads of suggested models, and an
   Advanced panel per model (thinking, context size, and more — only what that model supports)
+- Model testing on your own server: Test or Retest any model, or Test all (in the background, now
+  while you watch, or tonight). One test at a time; results are kept per server and model version.
+  When a background run finds a clearly better model, a banner suggests it on your next page —
+  DockLlama never switches models by itself. New and downloaded models are tested automatically.
 
 ### Ollama on another computer
 

@@ -8,10 +8,12 @@ function aiSection() {
     models: [], suggestion: null, downloads: [], modelsProblem: '', loadingModels: false,
     pulls: {}, pullTimer: null,
     adv: null,
+    tests: {busy: false, active: null, scheduled: null, watched: null, results: {}}, testsTimer: null,
+    plan: null, watching: null, hist: null,
 
     async load() {
       await this.loadStatus();
-      if (this.status.connected) this.loadModels(); else this.discover();
+      if (this.status.connected) { this.loadModels(); this.pollTests(); } else this.discover();
       this.pollPulls();
     },
 
@@ -37,7 +39,7 @@ function aiSection() {
         else if (!r.ok) { this.problem = r.problem; this.confirm = null; }
         else {
           this.confirm = null; this.changing = false; this.address = '';
-          await this.loadStatus(); await this.loadModels();
+          await this.loadStatus(); await this.loadModels(); this.pollTests();
           this.$dispatch('toast', r.restored ? 'Connected. Settings and results for this server are back.' : 'Connected.');
         }
       } catch (e) { this.problem = {message: e.message}; }
@@ -140,6 +142,12 @@ function aiSection() {
       return out;
     },
 
+    async testWithSettings() {
+      await this.saveAdvanced();
+      if (this.adv.error) return;
+      const name = this.adv.name; this.adv = null; this.startTest(name);
+    },
+
     async saveAdvanced() {
       this.adv.error = ''; this.adv.saved = false;
       try {
@@ -153,6 +161,131 @@ function aiSection() {
         await api('api/ai/advanced?name=' + encodeURIComponent(this.adv.name), {method: 'DELETE'});
         const name = this.adv.name; await this.openAdvanced(name); this.adv.saved = true; this.loadModels();
       } catch (e) { this.adv.error = e.message; }
+    },
+
+    // --- model tests ---
+    async pollTests() {
+      clearTimeout(this.testsTimer);
+      const wasActive = !!(this.tests.active);
+      try { this.tests = await api('api/ai/tests'); } catch (e) { /* try again next tick */ }
+      const active = !!(this.tests.active);
+      if (wasActive && !active) this.loadModels();  // a run just finished: refresh results and suggestion
+      if (this.watching && this.tests.watched && this.tests.watched.run_id === this.watching) {
+        if (this.tests.watched.status === 'done') { this.loadModels(); this.dismissBannerFor(this.watching); }
+      }
+      this.testsTimer = setTimeout(() => this.pollTests(), active ? 1500 : 15000);
+    },
+    resultFor(name) { return this.tests.results[name] || null; },
+    liveFor(name) {
+      const a = this.tests.active; if (!a) return null;
+      return a.models.find(m => m.name === name && (m.status === 'running' || m.status === 'queued')) || null;
+    },
+    fitText(fit) { return {gpu: 'on the graphics card', partial: 'partly on the CPU', cpu: 'on the CPU'}[fit] || ''; },
+    resultShort(r) {
+      if (!r) return '';
+      if (r.status === 'too_slow') return 'Too slow here';
+      if (r.status === 'failed') return 'Test failed';
+      return Math.round(r.score) + '/100 here' + (r.sec_per_check ? ' · ' + r.sec_per_check.toFixed(1) + ' s per check' : '');
+    },
+    fitShort(fit) { return {gpu: 'On GPU', partial: 'Partly on CPU', cpu: 'CPU only'}[fit] || ''; },
+    resultText(r) {
+      if (!r) return '';
+      if (r.status === 'too_slow') return 'Too slow here';
+      if (r.status === 'failed') return 'Test failed';
+      let s = 'Scored ' + Math.round(r.score) + ' here';
+      if (r.sec_per_check) s += ' · ' + r.sec_per_check.toFixed(1) + ' s per check';
+      if (this.fitText(r.fit)) s += ' · ' + this.fitText(r.fit);
+      return s;
+    },
+    liveText(l) {
+      if (l.status === 'queued') return 'Waiting to test';
+      if (l.phase === 'loading') return 'Loading the model…';
+      if (l.phase === 'retrying') return 'Trying a slow question again…';
+      return 'Testing: question ' + Math.min(l.scenario + 1, l.of) + ' of ' + l.of;
+    },
+    fmtDuration(s) {
+      if (s < 90) return 'about a minute';
+      if (s < 3600) return 'about ' + Math.round(s / 60) + ' minutes';
+      const h = Math.floor(s / 3600), m = Math.round((s % 3600) / 60);
+      return 'about ' + h + ' h' + (m ? ' ' + m + ' min' : '');
+    },
+    fmtClock(ts) { return new Date(ts * 1000).toLocaleTimeString([], {hour: '2-digit', minute: '2-digit'}); },
+    fmtDate(ts) { return ts ? new Date(ts * 1000).toLocaleString([], {dateStyle: 'medium', timeStyle: 'short'}) : ''; },
+    activeLine() {
+      const a = this.tests.active; if (!a) return '';
+      const cur = a.models.find(m => m.status === 'running');
+      let s = a.status === 'paused' ? 'Paused' : (cur ? 'Testing ' + cur.name : 'Starting');
+      if (cur && cur.of) s += ' (question ' + Math.min(cur.scenario + 1, cur.of) + ' of ' + cur.of + ')';
+      if (a.total > 1) s += ' · ' + a.finished + ' of ' + a.total + ' models done';
+      if (a.status !== 'paused' && a.remaining_s) s += ' · ' + this.fmtDuration(a.remaining_s) + ' left';
+      return s;
+    },
+    runPercent(r) {
+      if (!r || !r.total) return 0;
+      const cur = r.models.find(m => m.status === 'running');
+      const part = cur && cur.of ? cur.scenario / cur.of : 0;
+      return Math.round(100 * (r.finished + part) / r.total);
+    },
+    async startTest(name) {
+      try { await api('api/ai/tests', {method: 'POST', body: {names: [name], kind: 'one'}}); this.pollTests(); }
+      catch (e) { this.modelsProblem = e.message; }
+    },
+    async runAction(runId, action) {
+      try { await api('api/ai/tests/' + runId + '/' + action, {method: 'POST'}); }
+      catch (e) { this.modelsProblem = e.message; }
+      this.pollTests();
+    },
+
+    // "Test all": pick models, see the estimate, choose how to run it.
+    async openPlan() {
+      try {
+        const p = await api('api/ai/tests/plan');
+        this.plan = {...p, error: ''};
+      } catch (e) { this.modelsProblem = e.message; }
+    },
+    planTotal() { return this.plan ? this.plan.models.filter(m => m.ticked).reduce((a, m) => a + m.estimate_s, 0) : 0; },
+    planCount() { return this.plan ? this.plan.models.filter(m => m.ticked).length : 0; },
+    async startPlan(how) {
+      const names = this.plan.models.filter(m => m.ticked).map(m => m.name);
+      if (!names.length) { this.plan.error = 'Tick at least one model.'; return; }
+      try {
+        const r = await api('api/ai/tests', {method: 'POST', body: {names, kind: 'all',
+          mode: how === 'watch' ? 'watch' : 'background', tonight: how === 'tonight'}});
+        this.plan = null;
+        if (how === 'watch') this.watching = r.run_id;
+        else this.$dispatch('toast', how === 'tonight' ? 'Model testing will start tonight.'
+                                                     : 'Testing in the background. You can keep using DockLlama.');
+        this.pollTests();
+      } catch (e) { this.plan.error = e.message; }
+    },
+
+    // Wait-and-watch screen
+    watchedRun() { const w = this.tests.watched; return w && w.run_id === this.watching ? w : null; },
+    watchRanked() {
+      const w = this.watchedRun(); if (!w) return [];
+      return [...w.models].sort((a, b) => (b.status === 'done') - (a.status === 'done') || (b.score ?? -1) - (a.score ?? -1));
+    },
+    async closeWatch() {
+      const w = this.watchedRun(), id = this.watching;
+      this.watching = null;
+      if (w && ['running', 'paused'].includes(w.status)) {
+        await this.runAction(id, 'background');
+        this.$dispatch('toast', 'Testing carries on in the background. You\'ll see the results on your next page.');
+      }
+    },
+    async dismissBannerFor(runId) {
+      try { await api('api/ai/banner/dismiss', {method: 'POST', body: {run_id: runId}}); } catch (e) { /* harmless */ }
+    },
+    async watchUse(name) { await this.useModel(name); this.$dispatch('toast', 'Now using ' + name + '.'); },
+
+    async openHistory(name) {
+      try { this.hist = await api('api/ai/tests/history?name=' + encodeURIComponent(name)); this.hist.open = null; }
+      catch (e) { this.modelsProblem = e.message; }
+    },
+    settingsText(s) {
+      const keys = Object.keys(s || {});
+      if (!keys.length) return 'recommended settings';
+      return keys.map(k => k === 'num_ctx' ? 'context ' + this.fmtK(s[k]) : k === 'think' ? 'thinking ' + s[k] : k + ' ' + s[k]).join(', ');
     },
   };
 }

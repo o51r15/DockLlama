@@ -44,7 +44,9 @@ def find_match(conn: sqlite3.Connection, address: str, fingerprint: list[str]) -
         how = "address"
         if best is None:
             return None
-    tested = 0  # filled in once model tests exist (phase 3b)
+    tested = conn.execute(
+        "SELECT COUNT(DISTINCT name) n FROM model_tests WHERE server_id = ? AND status = 'done'", (best["id"],)
+    ).fetchone()["n"]
     return Match(best["id"], best["name"], best["address"], how, tested)
 
 
@@ -75,9 +77,15 @@ def connect(conn: sqlite3.Connection, address: str, version: str, fingerprint: l
     return cur.lastrowid
 
 
-def save_models(conn: sqlite3.Connection, server_id: int, models: list[ModelDetails], fingerprint: list[str]) -> None:
+def save_models(conn: sqlite3.Connection, server_id: int, models: list[ModelDetails],
+                fingerprint: list[str]) -> list[str]:
+    """Store the server's models. Returns the names that are new since last time (none on the
+    first look at a server, so connecting doesn't count every model as "new")."""
     now = time.time()
     names = [m.name for m in models]
+    known = {r["name"]: r["installed"] for r in conn.execute(
+        "SELECT name, installed FROM models WHERE server_id = ?", (server_id,))}
+    new = [n for n in names if known and not known.get(n)] if known else []
     for m in models:
         conn.execute(
             """INSERT INTO models (server_id, name, digest, modified_at, size, family, parameter_size,
@@ -101,6 +109,7 @@ def save_models(conn: sqlite3.Connection, server_id: int, models: list[ModelDeta
         "UPDATE ai_servers SET fingerprint = ?, last_seen = ? WHERE id = ?",
         (json.dumps(fingerprint), now, server_id),
     )
+    return new
 
 
 def model_from_row(row) -> ModelDetails:

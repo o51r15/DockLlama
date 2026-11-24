@@ -177,3 +177,35 @@ input[type=range] { width: 100%; accent-color: var(--accent); }
   .suggestion, .inline-form { flex-direction: column; align-items: stretch; }
   .actions-row.tight { flex-wrap: wrap; }
 }
+
+/* Model tests (phase 3b) */
+.test-banner { background: rgba(63, 185, 80, 0.12); border-bottom: 1px solid rgba(63, 185, 80, 0.4); }
+.test-banner-inner { max-width: 1100px; margin: 0 auto; padding: 10px calc(var(--space) * 3);
+  display: flex; flex-wrap: wrap; gap: 10px 16px; align-items: center; justify-content: space-between; }
+.test-banner .actions-row { margin: 0; }
+.testbar { margin: 12px 0; }
+.testbar .progress { margin-top: 10px; }
+.models-head { gap: 16px; align-items: center; margin: 8px 0; }
+.models-head .hint { margin: 0; }
+.models-head button { width: auto; margin: 0; white-space: nowrap; }
+.badge.res { background: rgba(91, 156, 246, 0.15); color: var(--text); }
+button.link { background: none; border: none; color: var(--accent); padding: 4px 6px; width: auto; }
+button.link:hover { text-decoration: underline; background: none; }
+button:disabled { opacity: 0.45; cursor: not-allowed; }
+.modal.wide { max-width: 760px; }
+.plan-list { max-height: 45vh; overflow-y: auto; border: 1px solid var(--border); border-radius: var(--radius); margin: 8px 0; }
+.plan-row { padding: 8px 10px; border-bottom: 1px solid var(--border); margin: 0; align-items: center; }
+.plan-row .grow { flex: 1; }
+.actions-row.wrap { flex-wrap: wrap; }
+.watch-table { width: 100%; border-collapse: collapse; margin: 12px 0; font-size: 14px; }
+.watch-table th, .watch-table td { text-align: left; padding: 6px 8px; border-bottom: 1px solid var(--border); }
+.watch-table th { color: var(--muted); font-weight: 500; }
+.watch-table button { width: auto; margin: 0; }
+.hist-row { border-bottom: 1px solid var(--border); padding: 10px 0; }
+.qlist { margin: 6px 0 0 18px; padding: 0; font-size: 14px; }
+@media (max-width: 640px) {
+  .watch-table th:nth-child(4), .watch-table td:nth-child(4), .watch-table th:nth-child(5), .watch-table td:nth-child(5) { display: none; }
+  .models-head { flex-direction: column; align-items: stretch; }
+}
+.badge { white-space: nowrap; display: inline-block; margin: 2px 0; }
+.watch-table button, .watch-table .badge { white-space: nowrap; }

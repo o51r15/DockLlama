@@ -14,6 +14,8 @@ from . import __version__, db, paths
 from .api import ai as ai_api
 from .api import auth as auth_api
 from .api import containers as containers_api
+from .api import tests as tests_api
+from .model_tests import RUNNER
 
 log = logging.getLogger("dockllama")
 
@@ -26,7 +28,11 @@ PAGES = {"/": "index.html", "/login": "login.html", "/setup": "setup.html", "/se
 async def lifespan(app: FastAPI):
     version = await run_in_threadpool(db.migrate)
     log.info("DockLlama %s started, database schema v%s at %s", __version__, version, paths.DB_PATH)
-    yield
+    await RUNNER.start()
+    try:
+        yield
+    finally:
+        await RUNNER.stop()
 
 
 def _gate(path: str, request: Request) -> str:
@@ -71,6 +77,7 @@ def create_app() -> FastAPI:
     app.include_router(auth_api.router)
     app.include_router(containers_api.router)
     app.include_router(ai_api.router)
+    app.include_router(tests_api.router)
 
     for route, filename in PAGES.items():
         app.add_api_route(route, _page(filename), methods=["GET"], include_in_schema=False)

@@ -174,10 +174,56 @@ def _m003_ai(conn: sqlite3.Connection) -> None:
     )
 
 
+def _m004_model_tests(conn: sqlite3.Connection) -> None:
+    _run(
+        conn,
+        """
+        -- One "Test" click, "Test all", or an automatic test of a new model.
+        CREATE TABLE test_runs (
+            id           INTEGER PRIMARY KEY,
+            server_id    INTEGER NOT NULL REFERENCES ai_servers(id) ON DELETE CASCADE,
+            kind         TEXT NOT NULL,              -- one | all | new
+            mode         TEXT NOT NULL,              -- background | watch
+            status       TEXT NOT NULL,              -- waiting | scheduled | running | paused | done | cancelled
+            start_after  REAL,                       -- "Run tonight"
+            note         TEXT,                       -- why it paused, in plain words
+            baseline     TEXT,                       -- the model in use when the run started
+            banner       TEXT NOT NULL DEFAULT 'none', -- none | pending | dismissed
+            created_at   REAL NOT NULL,
+            finished_at  REAL
+        );
+        -- One model's test (the 8 scenarios). Kept forever as history.
+        CREATE TABLE model_tests (
+            id            INTEGER PRIMARY KEY,
+            run_id        INTEGER NOT NULL REFERENCES test_runs(id) ON DELETE CASCADE,
+            server_id     INTEGER NOT NULL REFERENCES ai_servers(id) ON DELETE CASCADE,
+            name          TEXT NOT NULL,
+            digest        TEXT NOT NULL DEFAULT '',
+            position      INTEGER NOT NULL,
+            status        TEXT NOT NULL,             -- queued | running | done | too_slow | failed | cancelled
+            settings      TEXT NOT NULL DEFAULT '{}', -- the Advanced settings used
+            scenario      INTEGER NOT NULL DEFAULT 0, -- scenarios finished, for progress
+            score         REAL,
+            sec_per_check REAL,
+            load_s        REAL,
+            fit           TEXT,                      -- gpu | partial | cpu | unknown
+            cut_off       INTEGER NOT NULL DEFAULT 0,
+            details       TEXT NOT NULL DEFAULT '[]', -- per-scenario results
+            error         TEXT,
+            started_at    REAL,
+            finished_at   REAL
+        );
+        CREATE INDEX model_tests_by_model ON model_tests(server_id, name, finished_at);
+        CREATE INDEX model_tests_by_run ON model_tests(run_id, position)
+        """,
+    )
+
+
 MIGRATIONS: list[Callable[[sqlite3.Connection], None]] = [
     _m001_initial,
     _m002_machines_containers,
     _m003_ai,
+    _m004_model_tests,
 ]
 
 LATEST = len(MIGRATIONS)

@@ -6,6 +6,7 @@
 <title>DockLlama</title>
 <link rel="icon" href="static/favicon.svg" type="image/svg+xml">
 <link rel="stylesheet" href="static/app.css">
+<script src="static/banner.js"></script>
 <script defer src="static/vendor/alpine-3.17.5.min.js"></script>
 </head>
 <body x-data="home()" x-init="load()" x-cloak>
@@ -17,6 +18,27 @@
     <button class="secondary" x-show="loginRequired" @click="logout()">Sign out</button>
   </nav>
 </header>
+<div class="test-banner" x-data="testBanner()" x-init="load()" x-show="b" x-cloak>
+  <div class="test-banner-inner">
+    <span x-text="b && b.text"></span>
+    <div class="actions-row tight">
+      <template x-if="b && b.type === 'better'">
+        <span class="actions-row tight">
+          <button class="secondary small" @click="review()">Review results</button>
+          <button class="small" @click="switchTo()" x-text="'Switch to ' + b.name"></button>
+          <button class="secondary small" @click="dismiss()">Keep current</button>
+        </span>
+      </template>
+      <template x-if="b && b.type === 'best'">
+        <span class="actions-row tight">
+          <button class="secondary small" @click="review()">Review results</button>
+          <button class="small" @click="dismiss()">OK</button>
+        </span>
+      </template>
+    </div>
+    <div class="error" x-show="error" x-text="error"></div>
+  </div>
+</div>
 <main class="page">
   <h1>You're signed in</h1>
   <p class="sub">DockLlama v2 is being rebuilt. The rest of the setup and the dashboard come in the next steps.</p>

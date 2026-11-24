@@ -10,7 +10,7 @@ from fastapi import APIRouter, HTTPException
 from pydantic import BaseModel
 from starlette.concurrency import run_in_threadpool
 
-from .. import advanced, ai_servers, catalog, db
+from .. import advanced, ai_servers, catalog, db, model_tests
 from ..ollama import OllamaClient, OllamaError, discover, inventory_fingerprint, normalize_url
 
 router = APIRouter(prefix="/api/ai", tags=["ai"])
@@ -80,6 +80,7 @@ async def connect(body: ConnectBody):
                     return {"ok": False, "needs_confirm": {
                         "server_id": match.server_id, "name": match.name,
                         "last_address": match.last_address, "how": match.how,
+                        "tested_models": match.tested_models,
                     }}
             elif body.decision == "same":
                 if body.server_id is None:
@@ -165,8 +166,10 @@ async def list_models():
 
         def save():
             with db.session() as conn, db.transaction(conn):
-                ai_servers.save_models(conn, row["id"], models, fingerprint)
-        await run_in_threadpool(save)
+                new = ai_servers.save_models(conn, row["id"], models, fingerprint)
+                return model_tests.queue_new_models(conn, row["id"], new)
+        if await run_in_threadpool(save):
+            model_tests.RUNNER.wake()
     except OllamaError as exc:
         problem = _problem(exc)  # fall back to what we last saw
 
@@ -176,9 +179,10 @@ async def list_models():
             settings_rows = {
                 r["name"] for r in conn.execute("SELECT name FROM model_settings WHERE server_id = ?", (row["id"],))
             }
-            return fresh, ai_servers.installed_models(conn, row["id"]), settings_rows
-    fresh, models, customised = await run_in_threadpool(read)
-    suggestion = catalog.best_guess(models, fresh["hardware"], loaded)
+            results = model_tests.latest_results(conn, row["id"])
+            return fresh, ai_servers.installed_models(conn, row["id"]), settings_rows, results
+    fresh, models, customised, results = await run_in_threadpool(read)
+    suggestion = _suggest(models, results, fresh["hardware"], loaded)
     items = []
     for m in sorted(models, key=lambda m: (not m.usable, m.name)):
         entry = catalog.catalog_entry(m.name)
@@ -191,6 +195,7 @@ async def list_models():
             "in_use": m.name == fresh["model"],
             "suggested": suggestion is not None and m.name == suggestion.name,
             "customised": m.name in customised,
+            "result": results.get(m.name),
         })
         items.append(d)
     return {
@@ -200,6 +205,15 @@ async def list_models():
         "downloads": catalog.download_suggestions(models, fresh["hardware"]),
         "problem": problem,
     }
+
+
+def _suggest(models, results: dict, hardware: str, loaded: set[str]):
+    """Tested results on this server beat the catalog's guess (plan 8A)."""
+    usable = {m.name for m in models if m.usable}
+    best = model_tests.best_result({n: r for n, r in results.items() if n in usable})
+    if best is not None:
+        return catalog.Suggestion(best["name"], f"Best result on this server: {model_tests.describe(best)}.")
+    return catalog.best_guess(models, hardware, loaded)
 
 
 @router.put("/model")
@@ -232,11 +246,32 @@ async def _run_pull(address: str, name: str) -> None:
             if event.get("total"):
                 state["total"], state["completed"] = event["total"], event.get("completed", 0)
         state.update(done=True, status="Downloaded")
+        await _after_download(address, name)
     except OllamaError as exc:
         state.update(done=True, error=str(exc))
     except Exception as exc:  # noqa: BLE001 - never leave a pull stuck at "downloading"
         state.update(done=True, error=f"The download failed: {exc}")
     state["finished_at"] = time.time()
+
+
+async def _after_download(address: str, name: str) -> None:
+    """Save the new model and test it automatically (plan 8A: "tested automatically")."""
+    client = OllamaClient(address)
+    try:
+        tags = await client.tags()
+        models = await client.models()
+    except OllamaError:
+        return  # the next visit to Settings → AI picks it up
+
+    def save():
+        with db.session() as conn, db.transaction(conn):
+            server = ai_servers.connected(conn)
+            if server is None or server["address"] != address:
+                return None
+            new = ai_servers.save_models(conn, server["id"], models, inventory_fingerprint(tags))
+            return model_tests.queue_new_models(conn, server["id"], sorted(set(new) | {name}))
+    if await run_in_threadpool(save):
+        model_tests.RUNNER.wake()
 
 
 @router.post("/pull")
