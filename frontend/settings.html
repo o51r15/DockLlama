@@ -557,6 +557,29 @@
           <option value="6">Every 6 hours</option><option value="12">Every 12 hours</option><option value="24">Once a day</option>
         </select>
       </div>
+
+      <h2>Daily summary</h2>
+      <div x-data="summaryBox()" x-init="load()">
+        <template x-if="s">
+          <div>
+            <label class="check"><input type="checkbox" x-model="s.enabled" @change="save({enabled: s.enabled})">
+              <span>Send a short summary of the last 24 hours every day</span></label>
+            <div class="limit-line" x-show="s.enabled">at <input type="time" x-model="s.time" @change="save({time: s.time})">
+              <span class="hint" x-text="'(' + s.timezone + ')'"></span></div>
+            <div class="hint">Written by your AI when it's connected, otherwise a plain list. It goes to every place above
+              with "Daily summary" ticked.</div>
+            <div class="actions-row">
+              <button class="secondary small" :disabled="busy" @click="preview()" x-text="busy ? 'Writing…' : 'Show me today\'s'"></button>
+              <button class="secondary small" :disabled="busy" @click="sendNow()">Send it now</button>
+            </div>
+            <template x-if="p">
+              <div class="panel"><strong x-text="p.title"></strong>
+                <p style="white-space: pre-wrap; margin: 6px 0" x-text="p.body"></p>
+                <div class="hint" x-text="p.by_ai ? 'Written by your AI.' : 'Plain summary (no AI, or the AI didn\'t answer).'"></div></div>
+            </template>
+          </div>
+        </template>
+      </div>
     </section>
 
     <!-- Machines -->

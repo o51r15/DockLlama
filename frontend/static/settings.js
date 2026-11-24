@@ -190,3 +190,26 @@ function addMachine() {
     },
   };
 }
+
+// Settings → Notifications → Daily summary
+function summaryBox() {
+  return {
+    s: null, p: null, busy: false,
+    async load() { try { this.s = await api('api/summary'); } catch (e) { /* section still works */ } },
+    async save(change) {
+      try { this.s = await api('api/summary', {method: 'PUT', body: change}); this.$dispatch('toast', 'Saved.'); }
+      catch (e) { this.$dispatch('toast', e.message); await this.load(); }
+    },
+    async preview() {
+      this.busy = true;
+      try { this.p = await api('api/summary/preview', {method: 'POST'}); } catch (e) { this.$dispatch('toast', e.message); }
+      this.busy = false;
+    },
+    async sendNow() {
+      this.busy = true;
+      try { this.p = await api('api/summary/send-now', {method: 'POST'}); this.$dispatch('toast', 'Sent.'); }
+      catch (e) { this.$dispatch('toast', e.message); }
+      this.busy = false;
+    },
+  };
+}

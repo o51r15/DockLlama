@@ -112,6 +112,9 @@ REGISTRY: dict[str, Setting] = {
     "fixing.mode": Setting("watch", _mode),  # watch = never restart; auto = restart when the rules allow
     "fixing.cooldown_minutes": Setting(5, _cooldown),
     "fixing.max_per_hour": Setting(3, _per_hour),
+    "summary.enabled": Setting(True, _bool),
+    "summary.time": Setting("08:00", _clock),
+    "summary.last_sent": Setting(None, _opt_str),  # local date (YYYY-MM-DD) of the last one
 }
 
 
