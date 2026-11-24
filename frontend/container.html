@@ -34,6 +34,7 @@
                   @click="confirmRestart = true" x-text="restarting ? 'Restarting…' : 'Restart'"></button>
         </div>
       </div>
+      <div class="hint" x-show="!c.can_restart && c.why_not_restart" x-text="'Restart isn\'t available: ' + c.why_not_restart"></div>
 
       <div class="pcard" :class="statusClass(c.status)" style="margin-top:16px">
         <div>

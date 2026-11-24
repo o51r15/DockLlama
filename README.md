@@ -9,7 +9,7 @@ files, no group IDs to look up.
 > v2 is not finished. The v1 code is kept under the [`v1-final`](../../tree/v1-final) tag.
 > Progress follows the build phases in the v2 plan.
 
-## What works so far (phases 1–8)
+## What works so far (phases 1–9)
 
 - One-command install with Docker Compose
 - A setup guide in the browser: password, connect AI (or continue without it), pick a model
@@ -30,6 +30,10 @@ files, no group IDs to look up.
 - Optional automatic restarts for containers you allow, only when a restart would help (never crash
   loops, out-of-memory kills or stopped containers), with restart groups, a wait between restarts and
   a limit (3 an hour, then it asks you). Quiet hours hold restarts and messages. Starts in Watch only.
+- Optional: watch other Docker machines from the same dashboard. Settings → Machines → Add another
+  machine gives you a compose file to run there (DockLlama Remote, same image, `dockllama remote`,
+  port 8557, pairing token, restarts off unless you allow them; it never shares containers'
+  environment variables).
 - Checks every 10 minutes: Docker's own facts (crashes, restart loops, out-of-memory kills, failing
   health checks, stopped vs killed) plus, with AI, a plain-language read of the new log lines.
   Secrets in logs are masked before anything is stored or sent. Without AI, the Docker checks still run.

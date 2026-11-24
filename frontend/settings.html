@@ -560,22 +560,67 @@
     </section>
 
     <!-- Machines -->
-    <section x-show="section === 'machines'">
+    <section x-show="section === 'machines'" @machines-changed.window="await loadMachines(); loadContainers()">
       <h1>Machines</h1>
-      <p class="sub">The Docker machines DockLlama watches.</p>
+      <p class="sub">The Docker machines DockLlama watches. Most people only need this one.</p>
       <template x-for="m in machineList" :key="m.id">
         <div class="panel">
           <div class="row-between">
             <div>
               <strong x-text="m.name"></strong>
-              <div class="hint" x-show="m.connected" x-text="'Docker ' + m.docker_version + ' · ' + m.container_count + ' containers'"></div>
+              <div class="hint" x-show="m.connected" x-text="'Docker ' + m.docker_version + ' · ' + m.container_count + ' containers'
+                    + (m.kind === 'remote' ? ' · ' + m.url + (m.allows_restart ? ' · restarts allowed' : ' · no restarts') : '')"></div>
             </div>
-            <span class="pill" :class="m.connected ? 'ok' : 'bad'" x-text="m.connected ? 'Connected' : 'Not connected'"></span>
+            <div class="actions-row tight">
+              <span class="pill" :class="m.connected ? 'ok' : 'bad'" x-text="m.connected ? 'Connected' : 'Not connected'"></span>
+              <button class="secondary small" x-show="m.kind === 'remote'"
+                      @click="if (confirm('Stop watching ' + m.name + '? Its container settings are removed too.')) api('api/machines/' + m.id, {method: 'DELETE'}).then(() => { loadMachines(); loadContainers(); })">Remove</button>
+            </div>
           </div>
           <div class="error" x-show="m.error" x-text="m.error"></div>
         </div>
       </template>
-      <p class="hint">Watching other machines (DockLlama Remote) comes later.</p>
+
+      <div x-data="addMachine()">
+        <button class="secondary small" x-show="!open" @click="start()">Add another machine</button>
+        <div class="panel" x-show="open">
+          <h2 style="margin-top:0">Add another machine</h2>
+          <p class="hint">Docker only shows a machine's containers to programs on that machine, so the other machine runs
+            a small helper, <strong>DockLlama Remote</strong>. It has no AI and no web page; it only answers this DockLlama,
+            with a pairing token, and never shares containers' settings or secrets.</p>
+          <template x-if="step === 1">
+            <div>
+              <label class="check"><input type="checkbox" x-model="allowRestarts">
+                <span>Let DockLlama restart containers on that machine (only ones you allow, and only in Auto-restart mode)</span></label>
+              <div class="actions-row"><button class="small" @click="makeSnippet()">Next</button>
+                <button class="secondary small" @click="open = false">Cancel</button></div>
+            </div>
+          </template>
+          <template x-if="step === 2 && snippet">
+            <div>
+              <ol class="steps-list">
+                <li>On the other machine, save this as <code>docker-compose.yml</code> in a new folder and run
+                  <code>docker compose up -d</code> there. It contains a new pairing token made for it.</li>
+              </ol>
+              <pre class="snippet" x-text="snippet.compose"></pre>
+              <button class="secondary small" @click="copy()">Copy</button>
+              <ol class="steps-list" start="2">
+                <li>Then tell DockLlama where it is:</li>
+              </ol>
+              <label>Name for it</label>
+              <input type="text" x-model="name" placeholder="e.g. NAS" maxlength="60">
+              <label>Its IP address or name</label>
+              <input type="text" x-model="address" placeholder="e.g. 192.168.1.20">
+              <div class="hint">DockLlama adds the port (8557).</div>
+              <div class="error" x-show="problem" x-text="problem"></div>
+              <div class="actions-row">
+                <button class="small" :disabled="busy || !name.trim() || !address.trim()" @click="connect()" x-text="busy ? 'Connecting…' : 'Test and add'"></button>
+                <button class="secondary small" @click="open = false">Cancel</button>
+              </div>
+            </div>
+          </template>
+        </div>
+      </div>
     </section>
 
     <!-- Containers -->

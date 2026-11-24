@@ -339,11 +339,105 @@ def mem_percent(s: dict) -> float | None:
 
 _local = LocalDocker()
 
+REMOTE_PORT = 8557
+REMOTE_TRANSPORT = None  # tests swap in a fake
 
-def get_machine(machine_id: int) -> LocalDocker:
-    if machine_id != 1:
-        raise MachineError("Only this machine is supported so far.")
-    return _local
+
+def remote_url(address: str) -> str:
+    """'192.168.1.20' → 'http://192.168.1.20:8557'."""
+    text = address.strip().rstrip("/")
+    if not text:
+        raise MachineError("Type the IP address or name of the other machine.")
+    if "://" not in text:
+        text = "http://" + text
+    scheme, _, rest = text.partition("://")
+    host = rest.split("/")[0]
+    if ":" not in host.split("]")[-1]:
+        host += f":{REMOTE_PORT}"
+    return f"{scheme}://{host}"
+
+
+class RemoteDocker:
+    """Docker on another machine, through DockLlama Remote. Same methods as LocalDocker's async ones."""
+
+    def __init__(self, url: str, token: str, name: str = "the other machine"):
+        self.url, self.token, self.name = url.rstrip("/"), token, name
+
+    async def _req(self, method: str, path: str, timeout: float = 20, **kw):
+        import httpx
+        try:
+            async with httpx.AsyncClient(base_url=self.url, timeout=timeout, trust_env=False,
+                                         headers={"Authorization": f"Bearer {self.token}"},
+                                         transport=REMOTE_TRANSPORT) as http:
+                r = await http.request(method, path, **kw)
+        except httpx.HTTPError as exc:
+            raise MachineError(f"Can't reach DockLlama Remote on {self.name} ({self.url}). Is it running, "
+                               f"and is port {REMOTE_PORT} open?") from exc
+        if r.status_code == 401:
+            raise MachineError(f"DockLlama Remote on {self.name} didn't accept the pairing token. "
+                               "Copy the snippet again from Settings → Machines.")
+        try:
+            data = r.json()
+        except ValueError as exc:
+            raise MachineError(f"Something answered at {self.url}, but it isn't DockLlama Remote.") from exc
+        if r.status_code == 404 and "doesn't exist" in str(data.get("detail", "")):
+            raise MachineError("That container doesn't exist any more.")
+        if r.status_code >= 400:
+            raise MachineError(str(data.get("detail") or f"DockLlama Remote said {r.status_code}."))
+        return data
+
+    async def ainfo(self) -> dict:
+        return await self._req("GET", "/remote/v1/info", timeout=8)
+
+    async def aversion(self) -> str:
+        return (await self.ainfo()).get("docker_version", "unknown")
+
+    async def alist_containers(self) -> list[ContainerInfo]:
+        rows = await self._req("GET", "/remote/v1/containers")
+        fields = set(ContainerInfo.__dataclass_fields__)
+        return [ContainerInfo(**{k: v for k, v in r.items() if k in fields}) for r in rows]
+
+    async def ainspect(self, name: str) -> dict:
+        return await self._req("GET", f"/remote/v1/containers/{name}/inspect")
+
+    async def alogs(self, name: str, since: float | None, tail: int) -> list[tuple[float, str]]:
+        params = {"tail": tail}
+        if since:
+            params["since"] = since
+        data = await self._req("GET", f"/remote/v1/containers/{name}/logs", params=params, timeout=30)
+        return [(float(ts), text) for ts, text in data["lines"]]
+
+    async def astats(self, name: str) -> tuple[float | None, float | None]:
+        try:
+            data = await self._req("GET", f"/remote/v1/containers/{name}/stats", timeout=15)
+        except MachineError:
+            return None, None
+        return data.get("cpu"), data.get("mem")
+
+    async def aevents(self, container_id: str, since: float, until: float) -> list[str]:
+        try:
+            data = await self._req("GET", "/remote/v1/events",
+                                   params={"container_id": container_id, "since": since, "until": until})
+        except MachineError:
+            return []
+        return data.get("actions", [])
+
+    async def arestart(self, name: str, timeout: int = 10) -> None:
+        await self._req("POST", f"/remote/v1/containers/{name}/restart", timeout=60)
+
+    def start_event_watch(self) -> None:  # the Remote listens on its own machine
+        pass
+
+
+def get_machine(machine_id: int):
+    if machine_id == 1:
+        return _local
+    from . import db
+    with db.session() as conn:
+        row = conn.execute("SELECT * FROM machines WHERE id = ?", (machine_id,)).fetchone()
+    if row is None:
+        raise MachineError("That machine isn't known to DockLlama.")
+    return RemoteDocker(row["url"], row["token"] or "", row["name"])
 
 
 # --- keeping the containers table in step with Docker -------------------------

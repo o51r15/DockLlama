@@ -41,7 +41,7 @@ function settingsPage() {
       });
       const status = await api('api/auth/status');
       this.loginRequired = status.login_required;
-      this.loadMachines();
+      await this.loadMachines();
       this.loadContainers();
     },
 
@@ -52,14 +52,22 @@ function settingsPage() {
     async loadContainers() {
       this.loadingContainers = true;
       try {
-        const d = await api('api/machines/1/containers');
-        this.containers = d.containers;
-        this.containersError = d.error || '';
+        const ms = this.machineList.length ? this.machineList : await api('api/machines');
+        const all = [], errors = [];
+        for (const m of ms) {
+          const d = await api('api/machines/' + m.id + '/containers');
+          d.containers.forEach(c => { c.machine = m.name; c.machine_id = m.id; });
+          all.push(...d.containers);
+          if (d.error) errors.push((ms.length > 1 ? m.name + ': ' : '') + d.error);
+        }
+        this.containers = all;
+        this.containersError = errors.join(' ');
       } catch (e) {
         this.containersError = e.message;
       }
       this.loadingContainers = false;
     },
+    multiMachine() { return new Set(this.containers.map(c => c.machine_id)).size > 1; },
 
     visible() {
       const q = this.search.trim().toLowerCase();
@@ -70,7 +78,8 @@ function settingsPage() {
     groups() {
       const map = new Map();
       for (const c of this.visible()) {
-        const key = c.gone ? 'No longer exists' : (c.compose_project || 'Not part of a compose project');
+        let key = c.gone ? 'No longer exists' : (c.compose_project || 'Not part of a compose project');
+        if (this.multiMachine()) key = c.machine + ' · ' + key;
         if (!map.has(key)) map.set(key, []);
         map.get(key).push(c);
       }
@@ -149,6 +158,35 @@ function fixingSection() {
       this.error = '';
       try { this.f = await api('api/fixing', {method: 'PUT', body: change}); this.$dispatch('toast', 'Saved.'); }
       catch (e) { this.error = e.message; await this.load(); }
+    },
+  };
+}
+
+// Settings → Machines: adding a machine with DockLlama Remote
+function addMachine() {
+  return {
+    open: false, step: 1, allowRestarts: false, snippet: null, name: '', address: '', busy: false, problem: '',
+    async start() { this.open = true; this.step = 1; this.problem = ''; this.snippet = null; this.name = ''; this.address = ''; },
+    async makeSnippet() {
+      try { this.snippet = await api('api/machines/remote-snippet', {method: 'POST', body: {allow_restarts: this.allowRestarts}}); this.step = 2; }
+      catch (e) { this.problem = e.message; }
+    },
+    async copy() {
+      try { await navigator.clipboard.writeText(this.snippet.compose); this.$dispatch('toast', 'Copied.'); }
+      catch (e) { this.$dispatch('toast', 'Select the text and copy it.'); }
+    },
+    async connect() {
+      this.busy = true; this.problem = '';
+      try {
+        const r = await api('api/machines', {method: 'POST', body: {name: this.name, address: this.address, token: this.snippet.token}});
+        if (!r.ok) { this.problem = r.problem; }
+        else {
+          this.open = false;
+          this.$dispatch('toast', 'Added. ' + r.containers + ' containers found; pick the ones to watch in Containers.');
+          this.$dispatch('machines-changed');
+        }
+      } catch (e) { this.problem = e.message; }
+      this.busy = false;
     },
   };
 }

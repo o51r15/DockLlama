@@ -67,25 +67,109 @@ def _container_rows(machine_id: int) -> dict:
 @router.get("/machines")
 async def list_machines():
     rows = await run_in_threadpool(_machine_rows)
-    result = []
-    for row in rows:
+
+    async def one(row):
         infos, version, error = await _refresh(row["id"])
-        result.append({
-            "id": row["id"],
-            "name": row["name"],
-            "kind": row["kind"],
-            "connected": error is None,
-            "error": error,
-            "docker_version": version,
+        return {
+            "id": row["id"], "name": row["name"], "kind": row["kind"], "url": row["url"] if row["kind"] == "remote" else None,
+            "allows_restart": bool(row["allows_restart"]),
+            "connected": error is None, "error": error, "docker_version": version,
             "container_count": len(infos) if infos is not None else None,
-        })
-    return result
+        }
+    import asyncio
+    return list(await asyncio.gather(*(one(r) for r in rows)))
+
+
+REMOTE_IMAGE = "ghcr.io/o51r15/dockllama:v2-dev"  # switches to :latest at the 2.0 release
+
+
+class SnippetBody(BaseModel):
+    allow_restarts: bool = False
+
+
+@router.post("/machines/remote-snippet")
+def remote_snippet(body: SnippetBody):
+    """A fresh pairing token and the compose file to run on the other machine."""
+    import secrets
+    token = secrets.token_urlsafe(32)
+    yaml = "\n".join([
+        "services:",
+        "  dockllama-remote:",
+        f"    image: {REMOTE_IMAGE}",
+        "    container_name: dockllama-remote",
+        '    command: ["dockllama", "remote"]',
+        "    restart: unless-stopped",
+        "    ports:",
+        f'      - "{machines.REMOTE_PORT}:{machines.REMOTE_PORT}"',
+        "    volumes:",
+        "      - /var/run/docker.sock:/var/run/docker.sock",
+        "    environment:",
+        f'      DOCKLLAMA_REMOTE_TOKEN: "{token}"',
+        f'      DOCKLLAMA_REMOTE_RESTARTS: "{"yes" if body.allow_restarts else "no"}"',
+        "",
+    ])
+    return {"token": token, "compose": yaml}
+
+
+class AddMachineBody(BaseModel):
+    name: str = Field(min_length=1, max_length=60)
+    address: str = Field(min_length=1, max_length=200)
+    token: str = Field(min_length=24, max_length=200)
+
+
+@router.post("/machines")
+async def add_machine(body: AddMachineBody):
+    try:
+        url = machines.remote_url(body.address)
+    except machines.MachineError as exc:
+        raise HTTPException(400, str(exc)) from exc
+    remote = machines.RemoteDocker(url, body.token.strip(), body.name.strip())
+    try:
+        info = await remote.ainfo()
+        infos = await remote.alist_containers()
+    except machines.MachineError as exc:
+        return {"ok": False, "problem": str(exc)}
+
+    def save():
+        with db.session() as conn, db.transaction(conn):
+            if conn.execute("SELECT 1 FROM machines WHERE url = ?", (url,)).fetchone():
+                raise HTTPException(409, f"{url} is already added.")
+            mid = conn.execute("INSERT INTO machines (name, kind, url, token, allows_restart, last_seen) "
+                               "VALUES (?, 'remote', ?, ?, ?, strftime('%s','now'))",
+                               (body.name.strip(), url, body.token.strip(), int(bool(info.get("allows_restart"))))).lastrowid
+            machines.sync_containers(conn, mid, infos)
+            return mid
+    mid = await run_in_threadpool(save)
+    return {"ok": True, "id": mid, "containers": len(infos), "allows_restart": bool(info.get("allows_restart")),
+            "remote_version": info.get("version")}
+
+
+class RenameBody(BaseModel):
+    name: str = Field(min_length=1, max_length=60)
+
+
+@router.patch("/machines/{machine_id}")
+def rename_machine(machine_id: int, body: RenameBody):
+    with db.session() as conn:
+        if conn.execute("UPDATE machines SET name = ? WHERE id = ?", (body.name.strip(), machine_id)).rowcount == 0:
+            raise HTTPException(404, "That machine isn't known.")
+    return {"ok": True}
+
+
+@router.delete("/machines/{machine_id}")
+def remove_machine(machine_id: int):
+    if machine_id == 1:
+        raise HTTPException(400, "This machine can't be removed.")
+    with db.session() as conn, db.transaction(conn):
+        conn.execute("DELETE FROM containers WHERE machine_id = ?", (machine_id,))
+        conn.execute("DELETE FROM machines WHERE id = ?", (machine_id,))
+    return {"ok": True}
 
 
 @router.get("/machines/{machine_id}/containers")
 async def list_containers(machine_id: int):
     try:
-        machines.get_machine(machine_id)
+        await run_in_threadpool(machines.get_machine, machine_id)
     except machines.MachineError as exc:
         raise HTTPException(404, str(exc)) from exc
     infos, _, error = await _refresh(machine_id)

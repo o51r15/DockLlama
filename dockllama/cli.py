@@ -52,9 +52,13 @@ def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(prog="dockllama", description=f"DockLlama {__version__}")
     sub = parser.add_subparsers(dest="command")
     sub.add_parser("serve", help="run the web app (default)")
+    sub.add_parser("remote", help="run DockLlama Remote, the helper for watching another machine")
     reset = sub.add_parser("reset-password", help="set a new sign-in password")
     reset.add_argument("--password", help=argparse.SUPPRESS)  # for tests and scripted resets
     args = parser.parse_args(argv)
     if args.command == "reset-password":
         return _reset_password(args)
+    if args.command == "remote":
+        from .remote import serve
+        return serve()
     return _serve(args)

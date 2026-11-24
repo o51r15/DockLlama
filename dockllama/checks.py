@@ -374,34 +374,55 @@ def _ai_context(server: dict | None, models: dict, model_settings: dict) -> dict
 async def run_checks(container_ids: list[int] | None = None, force_ai: bool = False, track: bool = True) -> list[dict]:
     """Check the watched containers (or just the given ones). Returns what each one came to."""
     rows, states, server, interval, log_lines, models, model_settings = await run_in_threadpool(_load, container_ids)
-    docker = machines.get_machine(1)
     if track:
         ROUND.__dict__.update(running=True, started_at=time.time(), finished_at=None, total=len(rows), done=0,
                               current=None, phase="collecting", note="")
     results = []
     try:
-        # Keep "this machine" in step with Docker (new and removed containers).
-        try:
-            infos = await docker.alist_containers()
-
-            def sync():
-                with db.session() as conn, db.transaction(conn):
-                    machines.sync_containers(conn, 1, infos)
-            await run_in_threadpool(sync)
-        except machines.MachineError as exc:
-            if track:
-                ROUND.note = str(exc)
-
-            def fail():
+        # Keep each machine's container list in step with Docker (new and removed containers).
+        machine_ids = {r["machine_id"] for r in rows}
+        if container_ids is None:
+            def enabled():
                 with db.session() as conn:
-                    machines.record_machine_error(conn, 1, str(exc))
-            await run_in_threadpool(fail)
+                    return {r["id"] for r in conn.execute("SELECT id FROM machines WHERE enabled = 1")}
+            machine_ids |= await run_in_threadpool(enabled)
+        machine_ids = sorted(machine_ids)
+        dockers, down = {}, {}
+        for mid in machine_ids:
+            try:
+                docker = machines.get_machine(mid)
+                if isinstance(docker, machines.RemoteDocker):
+                    info = await docker.ainfo()
+
+                    def note_restarts(mid=mid, allowed=bool(info.get("allows_restart"))):
+                        with db.session() as conn:
+                            conn.execute("UPDATE machines SET allows_restart = ? WHERE id = ?", (int(allowed), mid))
+                    await run_in_threadpool(note_restarts)
+                infos = await docker.alist_containers()
+
+                def sync(mid=mid, infos=infos):
+                    with db.session() as conn, db.transaction(conn):
+                        machines.sync_containers(conn, mid, infos)
+                await run_in_threadpool(sync)
+                dockers[mid] = docker
+            except machines.MachineError as exc:
+                down[mid] = str(exc)
+                if track and mid == 1:
+                    ROUND.note = str(exc)
+
+                def fail(mid=mid, msg=str(exc)):
+                    with db.session() as conn:
+                        machines.record_machine_error(conn, mid, msg)
+                await run_in_threadpool(fail)
+        if not dockers and container_ids is None:
             return []
         sem = asyncio.Semaphore(COLLECT_AT_ONCE)
 
         async def one(row):
+            if row["machine_id"] in down:
+                return Collected(row=row, error=down[row["machine_id"]])
             async with sem:
-                return await collect(docker, row, states.get(row["id"]), log_lines)
+                return await collect(dockers[row["machine_id"]], row, states.get(row["id"]), log_lines)
         collected = await asyncio.gather(*(one(r) for r in rows))
         ai_ctx = _ai_context(server, models, model_settings)
         if track:

@@ -83,6 +83,7 @@
       <div class="row-between">
         <div class="cmain">
           <a class="pname" :href="'container?id=' + c.id" x-text="c.name"></a>
+          <span class="hint" x-show="multi()" x-text="'on ' + c.machine + ' · '"></span>
           <span class="pill" :class="statusClass(c.status)" x-text="c.shown" :title="c.status"></span>
           <span class="hint" x-text="forHowLong(c.since, d.now)"></span>
         </div>
@@ -111,6 +112,7 @@
       <a class="tile" :href="'container?id=' + c.id" :title="c.summary">
         <span class="dot" :class="statusClass(c.status)"></span>
         <span class="tname" x-text="c.name"></span>
+        <span class="hint" x-show="multi()" x-text="c.machine"></span>
         <span class="hint" x-text="c.status === 'healthy' ? ago(c.last_checked, d.now) : c.shown"></span>
       </a>
     </template>
@@ -135,6 +137,7 @@ function dash() {
     problemList() { return this.d.containers.filter(c => this.problems().includes(c.status)); },
     tileList() { return this.d.containers.filter(c => !this.problems().includes(c.status)); },
     fine() { return this.d.counts.healthy || 0; },
+    multi() { return new Set(this.d.containers.map(c => c.machine_id)).size > 1; },
     stoppedCount() { return this.d.counts.stopped || 0; },
     async checkNow(c) {
       this.busy = {...this.busy, [c.id]: true};

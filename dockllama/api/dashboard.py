@@ -55,8 +55,8 @@ def dashboard():
 
 
 def _container(conn, db_id: int):
-    row = conn.execute("SELECT c.*, m.name AS machine FROM containers c JOIN machines m ON m.id = c.machine_id "
-                       "WHERE c.id = ?", (db_id,)).fetchone()
+    row = conn.execute("SELECT c.*, m.name AS machine, m.allows_restart AS machine_allows_restart FROM containers c "
+                       "JOIN machines m ON m.id = c.machine_id WHERE c.id = ?", (db_id,)).fetchone()
     if row is None:
         raise HTTPException(404, "That container isn't known to DockLlama.")
     return row
@@ -96,6 +96,9 @@ async def detail(db_id: int):
         can_restart, why_not = False, "Docker doesn't have this container any more."
     elif info["is_self"]:
         can_restart, why_not = False, "This is DockLlama itself."
+    elif not row["machine_allows_restart"]:
+        can_restart, why_not = False, (f"{row['machine']} doesn't allow restarts. To change that, set "
+                                       "DOCKLLAMA_REMOTE_RESTARTS to yes in its DockLlama Remote compose file.")
     return {
         "id": db_id, "name": row["name"], "machine": row["machine"], "monitored": bool(row["monitored"]),
         "notes_for_ai": row["notes_for_ai"], "allow_auto_restart": bool(row["allow_auto_restart"]),

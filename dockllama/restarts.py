@@ -69,9 +69,12 @@ def blocked(conn, container_id: int, now: float) -> str | None:
         return "watch_only"
     if in_quiet_hours(conn, now):
         return "quiet_hours"
-    row = conn.execute("SELECT allow_auto_restart FROM containers WHERE id = ?", (container_id,)).fetchone()
+    row = conn.execute("SELECT c.allow_auto_restart, m.allows_restart FROM containers c JOIN machines m "
+                       "ON m.id = c.machine_id WHERE c.id = ?", (container_id,)).fetchone()
     if not row or not row["allow_auto_restart"]:
         return "not_allowed"
+    if not row["allows_restart"]:
+        return "machine_says_no"
     state = conn.execute("SELECT escalated_at FROM container_state WHERE container_id = ?", (container_id,)).fetchone()
     if state and state["escalated_at"]:
         return "escalated"
