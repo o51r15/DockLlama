@@ -1,0 +1,8 @@
+#!/bin/sh
+# `dockllama` command. `docker exec` runs as root and skips the entrypoint, so drop to the
+# app user here too; otherwise a command like reset-password could leave root-owned database
+# files that the app can no longer write.
+if [ "$(id -u)" = "0" ]; then
+    exec setpriv --reuid=dockllama --regid=dockllama --init-groups python -m dockllama "$@"
+fi
+exec python -m dockllama "$@"

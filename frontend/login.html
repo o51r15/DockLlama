@@ -1,0 +1,50 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Sign in · DockLlama</title>
+<link rel="icon" href="static/favicon.svg" type="image/svg+xml">
+<link rel="stylesheet" href="static/app.css">
+<script defer src="static/vendor/alpine-3.17.5.min.js"></script>
+</head>
+<body>
+<div class="center">
+  <form class="card" x-data="login()" x-cloak @submit.prevent="submit">
+    <div class="brand"><img src="static/favicon.svg" alt=""><span>DockLlama</span></div>
+    <h1>Sign in</h1>
+    <label for="pw">Password</label>
+    <input id="pw" type="password" x-model="password" autocomplete="current-password" autofocus>
+    <div class="error" x-show="error" x-text="error"></div>
+    <button type="submit" :disabled="busy || !password" x-text="busy ? 'Signing in…' : 'Sign in'"></button>
+    <p class="help">
+      Forgot your password? On the machine running DockLlama, run
+      <code>docker exec -it dockllama dockllama reset-password</code>
+    </p>
+  </form>
+</div>
+<script>
+function login() {
+  return {
+    password: '', error: '', busy: false,
+    async submit() {
+      this.error = ''; this.busy = true;
+      try {
+        const r = await fetch('api/auth/login', {
+          method: 'POST', headers: {'Content-Type': 'application/json'},
+          body: JSON.stringify({password: this.password}),
+        });
+        if (r.ok) { window.location.href = './'; return; }
+        const d = await r.json().catch(() => ({}));
+        this.error = d.detail || 'Something went wrong. Try again.';
+        if (r.status === 401) this.password = '';
+      } catch (e) {
+        this.error = "Can't reach DockLlama. Is it still running?";
+      }
+      this.busy = false;
+    },
+  };
+}
+</script>
+</body>
+</html>

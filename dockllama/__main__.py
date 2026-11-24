@@ -1,1 +1,5 @@
-from dockllama.main import main; main()
+import sys
+
+from .cli import main
+
+sys.exit(main())

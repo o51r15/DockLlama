@@ -1,17 +1,23 @@
 services:
   dockllama:
-    image: ghcr.io/o51r15/dockllama:latest
-    # build: .  # uncomment for local builds
+    # v2 is in development: :v2-dev until the v2.0.0 release, then :latest.
+    image: ghcr.io/o51r15/dockllama:v2-dev
     container_name: dockllama
     restart: unless-stopped
     ports:
       - "8556:8556"
     volumes:
-      - /var/run/docker.sock:/var/run/docker.sock:ro
-      - ./config.yaml:/app/config/config.yaml:ro
+      # Lets DockLlama see and restart containers on this machine.
+      # (":ro" is left off on purpose: it doesn't restrict what can be done through the socket.)
+      - /var/run/docker.sock:/var/run/docker.sock
       - dockllama-data:/app/data
-    environment:
-      - TZ=America/New_York
+    extra_hosts:
+      # Lets DockLlama reach an Ollama running on this same machine as host.docker.internal.
+      - "host.docker.internal:host-gateway"
+    # Optional: run as these user/group IDs (e.g. 99/100 on Unraid) when the data folder is a bind mount.
+    # environment:
+    #   - PUID=1000
+    #   - PGID=1000
 
 volumes:
   dockllama-data:
