@@ -178,6 +178,8 @@
             <p class="hint">Every system is different, so DockLlama can test each model on this server. One test asks 8 practice questions and takes a minute or two.</p>
             <button class="secondary small" :disabled="tests.busy" :title="tests.busy_message || ''" @click="openPlan()">Test all models</button>
           </div>
+          <label class="check tight"><input type="checkbox" x-model="autoTest" @change="saveAutoTest()">
+            <span>Test new and downloaded models automatically (in the background, one at a time)</span></label>
           <div class="hint" x-show="loadingModels">Reading models from Ollama…</div>
           <template x-for="m in models" :key="m.name">
             <div class="mrow" :class="{inuse: m.in_use, unusable: !m.usable}">

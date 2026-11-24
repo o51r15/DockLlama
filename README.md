@@ -1,76 +1,106 @@
 <p align="center"><img src="assets/banner.svg" alt="DockLlama" width="600"></p>
 
-# DockLlama v2 (in development)
+# DockLlama
 
-DockLlama watches your Docker containers and uses a local AI (Ollama) to explain, in plain words,
-which ones need attention. **v2 is a rebuild** that sets everything up from the web page: no config
-files, no group IDs to look up.
+DockLlama watches your Docker containers and tells you, in plain words, which ones need attention
+and what to do about it. It reads Docker's own information (crashes, restart loops, out-of-memory
+kills, health checks) and, if you have [Ollama](https://ollama.com), uses a local AI to read the
+containers' logs. Your logs never leave your network.
 
-> v2 is not finished. The v1 code is kept under the [`v1-final`](../../tree/v1-final) tag.
-> Progress follows the build phases in the v2 plan.
+Everything is set up from the web page: no config files, no group IDs, nothing to edit.
 
-## What works so far (phases 1–11)
-
-- One-command install with Docker Compose
-- A setup guide in the browser: password, connect AI (or continue without it), pick a model
-  (Quick start or test them all first), pick containers, set up notifications. No files to edit.
-- First-run password setup and sign-in; change password in Settings
-- Automatic Docker socket permissions (no `--group-add`)
-- Settings → Containers: every container on this machine with its state in plain words, and a
-  switch to choose which ones DockLlama watches
-- Settings → AI: finds Ollama automatically (or type its address), suggests a model that fits your
-  hardware, lets you pick any installed model, one-click downloads of suggested models, and an
-  Advanced panel per model (thinking, context size, and more — only what that model supports)
-- A dashboard: problems first as cards (plain status, what to do, the evidence behind it), everything
-  else as small tiles; a page per container with history, CPU/memory, recent logs, Check now,
-  Restart and "Tell DockLlama what's normal". Works on a phone.
-- Notifications to ntfy (with a QR code to subscribe), Discord, Telegram, Gotify, Pushover, email or
-  any Apprise URL: one message when a problem starts, one when it clears, optional "still broken"
-  reminders, and one message if DockLlama itself can't check. Several at once come as one message.
-- Optional automatic restarts for containers you allow, only when a restart would help (never crash
-  loops, out-of-memory kills or stopped containers), with restart groups, a wait between restarts and
-  a limit (3 an hour, then it asks you). Quiet hours hold restarts and messages. Starts in Watch only.
-- Coming from v1: Settings → Account → Bring over a DockLlama v1 setup (upload `config.yaml`), or
-  `docker exec -it dockllama dockllama import-v1 /path/config.yaml --db /path/old.db` to include notes and
-  alert URLs saved in v1's web page.
-- A daily summary at the time you choose (local time): written by your AI, or a plain list without it.
-- Optional: watch other Docker machines from the same dashboard. Settings → Machines → Add another
-  machine gives you a compose file to run there (DockLlama Remote, same image, `dockllama remote`,
-  port 8557, pairing token, restarts off unless you allow them; it never shares containers'
-  environment variables).
-- Checks every 10 minutes: Docker's own facts (crashes, restart loops, out-of-memory kills, failing
-  health checks, stopped vs killed) plus, with AI, a plain-language read of the new log lines.
-  Secrets in logs are masked before anything is stored or sent. Without AI, the Docker checks still run.
-- Model testing on your own server: Test or Retest any model, or Test all (in the background, now
-  while you watch, or tonight). One test at a time; results are kept per server and model version.
-  When a background run finds a clearly better model, a banner suggests it on your next page —
-  DockLlama never switches models by itself. New and downloaded models are tested automatically.
-
-### Ollama on another computer
-
-Ollama only listens on its own computer by default. On the Ollama machine set `OLLAMA_HOST=0.0.0.0`
-and restart Ollama (Settings → AI shows the exact steps for Windows, Mac, Linux and Docker).
-Ollama 0.9.0 or newer is required.
+> **v2 is in testing.** Until the 2.0 release the image tag is `v2-dev`. The old v1 code is kept under
+> the [`v1-final`](../../tree/v1-final) tag. Coming from v1? See [Upgrading from v1](docs/upgrading-from-v1.md).
 
 ## Install
+
+You need Docker. Save this as `docker-compose.yml` (or download it with the first line below) and start it:
 
 ```bash
 curl -O https://raw.githubusercontent.com/o51r15/DockLlama/v2/docker-compose.yml
 docker compose up -d
 ```
 
-Then open `http://<this machine's IP>:8556`. (On Linux, `hostname -I` shows the IP.)
+```yaml
+services:
+  dockllama:
+    image: ghcr.io/o51r15/dockllama:v2-dev
+    container_name: dockllama
+    restart: unless-stopped
+    ports:
+      - "8556:8556"
+    volumes:
+      - /var/run/docker.sock:/var/run/docker.sock
+      - dockllama-data:/app/data
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
+volumes:
+  dockllama-data:
+```
 
-Supported: Docker Engine on Linux, Docker Desktop (Windows/Mac), Unraid, Synology. Not supported
-yet: Podman and rootless Docker.
+Then open **`http://<this machine's IP>:8556`** in a browser. (On Linux, `hostname -I` shows the IP.)
+A short setup guide takes it from there.
 
-**Keep DockLlama off the internet.** Access to the Docker socket means control of the machine.
+Runs on Docker Engine on Linux, Docker Desktop (Windows/Mac), Unraid and Synology, on Intel/AMD and
+ARM (Raspberry Pi 4/5). Not supported yet: Podman and rootless Docker.
 
-### Using a folder instead of a Docker volume
+**Keep DockLlama off the internet.** Access to the Docker socket means control of the machine. The
+socket is mounted without `:ro` on purpose: `:ro` doesn't stop changes through a socket, so it only
+gives a false sense of safety.
 
-If you change `dockllama-data:/app/data` to a folder like `./data:/app/data`, DockLlama makes that
-folder owned by its own user (1000). To pick the owner yourself, set `PUID` and `PGID`, e.g. `99`
-and `100` on Unraid.
+## The setup guide
+
+1. **Create a password** (or skip it on a private network, with a warning).
+2. **Connect your AI.** DockLlama looks for Ollama by itself. If nothing answers, it shows the one
+   setting to change on Windows, Mac, Linux or Docker. No Ollama? Add it next to DockLlama with the
+   snippet it gives you, or **continue without AI**: DockLlama still watches every container's state,
+   crashes, restart loops, out-of-memory kills and health checks.
+3. **Pick a model.** Tell it what the Ollama machine has (graphics card size), and DockLlama suggests a
+   model. **Quick start** uses it right away and tests the others in the background; **Test all now**
+   lets you watch every model being tested first. Suggested downloads are one click.
+4. **Pick containers.** Running ones are ticked; DockLlama itself and the Ollama container aren't.
+5. **Notifications** (optional): ntfy (recommended; free phone app, with a QR code), Discord,
+   Telegram, Gotify, Pushover, email, or any Apprise URL. Send test, done.
+
+Everything can be changed later in **Settings**, and the guide can be run again from Settings → Account.
+
+## What you get
+
+- **A dashboard** that puts problems first, each with a plain status, a one-line explanation,
+  **what to do**, and the evidence (the log lines and Docker facts behind it). Everything that's fine
+  is a small tile. Works on a phone.
+
+  | Shown | Means |
+  |---|---|
+  | Working fine | Nothing to do |
+  | Needs a look | A minor issue; it's still working |
+  | Having problems | Something is wrong |
+  | Down or failing | It's down, crashing or about to fail |
+  | Stopped | It exited normally or someone stopped it (no alert) |
+  | Couldn't check | DockLlama couldn't check it, with the reason |
+
+- **A page per container**: history, CPU and memory for the last day, recent logs (with passwords and
+  tokens masked), Check now, Restart, and **Tell DockLlama what's normal** ("This is a VPN; brief
+  reconnects are normal").
+- **Messages when something breaks and when it recovers**, not every check. Optional "still broken"
+  reminders, a daily summary, and quiet hours.
+- **Optional automatic restarts**, off by default, only for containers you allow and only when a
+  restart would help. See [Restarts](docs/restarts.md).
+- **Model testing on your own computer.** Every model can be tested with the same 8 practice
+  questions; DockLlama suggests the best one for your hardware, and you choose.
+- **Other Docker machines** on the same dashboard, with a small helper (DockLlama Remote). See
+  [Watching other machines](docs/other-machines.md).
+
+## Learn more
+
+- [Setup in detail](docs/setup.md): Ollama on another computer, data folders, PUID/PGID
+- [AI and models](docs/ai-and-models.md): suggestions, testing, the Advanced panel
+- [How checks work](docs/how-checks-work.md)
+- [Notifications](docs/notifications.md)
+- [Restarts and quiet hours](docs/restarts.md)
+- [Watching other machines](docs/other-machines.md)
+- [Upgrading from v1](docs/upgrading-from-v1.md)
+- [Troubleshooting](docs/troubleshooting.md)
 
 ## Forgot your password?
 
@@ -86,3 +116,6 @@ docker exec -it dockllama dockllama reset-password
 pip install -r requirements-dev.txt
 python -m pytest
 ```
+
+Pushes to the `v2` branch build multi-arch images (`linux/amd64`, `linux/arm64`) as
+`ghcr.io/o51r15/dockllama:v2-dev`.

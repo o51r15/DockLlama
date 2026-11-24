@@ -9,12 +9,17 @@ function aiSection() {
     pulls: {}, pullTimer: null,
     adv: null,
     tests: {busy: false, active: null, scheduled: null, watched: null, results: {}}, testsTimer: null,
-    plan: null, watching: null, hist: null,
+    plan: null, watching: null, hist: null, autoTest: true,
 
     async load() {
       await this.loadStatus();
       if (this.status.connected) { this.loadModels(); this.pollTests(); } else this.discover();
       this.pollPulls();
+      try { this.autoTest = (await api('api/ai/auto-test')).enabled; } catch (e) { /* keeps the default */ }
+    },
+    async saveAutoTest() {
+      try { await api('api/ai/auto-test', {method: 'PUT', body: {enabled: this.autoTest}}); this.$dispatch('toast', 'Saved.'); }
+      catch (e) { this.modelsProblem = e.message; }
     },
 
     async loadStatus() {

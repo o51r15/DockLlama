@@ -417,3 +417,9 @@ def test_pause_while_waiting_for_a_check_round(c, fake):
     st = c.get("/api/ai/tests").json()
     assert st["active"]["status"] == "paused" and st["active"]["models"][0]["status"] == "queued"
     assert fake.servers["thor"].generate_calls == []
+
+
+def test_auto_test_switch(c):
+    assert c.get("/api/ai/auto-test").json()["enabled"] is True
+    assert c.put("/api/ai/auto-test", json={"enabled": False}).json()["enabled"] is False
+    assert c.get("/api/ai/auto-test").json()["enabled"] is False

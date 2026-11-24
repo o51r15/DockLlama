@@ -122,6 +122,25 @@ async def status():
     }
 
 
+class AutoTestBody(BaseModel):
+    enabled: bool
+
+
+@router.get("/auto-test")
+def get_auto_test():
+    from .. import settings
+    with db.session() as conn:
+        return {"enabled": settings.get(conn, "ai.auto_test_new")}
+
+
+@router.put("/auto-test")
+def put_auto_test(body: AutoTestBody):
+    from .. import settings
+    with db.session() as conn:
+        settings.set(conn, "ai.auto_test_new", body.enabled)
+    return {"enabled": body.enabled}
+
+
 class HardwareBody(BaseModel):
     hardware: str
 
