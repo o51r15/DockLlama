@@ -711,6 +711,28 @@
         <p class="hint">Walk through connecting AI, picking a model and choosing containers again. Nothing is lost.</p>
         <a class="button secondary small" href="welcome">Run the setup guide again</a>
       </div>
+      <div class="panel" x-data="v1Import()">
+        <h2>Bring over a DockLlama v1 setup</h2>
+        <p class="hint">Pick your old <code>config.yaml</code>: containers, notes, restart groups, alert destinations
+          and timings come across. Safe to run twice. Notes saved in v1's web page live in its database; to include those, run
+          <code>docker exec -it dockllama dockllama import-v1 /path/config.yaml --db /path/old.db</code> instead.</p>
+        <input type="file" accept=".yaml,.yml,text/yaml" @change="read($event.target.files[0])">
+        <div class="error" x-show="error" x-text="error"></div>
+        <template x-if="preview">
+          <div>
+            <p><strong x-text="preview.containers.length + ' containers, ' + preview.alert_urls.length + ' alert destinations'"></strong></p>
+            <ul class="qlist">
+              <template x-for="c in preview.containers" :key="c.name">
+                <li x-text="c.name + (c.monitored ? '' : ' (not watched)') + (c.restart_group ? ' · group ' + c.restart_group : '') + (c.notes_for_ai ? ' · has notes' : '')"></li>
+              </template>
+            </ul>
+            <template x-for="n in preview.notes" :key="n"><div class="hint" x-text="n"></div></template>
+            <div class="actions-row"><button class="small" :disabled="busy" @click="apply()">Import</button>
+              <button class="secondary small" @click="preview = null">Cancel</button></div>
+          </div>
+        </template>
+        <div class="success" x-show="done" x-text="done"></div>
+      </div>
     </section>
   </main>
 </div>

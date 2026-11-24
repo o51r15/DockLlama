@@ -9,7 +9,7 @@ files, no group IDs to look up.
 > v2 is not finished. The v1 code is kept under the [`v1-final`](../../tree/v1-final) tag.
 > Progress follows the build phases in the v2 plan.
 
-## What works so far (phases 1–10)
+## What works so far (phases 1–11)
 
 - One-command install with Docker Compose
 - A setup guide in the browser: password, connect AI (or continue without it), pick a model
@@ -30,6 +30,9 @@ files, no group IDs to look up.
 - Optional automatic restarts for containers you allow, only when a restart would help (never crash
   loops, out-of-memory kills or stopped containers), with restart groups, a wait between restarts and
   a limit (3 an hour, then it asks you). Quiet hours hold restarts and messages. Starts in Watch only.
+- Coming from v1: Settings → Account → Bring over a DockLlama v1 setup (upload `config.yaml`), or
+  `docker exec -it dockllama dockllama import-v1 /path/config.yaml --db /path/old.db` to include notes and
+  alert URLs saved in v1's web page.
 - A daily summary at the time you choose (local time): written by your AI, or a plain list without it.
 - Optional: watch other Docker machines from the same dashboard. Settings → Machines → Add another
   machine gives you a compose file to run there (DockLlama Remote, same image, `dockllama remote`,

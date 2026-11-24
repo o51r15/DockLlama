@@ -213,3 +213,28 @@ function summaryBox() {
     },
   };
 }
+
+// Settings → Account → Bring over a DockLlama v1 setup
+function v1Import() {
+  return {
+    text: '', preview: null, error: '', busy: false, done: '',
+    async read(file) {
+      this.error = ''; this.preview = null; this.done = '';
+      if (!file) return;
+      this.text = await file.text();
+      try { this.preview = (await api('api/import/v1', {method: 'POST', body: {config_text: this.text}})).preview; }
+      catch (e) { this.error = e.message; }
+    },
+    async apply() {
+      this.busy = true;
+      try {
+        const r = (await api('api/import/v1', {method: 'POST', body: {config_text: this.text, apply: true}})).result;
+        this.preview = null;
+        this.done = 'Imported ' + (r.containers_added + r.containers_updated) + ' containers and ' + r.notify_targets_added
+          + ' alert destinations. ' + r.notes.join(' ');
+        this.$dispatch('toast', 'Imported.');
+      } catch (e) { this.error = e.message; }
+      this.busy = false;
+    },
+  };
+}
