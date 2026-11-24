@@ -9,9 +9,11 @@ files, no group IDs to look up.
 > v2 is not finished. The v1 code is kept under the [`v1-final`](../../tree/v1-final) tag.
 > Progress follows the build phases in the v2 plan.
 
-## What works so far (phases 1–3b)
+## What works so far (phases 1–4)
 
 - One-command install with Docker Compose
+- A setup guide in the browser: password, connect AI (or continue without it), pick a model
+  (Quick start or test them all first), pick containers. No files to edit.
 - First-run password setup and sign-in; change password in Settings
 - Automatic Docker socket permissions (no `--group-add`)
 - Settings → Containers: every container on this machine with its state in plain words, and a

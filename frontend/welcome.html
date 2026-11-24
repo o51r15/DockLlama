@@ -1,0 +1,286 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Set up DockLlama</title>
+<link rel="icon" href="static/favicon.svg" type="image/svg+xml">
+<link rel="stylesheet" href="static/app.css">
+<script defer src="static/vendor/alpine-3.17.5.min.js"></script>
+</head>
+<body x-data="{toast: '', tt: null}" x-cloak
+      @toast.window="toast = $event.detail; clearTimeout(tt); tt = setTimeout(() => toast = '', 3500)">
+<header class="top">
+  <span class="brand" style="margin:0"><img src="static/favicon.svg" alt=""><span>DockLlama</span></span>
+</header>
+
+<main class="page wizard" x-data="welcome()">
+  <ol class="steps">
+    <template x-for="(s, i) in steps" :key="s">
+      <li :class="{done: i < step, now: i === step}">
+        <span class="dot" x-text="i < step ? '✓' : i + 1"></span><span x-text="s"></span>
+      </li>
+    </template>
+  </ol>
+
+  <!-- Step 2: AI -->
+  <section x-show="step === 1">
+    <h1>Connect your AI</h1>
+    <p class="sub">DockLlama uses Ollama, a free program that runs AI models on your own computer, to read container
+      logs and explain problems in plain words. Your logs never leave your network.</p>
+
+    <div class="panel" x-show="status.connected && !changing">
+      <div class="row-between">
+        <div><strong x-text="'Connected to Ollama ' + (status.version || '')"></strong>
+          <div class="hint" x-text="status.address"></div></div>
+        <span class="pill ok">Connected</span>
+      </div>
+      <div class="actions-row"><button class="secondary small" @click="changing = true; address = ''; discover()">Use a different Ollama server</button></div>
+    </div>
+
+    <div class="panel" x-show="!status.connected || changing">
+      <div class="hint" x-show="discovering">Looking for Ollama on this network…</div>
+      <template x-for="f in found" :key="f.url">
+        <div class="found row-between">
+          <span x-text="'Found Ollama ' + f.version + ' at ' + f.url"></span>
+          <button class="small" :disabled="busy" @click="connect(f.url)">Use this</button>
+        </div>
+      </template>
+      <label for="ollama-addr" x-text="found.length ? 'Or type the address of another machine running Ollama' : 'Address of the machine running Ollama'"></label>
+      <div class="inline-form">
+        <input id="ollama-addr" type="text" x-model="address" placeholder="e.g. 192.168.1.125" @keydown.enter.prevent="connect(address)">
+        <button class="small" :disabled="busy || !address.trim()" @click="connect(address)" x-text="busy ? 'Connecting…' : 'Connect'"></button>
+      </div>
+      <div class="hint">Just the IP or name is fine; DockLlama adds the port (11434).</div>
+      <div class="error" x-show="problem && problem.kind !== 'none_found'" x-text="problem && problem.message"></div>
+
+      <div class="help-box" x-show="problem && (problem.kind === 'unreachable' || problem.kind === 'none_found')">
+        <strong>Nothing answered. Usually that's because Ollama only listens on its own machine.</strong>
+        <p class="hint">Pick the system Ollama runs on to see the one setting to change:</p>
+        <div class="tabs">
+          <template x-for="p in ['Windows','Mac','Linux','Ollama in Docker']" :key="p">
+            <button class="tab" :class="{active: helpTab === p}" @click="helpTab = p" x-text="p"></button>
+          </template>
+        </div>
+        <ol x-show="helpTab === 'Windows'">
+          <li>Quit Ollama from the system tray (right-click the llama icon → Quit).</li>
+          <li>Open the Start menu, search for <em>Edit environment variables for your account</em>.</li>
+          <li>Add a new variable: name <code>OLLAMA_HOST</code>, value <code>0.0.0.0:11434</code>.</li>
+          <li>Start Ollama again. If Windows asks about the firewall, allow private networks.</li>
+        </ol>
+        <ol x-show="helpTab === 'Mac'">
+          <li>In Terminal, run <code>launchctl setenv OLLAMA_HOST "0.0.0.0:11434"</code></li>
+          <li>Quit Ollama from the menu bar and open it again.</li>
+        </ol>
+        <ol x-show="helpTab === 'Linux'">
+          <li>Run <code>sudo systemctl edit ollama.service</code></li>
+          <li>Add these two lines and save:<br><code>[Service]</code><br><code>Environment="OLLAMA_HOST=0.0.0.0:11434"</code></li>
+          <li>Run <code>sudo systemctl daemon-reload &amp;&amp; sudo systemctl restart ollama</code></li>
+        </ol>
+        <ol x-show="helpTab === 'Ollama in Docker'">
+          <li>Make sure the Ollama container publishes its port: <code>ports: ["11434:11434"]</code> in its compose file.</li>
+          <li>Then type the IP address of the machine it runs on above.</li>
+        </ol>
+        <button class="small" :disabled="busy || discovering" @click="tryAgain()">Try again</button>
+      </div>
+
+      <div class="panel confirm" x-show="confirm">
+        <strong>Is this the same server as <span x-text="confirm && confirm.name"></span>?</strong>
+        <p class="hint" x-text="confirm && ('DockLlama has seen it before' + (confirm.tested_models ? ', with ' + confirm.tested_models + ' tested models' : '') + '.')"></p>
+        <div class="actions-row">
+          <button class="small" @click="connect(pendingAddress, 'same', confirm.server_id)">Yes, bring back its settings and results</button>
+          <button class="secondary small" @click="connect(pendingAddress, 'new')">No, it's a different server</button>
+        </div>
+      </div>
+    </div>
+
+    <div x-show="!status.connected">
+      <button class="link" @click="noOllama = !noOllama">I don't have Ollama</button>
+      <div class="panel" x-show="noOllama">
+        <h2>Two options</h2>
+        <p><strong>Install Ollama.</strong> On a computer with a graphics card if you have one, from
+          <a href="https://ollama.com/download" target="_blank" rel="noopener">ollama.com/download</a>,
+          or as a container next to DockLlama by adding this to DockLlama's <code>docker-compose.yml</code> under
+          <code>services:</code>, then running <code>docker compose up -d</code> again:</p>
+        <pre class="snippet" x-text="composeSnippet()"></pre>
+        <button class="secondary small" @click="copySnippet()">Copy</button>
+        <p class="hint">Also add a line <code>ollama:</code> under <code>volumes:</code> at the bottom of the file, next to
+          <code>dockllama-data:</code>. Once it's running, click <em>Try again</em> above and DockLlama will find it.</p>
+        <p style="margin-top:16px"><strong>Continue without AI.</strong> DockLlama still watches every container's state,
+          crashes, restart loops, out-of-memory kills and Docker health checks, and alerts you about them.
+          It just can't read logs and explain problems. You can add AI later in Settings.</p>
+        <button class="secondary small" @click="skipAi()">Continue without AI</button>
+      </div>
+    </div>
+
+    <div class="wizard-nav">
+      <span></span>
+      <button :disabled="!status.connected" @click="go(2)">Next</button>
+    </div>
+  </section>
+
+  <!-- Step 3: Model -->
+  <section x-show="step === 2">
+    <h1>Pick a model</h1>
+    <p class="sub">A model is the AI "brain" Ollama runs. Different models suit different computers.</p>
+
+    <label for="hw">What does the machine running Ollama have?</label>
+    <select id="hw" x-model="status.hardware" @change="saveHardware().then(() => { chosen = ''; preselect(); })">
+      <template x-for="[key, label] in Object.entries(status.hardware_choices || {})" :key="key">
+        <option :value="key" x-text="label" :selected="key === status.hardware"></option>
+      </template>
+    </select>
+    <div class="hint">Windows: Task Manager → Performance → GPU → "Dedicated GPU memory". Mac: Apple menu → About This Mac.
+      Linux with NVIDIA: run <code>nvidia-smi</code>.</div>
+    <div class="error" x-show="modelsProblem" x-text="modelsProblem"></div>
+
+    <template x-if="!watching">
+      <div>
+        <template x-if="usableModels().length">
+          <div>
+            <h2>Which model should DockLlama use?</h2>
+            <template x-for="m in usableModels()" :key="m.name">
+              <label class="check model-pick" :class="{picked: chosen === m.name}">
+                <input type="radio" name="model" :value="m.name" x-model="chosen">
+                <span class="grow">
+                  <strong x-text="m.name"></strong>
+                  <span class="badge sug" x-show="suggestion && suggestion.name === m.name">Suggested</span>
+                  <span class="badge" x-show="resultFor(m.name)" x-text="resultShort(resultFor(m.name))"></span>
+                  <span class="badge warnb" x-show="!m.fits">May not fit</span>
+                  <div class="hint" x-text="(suggestion && suggestion.name === m.name) ? suggestion.reason
+                        : (m.size_gb + ' GB' + (m.catalog_score ? ' · tested well by DockLlama' : ''))"></div>
+                </span>
+              </label>
+            </template>
+            <div class="choice-grid">
+              <div class="panel choice">
+                <strong>Quick start (recommended)</strong>
+                <p class="hint">Use the model you picked now. DockLlama then tests every model in the background
+                  and lets you know if one does better on your computer.</p>
+                <button :disabled="starting || !chosen" @click="quickStart()" x-text="starting ? 'Starting…' : 'Use ' + (chosen || 'this model')"></button>
+              </div>
+              <div class="panel choice">
+                <strong>Test all models now</strong>
+                <p class="hint">Watch DockLlama test each model on your computer, then choose from the results.
+                  Takes a minute or two per model.</p>
+                <button class="secondary" :disabled="tests.busy" :title="tests.busy_message || ''" @click="testAllNow()">Test all now</button>
+              </div>
+            </div>
+          </div>
+        </template>
+        <div class="panel" x-show="!loadingModels && !usableModels().length">
+          <strong>No usable models are installed on this Ollama yet.</strong>
+          <p class="hint">Download one of the suggestions below. It's tested automatically when it finishes.</p>
+        </div>
+
+        <h2 x-show="downloads.length">Suggested downloads</h2>
+        <template x-for="d in downloads" :key="d.name">
+          <div class="mrow">
+            <div class="cmain">
+              <strong x-text="d.name"></strong>
+              <span class="badge" x-text="'Tested by DockLlama: ' + d.score.toFixed(1) + '/100'"></span>
+              <div class="hint" x-text="'About ' + d.size_gb + ' GB to download' + (d.notes ? ' · ' + d.notes : '')"></div>
+              <template x-if="pulls[d.name]">
+                <div class="progress-wrap">
+                  <div class="progress"><span :style="'width:' + pullPercent(d.name) + '%'"></span></div>
+                  <div class="hint" x-text="pullText(d.name)"></div>
+                </div>
+              </template>
+            </div>
+            <button class="small" :disabled="anyPullRunning()" x-show="!pulls[d.name] || pulls[d.name].error" @click="download(d.name)">Download</button>
+          </div>
+        </template>
+      </div>
+    </template>
+
+    <!-- Test all now: live -->
+    <template x-if="watching && watchedRun()">
+      <div class="panel">
+        <h2 x-text="watchedRun().status === 'done' ? 'Testing finished: pick a model' : 'Testing models on your computer'"></h2>
+        <template x-if="watchedRun().status !== 'done'">
+          <div>
+            <p class="hint" x-text="activeLine() || 'Starting…'"></p>
+            <div class="progress"><span :style="'width:' + runPercent(watchedRun()) + '%'"></span></div>
+          </div>
+        </template>
+        <table class="watch-table">
+          <thead><tr><th>Model</th><th>Status</th><th>Score</th><th>Per check</th><th>Runs</th><th></th></tr></thead>
+          <tbody>
+            <template x-for="(m, i) in (watchedRun().status === 'done' ? watchRanked() : watchedRun().models)" :key="m.name">
+              <tr :class="{picked: m.name === status.model}">
+                <td><strong x-text="m.name"></strong>
+                  <span class="badge sug" x-show="watchedRun().status === 'done' && m.name === watchedRun().suggested">Suggested</span></td>
+                <td x-text="m.status === 'running' ? liveText(m) : ({queued: 'Waiting', done: 'Done', too_slow: 'Too slow here', failed: 'Failed', cancelled: 'Cancelled'}[m.status] || m.status)"
+                    :title="m.error || ''"></td>
+                <td x-text="m.score != null ? Math.round(m.score) : ''"></td>
+                <td x-text="m.sec_per_check ? m.sec_per_check.toFixed(1) + ' s' : ''"></td>
+                <td x-text="fitText(m.fit)"></td>
+                <td>
+                  <span class="badge on" x-show="m.name === status.model">Chosen</span>
+                  <button class="small" x-show="watchedRun().status === 'done' && m.status === 'done' && m.name !== status.model"
+                          @click="useAfterWatch(m.name)">Use this model</button>
+                </td>
+              </tr>
+            </template>
+          </tbody>
+        </table>
+        <div class="actions-row">
+          <button class="secondary small" x-show="watchedRun().status !== 'done'" @click="runAction(watching, 'cancel'); watching = null">Cancel testing</button>
+          <button class="secondary small" x-show="watchedRun().status !== 'done'" @click="leaveWatch()">Keep testing in the background</button>
+        </div>
+      </div>
+    </template>
+
+    <div class="error" x-show="stepError" x-text="stepError"></div>
+    <div class="wizard-nav">
+      <button class="secondary" @click="leaveWatch(); back()">Back</button>
+      <button x-show="modelStepReady()" @click="leaveWatch(); go(3)">Next</button>
+      <span class="hint" x-show="!modelStepReady() && !watching">Choose Quick start or Test all now to carry on.</span>
+    </div>
+  </section>
+
+  <!-- Step 4: Containers -->
+  <section x-show="step === 3">
+    <h1>Pick containers to watch</h1>
+    <p class="sub">Running containers are ticked. You can change this any time in Settings → Containers.</p>
+    <div class="warning" x-show="withoutAi">Without AI, DockLlama watches container state, crashes, restart loops,
+      out-of-memory kills and Docker health checks.</div>
+    <div class="error" x-show="containersError" x-text="containersError"></div>
+    <div class="hint" x-show="loadingContainers">Reading containers from Docker…</div>
+    <div class="actions-row" x-show="containers.length">
+      <button class="secondary small" @click="setAll(true)">Tick all</button>
+      <button class="secondary small" @click="setAll(false)">Untick all</button>
+    </div>
+    <div class="plan-list tall">
+      <template x-for="c in containers" :key="c.db_id">
+        <label class="check plan-row">
+          <input type="checkbox" x-model="ticks[c.db_id]" :disabled="c.is_self">
+          <span class="grow"><strong x-text="c.name"></strong>
+            <span class="hint" x-text="' · ' + c.state_text"></span>
+            <span class="badge" x-show="c.is_self">This is DockLlama</span>
+            <span class="badge" x-show="c.is_ollama">Runs your AI</span></span>
+        </label>
+      </template>
+    </div>
+    <p><strong x-text="tickedCount() + ' container' + (tickedCount() === 1 ? '' : 's') + ' · ' + roundText()
+          + ' · DockLlama checks every ' + setup.interval_minutes + ' minutes'"></strong></p>
+    <p class="hint" x-show="!withoutAi && setup.per_check_source === 'guess'">The time is a guess until your model has been tested.</p>
+    <div class="warning" x-show="roundSeconds() > setup.interval_minutes * 60">That's longer than the time between checks.
+      Untick some containers, or pick a faster model.</div>
+    <p class="hint">DockLlama starts in <strong>Watch only</strong> mode: it tells you about problems but never restarts
+      anything until you turn that on in Settings.</p>
+
+    <div class="error" x-show="stepError" x-text="stepError"></div>
+    <div class="wizard-nav">
+      <button class="secondary" @click="back()">Back</button>
+      <button :disabled="finishing || (containers.length && !tickedCount())" @click="finish()"
+              x-text="finishing ? 'Finishing…' : 'Finish'"></button>
+    </div>
+  </section>
+</main>
+<div class="toast" x-show="toast" x-text="toast" x-transition.opacity></div>
+<script src="static/settings.js"></script>
+<script src="static/settings-ai.js"></script>
+<script src="static/welcome.js"></script>
+</body>
+</html>

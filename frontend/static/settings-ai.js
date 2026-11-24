@@ -263,7 +263,9 @@ function aiSection() {
     watchedRun() { const w = this.tests.watched; return w && w.run_id === this.watching ? w : null; },
     watchRanked() {
       const w = this.watchedRun(); if (!w) return [];
-      return [...w.models].sort((a, b) => (b.status === 'done') - (a.status === 'done') || (b.score ?? -1) - (a.score ?? -1));
+      // The server's pick first (it prefers the faster of near-equal scores), then by score.
+      return [...w.models].sort((a, b) => (b.name === w.suggested) - (a.name === w.suggested)
+        || (b.status === 'done') - (a.status === 'done') || (b.score ?? -1) - (a.score ?? -1));
     },
     async closeWatch() {
       const w = this.watchedRun(), id = this.watching;

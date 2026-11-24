@@ -10,10 +10,11 @@ from fastapi.responses import FileResponse, JSONResponse, RedirectResponse
 from fastapi.staticfiles import StaticFiles
 from starlette.concurrency import run_in_threadpool
 
-from . import __version__, db, paths
+from . import __version__, db, paths, settings
 from .api import ai as ai_api
 from .api import auth as auth_api
 from .api import containers as containers_api
+from .api import setup as setup_api
 from .api import tests as tests_api
 from .model_tests import RUNNER
 
@@ -21,7 +22,8 @@ log = logging.getLogger("dockllama")
 
 # Reachable without signing in.
 PUBLIC_API = {"/api/health", "/api/auth/status", "/api/auth/setup", "/api/auth/login"}
-PAGES = {"/": "index.html", "/login": "login.html", "/setup": "setup.html", "/settings": "settings.html"}
+PAGES = {"/": "index.html", "/login": "login.html", "/setup": "setup.html", "/settings": "settings.html",
+         "/welcome": "welcome.html"}
 
 
 @asynccontextmanager
@@ -43,7 +45,11 @@ def _gate(path: str, request: Request) -> str:
         if path == "/setup":
             return "home"  # already set up
         if auth_api.is_signed_in(conn, request):
-            return "home" if path == "/login" else "ok"
+            if path == "/login":
+                return "home"
+            if path == "/" and not settings.get(conn, "setup.complete"):
+                return "welcome"  # the setup guide until it's finished (plan 3.2)
+            return "ok"
         return "ok" if path == "/login" else "login"
 
 
@@ -68,6 +74,8 @@ def create_app() -> FastAPI:
                 return RedirectResponse("login", status_code=303)
             if decision == "home":
                 return RedirectResponse("./", status_code=303)
+            if decision == "welcome":
+                return RedirectResponse("welcome", status_code=303)
         return await call_next(request)
 
     @app.get("/api/health", include_in_schema=False)
@@ -78,6 +86,7 @@ def create_app() -> FastAPI:
     app.include_router(containers_api.router)
     app.include_router(ai_api.router)
     app.include_router(tests_api.router)
+    app.include_router(setup_api.router)
 
     for route, filename in PAGES.items():
         app.add_api_route(route, _page(filename), methods=["GET"], include_in_schema=False)

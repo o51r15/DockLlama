@@ -49,6 +49,12 @@ def _timezone(v: Any) -> str:
     return v
 
 
+def _minutes(v: Any) -> int:
+    if isinstance(v, int) and not isinstance(v, bool) and 1 <= v <= 1440:
+        return v
+    raise SettingError("must be a whole number of minutes from 1 to 1440")
+
+
 def _clock(v: Any) -> str:
     if isinstance(v, str):
         parts = v.split(":")
@@ -65,6 +71,7 @@ REGISTRY: dict[str, Setting] = {
     "general.timezone": Setting("UTC", _timezone),
     "setup.complete": Setting(False, _bool),
     "ai.auto_test_new": Setting(True, _bool),
+    "checks.interval_minutes": Setting(10, _minutes),
     # Start of quiet hours, local time; "Run tonight" starts model tests then. Phase 8 adds the rest.
     "quiet.start": Setting("01:00", _clock),
 }

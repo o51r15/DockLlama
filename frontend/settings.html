@@ -9,7 +9,7 @@
 <script src="static/banner.js"></script>
 <script defer src="static/vendor/alpine-3.17.5.min.js"></script>
 </head>
-<body x-data="settingsPage()" x-init="init()" x-cloak @toast.window="showToast($event.detail)">
+<body x-data="settingsPage()" x-cloak @toast.window="showToast($event.detail)">
 <header class="top">
   <a class="brand" href="./" style="margin:0"><img src="static/favicon.svg" alt=""><span>DockLlama</span></a>
   <nav class="topnav">
@@ -363,7 +363,7 @@
                   <template x-for="(m, i) in (watchedRun().status === 'done' ? watchRanked() : watchedRun().models)" :key="m.name">
                     <tr>
                       <td><strong x-text="m.name"></strong>
-                        <span class="badge sug" x-show="watchedRun().status === 'done' && i === 0 && m.status === 'done'">Suggested</span>
+                        <span class="badge sug" x-show="watchedRun().status === 'done' && m.name === watchedRun().suggested">Suggested</span>
                         <span class="badge on" x-show="m.name === status.model">In use</span></td>
                       <td x-text="m.status === 'running' ? liveText(m) : ({queued: 'Waiting', done: 'Done', too_slow: 'Too slow here', failed: 'Failed', cancelled: 'Cancelled'}[m.status] || m.status)"
                           :title="m.error || ''"></td>
@@ -499,6 +499,11 @@
         <div class="success" x-show="pw.done">Password saved.</div>
         <button type="submit" :disabled="pw.busy">Save password</button>
       </form>
+      <div class="panel narrow">
+        <h2>Setup guide</h2>
+        <p class="hint">Walk through connecting AI, picking a model and choosing containers again. Nothing is lost.</p>
+        <a class="button secondary small" href="welcome">Run the setup guide again</a>
+      </div>
     </section>
   </main>
 </div>
