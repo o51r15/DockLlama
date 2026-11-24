@@ -12,12 +12,13 @@ from starlette.concurrency import run_in_threadpool
 
 from . import __version__, db, paths
 from .api import auth as auth_api
+from .api import containers as containers_api
 
 log = logging.getLogger("dockllama")
 
 # Reachable without signing in.
 PUBLIC_API = {"/api/health", "/api/auth/status", "/api/auth/setup", "/api/auth/login"}
-PAGES = {"/": "index.html", "/login": "login.html", "/setup": "setup.html"}
+PAGES = {"/": "index.html", "/login": "login.html", "/setup": "setup.html", "/settings": "settings.html"}
 
 
 @asynccontextmanager
@@ -67,6 +68,7 @@ def create_app() -> FastAPI:
         return {"status": "ok", "version": __version__}
 
     app.include_router(auth_api.router)
+    app.include_router(containers_api.router)
 
     for route, filename in PAGES.items():
         app.add_api_route(route, _page(filename), methods=["GET"], include_in_schema=False)

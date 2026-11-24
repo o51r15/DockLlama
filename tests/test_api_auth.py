@@ -105,4 +105,5 @@ def test_change_password_keeps_me_signed_in_and_signs_out_others(client):
 def test_change_password_requires_current(client):
     _setup(client)
     r = client.post("/api/auth/password", json={"current_password": "wrong", "new_password": "a-new-password"})
-    assert r.status_code == 401
+    assert r.status_code == 400 and "current password" in r.json()["detail"]
+    assert client.get("/", follow_redirects=False).status_code == 200  # still signed in

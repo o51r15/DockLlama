@@ -9,11 +9,13 @@ files, no group IDs to look up.
 > v2 is not finished. The v1 code is kept under the [`v1-final`](../../tree/v1-final) tag.
 > Progress follows the build phases in the v2 plan.
 
-## What works so far (phase 1)
+## What works so far (phases 1–2)
 
 - One-command install with Docker Compose
-- First-run password setup and sign-in
+- First-run password setup and sign-in; change password in Settings
 - Automatic Docker socket permissions (no `--group-add`)
+- Settings → Containers: every container on this machine with its state in plain words, and a
+  switch to choose which ones DockLlama watches
 
 ## Install
 

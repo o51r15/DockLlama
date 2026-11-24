@@ -1,0 +1,122 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Settings · DockLlama</title>
+<link rel="icon" href="static/favicon.svg" type="image/svg+xml">
+<link rel="stylesheet" href="static/app.css">
+<script defer src="static/vendor/alpine-3.17.5.min.js"></script>
+</head>
+<body x-data="settingsPage()" x-init="init()" x-cloak>
+<header class="top">
+  <a class="brand" href="./" style="margin:0"><img src="static/favicon.svg" alt=""><span>DockLlama</span></a>
+  <nav class="topnav">
+    <a href="./">Dashboard</a>
+    <a href="settings" class="active">Settings</a>
+    <button class="secondary" x-show="loginRequired" @click="logout()">Sign out</button>
+  </nav>
+</header>
+
+<div class="settings-layout">
+  <nav class="side">
+    <template x-for="s in sections" :key="s.id">
+      <a :href="'#' + s.id" :class="{active: section === s.id}" @click="section = s.id" x-text="s.label"></a>
+    </template>
+  </nav>
+
+  <main class="settings-main">
+    <!-- AI -->
+    <section x-show="section === 'ai'">
+      <h1>AI</h1>
+      <p class="sub">Connecting to Ollama and choosing a model come in the next build step.</p>
+    </section>
+
+    <!-- Machines -->
+    <section x-show="section === 'machines'">
+      <h1>Machines</h1>
+      <p class="sub">The Docker machines DockLlama watches.</p>
+      <template x-for="m in machineList" :key="m.id">
+        <div class="panel">
+          <div class="row-between">
+            <div>
+              <strong x-text="m.name"></strong>
+              <div class="hint" x-show="m.connected" x-text="'Docker ' + m.docker_version + ' · ' + m.container_count + ' containers'"></div>
+            </div>
+            <span class="pill" :class="m.connected ? 'ok' : 'bad'" x-text="m.connected ? 'Connected' : 'Not connected'"></span>
+          </div>
+          <div class="error" x-show="m.error" x-text="m.error"></div>
+        </div>
+      </template>
+      <p class="hint">Watching other machines (DockLlama Remote) comes later.</p>
+    </section>
+
+    <!-- Containers -->
+    <section x-show="section === 'containers'">
+      <h1>Containers</h1>
+      <p class="sub">Choose which containers DockLlama watches.</p>
+      <div class="error" x-show="containersError" x-text="containersError"></div>
+      <div class="toolbar" x-show="containers.length">
+        <input type="text" placeholder="Search containers" x-model="search" class="search">
+        <button class="secondary" @click="setAll(true)">Watch all shown</button>
+        <button class="secondary" @click="setAll(false)">Watch none shown</button>
+        <span class="hint" x-text="watchedCount() + ' of ' + liveCount() + ' watched'"></span>
+      </div>
+      <div class="hint" x-show="loadingContainers">Loading containers…</div>
+      <template x-for="g in groups()" :key="g.name">
+        <div class="group">
+          <div class="group-title" x-text="g.name"></div>
+          <template x-for="c in g.items" :key="c.name">
+            <div class="crow" :class="{gone: c.gone}">
+              <label class="switch" :title="c.gone ? '' : 'Watch this container'" x-show="!c.gone">
+                <input type="checkbox" :checked="c.monitored" @change="toggle(c, $event.target.checked)">
+                <span></span>
+              </label>
+              <span class="dot" :class="dotClass(c)"></span>
+              <div class="cmain">
+                <div>
+                  <strong x-text="c.name"></strong>
+                  <span class="badge" x-show="c.is_self">This is DockLlama</span>
+                  <span class="badge" x-show="c.is_ollama">Ollama</span>
+                </div>
+                <div class="hint">
+                  <span x-text="c.state_text"></span><span x-show="c.image" x-text="' · ' + c.image"></span>
+                </div>
+                <div class="hint warn-text" x-show="!c.gone && c.logs_readable === false"
+                     x-text="'Its logs can\'t be read (log driver: ' + c.log_driver + '). DockLlama can still watch whether it\'s running.'"></div>
+              </div>
+              <button class="secondary small" x-show="c.gone" @click="forget(c)">Remove</button>
+            </div>
+          </template>
+        </div>
+      </template>
+    </section>
+
+    <!-- Account -->
+    <section x-show="section === 'account'">
+      <h1>Account</h1>
+      <p class="sub" x-show="loginRequired">Change the password you use to sign in. Everyone else gets signed out.</p>
+      <p class="sub" x-show="!loginRequired">DockLlama isn't using a password. Set one to turn sign-in on.</p>
+      <form class="panel narrow" @submit.prevent="changePassword()">
+        <template x-if="loginRequired">
+          <div><label for="cur">Current password</label>
+          <input id="cur" type="password" x-model="pw.current" autocomplete="current-password"></div>
+        </template>
+        <label for="new">New password</label>
+        <input id="new" type="password" x-model="pw.next" autocomplete="new-password">
+        <div class="hint">At least 8 characters.</div>
+        <label for="new2">Type it again</label>
+        <input id="new2" type="password" x-model="pw.again" autocomplete="new-password">
+        <div class="error" x-show="pw.error" x-text="pw.error"></div>
+        <div class="success" x-show="pw.done">Password saved.</div>
+        <button type="submit" :disabled="pw.busy">Save password</button>
+      </form>
+    </section>
+  </main>
+</div>
+
+<div class="toast" x-show="toast" x-text="toast" x-transition.opacity></div>
+
+<script src="static/settings.js"></script>
+</body>
+</html>

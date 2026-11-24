@@ -63,3 +63,67 @@ header.top {
   padding: calc(var(--space) * 2) calc(var(--space) * 3); border-bottom: 1px solid var(--border);
 }
 main.page { max-width: 960px; margin: 0 auto; padding: calc(var(--space) * 4) calc(var(--space) * 3); }
+
+a { color: var(--accent); text-decoration: none; }
+a.brand { color: var(--text); }
+.topnav { display: flex; gap: calc(var(--space) * 2); align-items: center; }
+.topnav a { color: var(--muted); font-weight: 600; }
+.topnav a.active, .topnav a:hover { color: var(--text); }
+
+.settings-layout { display: grid; grid-template-columns: 200px 1fr; gap: calc(var(--space) * 3);
+  max-width: 1100px; margin: 0 auto; padding: calc(var(--space) * 3); }
+nav.side { display: flex; flex-direction: column; gap: 2px; position: sticky; top: calc(var(--space) * 2); align-self: start; }
+nav.side a { color: var(--muted); padding: 8px 12px; border-radius: 8px; font-weight: 600; }
+nav.side a.active { background: var(--surface-2); color: var(--text); }
+.settings-main h1 { font-size: 24px; letter-spacing: 0.01em; }
+@media (max-width: 760px) {
+  .settings-layout { grid-template-columns: 1fr; padding: calc(var(--space) * 2); }
+  nav.side { flex-direction: row; overflow-x: auto; position: static; }
+}
+
+.panel { background: var(--surface); border: 1px solid var(--border); border-radius: var(--radius);
+  padding: calc(var(--space) * 2) calc(var(--space) * 3); margin-bottom: calc(var(--space) * 2); }
+.panel.narrow { max-width: 420px; }
+.row-between { display: flex; justify-content: space-between; align-items: center; gap: var(--space); }
+.pill { font-size: 13px; font-weight: 700; padding: 3px 10px; border-radius: 999px; background: var(--surface-2); }
+.pill.ok { color: var(--ok); } .pill.bad { color: var(--bad); }
+.success { margin-top: calc(var(--space) * 2); color: var(--ok); }
+.warn-text { color: var(--warn); }
+
+.toolbar { display: flex; flex-wrap: wrap; gap: var(--space); align-items: center; margin-bottom: calc(var(--space) * 2); }
+.toolbar .search { width: auto; flex: 1 1 220px; }
+button.small { padding: 6px 12px; font-size: 13px; }
+
+.group { margin-bottom: calc(var(--space) * 3); }
+.group-title { color: var(--muted); font-size: 13px; font-weight: 700; text-transform: uppercase;
+  letter-spacing: 0.06em; margin-bottom: var(--space); }
+.crow { display: flex; align-items: center; gap: calc(var(--space) * 1.5); padding: 10px 12px;
+  border-bottom: 1px solid var(--border); }
+.crow.gone { opacity: 0.7; }
+.cmain { flex: 1; min-width: 0; }
+.cmain .hint { overflow-wrap: anywhere; }
+.badge { font-size: 12px; background: var(--surface-2); color: var(--muted); padding: 1px 8px;
+  border-radius: 999px; margin-left: 6px; }
+.dot { width: 10px; height: 10px; border-radius: 50%; flex: none; background: var(--muted); }
+.dot.ok { background: var(--ok); } .dot.warn { background: var(--warn); } .dot.bad { background: var(--bad); }
+.dot.grey { background: #5c6273; }
+
+.switch { position: relative; width: 40px; height: 22px; flex: none; cursor: pointer; }
+.switch input { opacity: 0; width: 0; height: 0; position: absolute; }
+.switch span { position: absolute; inset: 0; background: var(--surface-2); border: 1px solid var(--border);
+  border-radius: 999px; transition: background 0.15s; }
+.switch span::after { content: ""; position: absolute; width: 16px; height: 16px; left: 2px; top: 2px;
+  background: var(--muted); border-radius: 50%; transition: transform 0.15s, background 0.15s; }
+.switch input:checked + span { background: rgba(91, 156, 246, 0.35); border-color: var(--accent); }
+.switch input:checked + span::after { transform: translateX(18px); background: var(--accent); }
+.switch input:focus-visible + span { outline: 2px solid var(--accent); outline-offset: 2px; }
+
+.toast { position: fixed; bottom: 20px; left: 50%; transform: translateX(-50%); background: var(--surface-2);
+  border: 1px solid var(--border); padding: 10px 16px; border-radius: 8px; max-width: 90vw; }
+
+@media (max-width: 520px) {
+  header.top { padding: var(--space) calc(var(--space) * 2); gap: var(--space); }
+  header.top .brand span { display: none; }
+  .topnav { gap: calc(var(--space) * 1.5); }
+  .topnav button.secondary { padding: 6px 10px; font-size: 14px; white-space: nowrap; }
+}

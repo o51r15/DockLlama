@@ -27,13 +27,14 @@ def test_upgrade_takes_backup_first(data_dir, monkeypatch):
     def _m002(conn):
         conn.execute("CREATE TABLE extra (x INTEGER)")
 
+    before = db.LATEST
     monkeypatch.setattr(db, "MIGRATIONS", db.MIGRATIONS + [_m002])
     monkeypatch.setattr(db, "LATEST", len(db.MIGRATIONS))
-    assert db.migrate() == 2
-    backups = list((data_dir / "backups").glob("dockllama-v1-*.db"))
+    assert db.migrate() == before + 1
+    backups = list((data_dir / "backups").glob(f"dockllama-v{before}-*.db"))
     assert len(backups) == 1
     old = sqlite3.connect(backups[0])
-    assert old.execute("SELECT version FROM schema_version").fetchone()[0] == 1
+    assert old.execute("SELECT version FROM schema_version").fetchone()[0] == before
     old.close()
 
 
@@ -44,12 +45,13 @@ def test_failed_migration_rolls_back_completely(data_dir, monkeypatch):
         conn.execute("CREATE TABLE half_done (x INTEGER)")
         raise RuntimeError("boom")
 
+    before = db.LATEST
     monkeypatch.setattr(db, "MIGRATIONS", db.MIGRATIONS + [_bad])
     monkeypatch.setattr(db, "LATEST", len(db.MIGRATIONS))
     with pytest.raises(RuntimeError):
         db.migrate()
     with db.session() as conn:
-        assert db.current_version(conn) == 1
+        assert db.current_version(conn) == before
         assert conn.execute("SELECT name FROM sqlite_master WHERE name='half_done'").fetchone() is None
 
 

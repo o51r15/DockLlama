@@ -10,8 +10,12 @@
 </head>
 <body x-data="home()" x-init="load()" x-cloak>
 <header class="top">
-  <div class="brand" style="margin:0"><img src="static/favicon.svg" alt=""><span>DockLlama</span></div>
-  <button class="secondary" x-show="loginRequired" @click="logout()">Sign out</button>
+  <a class="brand" href="./" style="margin:0"><img src="static/favicon.svg" alt=""><span>DockLlama</span></a>
+  <nav class="topnav">
+    <a href="./" class="active">Dashboard</a>
+    <a href="settings">Settings</a>
+    <button class="secondary" x-show="loginRequired" @click="logout()">Sign out</button>
+  </nav>
 </header>
 <main class="page">
   <h1>You're signed in</h1>

@@ -126,7 +126,8 @@ def change_password(body: ChangePasswordBody, request: Request, response: Respon
     with db.session() as conn:
         stored = settings.get(conn, "auth.password_hash")
     if stored and not auth.verify_password(body.current_password, stored):
-        raise HTTPException(401, "Your current password isn't right.")
+        # 400, not 401: the page treats 401 as "your session ended" and goes to sign-in.
+        raise HTTPException(400, "Your current password isn't right.")
     with db.session() as conn, db.transaction(conn):
         auth.set_password(conn, body.new_password)  # signs out every other session
         settings.set(conn, "auth.login_required", True)

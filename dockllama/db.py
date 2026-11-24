@@ -84,8 +84,47 @@ def _m001_initial(conn: sqlite3.Connection) -> None:
     )
 
 
+def _m002_machines_containers(conn: sqlite3.Connection) -> None:
+    _run(
+        conn,
+        """
+        CREATE TABLE machines (
+            id             INTEGER PRIMARY KEY,
+            name           TEXT NOT NULL,
+            kind           TEXT NOT NULL CHECK (kind IN ('local', 'remote')),
+            url            TEXT NOT NULL,
+            token          TEXT,
+            allows_restart INTEGER NOT NULL DEFAULT 1,
+            enabled        INTEGER NOT NULL DEFAULT 1,
+            last_seen      REAL,
+            last_error     TEXT
+        );
+        INSERT INTO machines (id, name, kind, url) VALUES (1, 'This machine', 'local', 'unix:///var/run/docker.sock');
+        CREATE TABLE containers (
+            id                 INTEGER PRIMARY KEY,
+            machine_id         INTEGER NOT NULL REFERENCES machines(id) ON DELETE CASCADE,
+            name               TEXT NOT NULL,
+            monitored          INTEGER NOT NULL DEFAULT 0,
+            notes_for_ai       TEXT NOT NULL DEFAULT '',
+            restart_group      TEXT NOT NULL DEFAULT '',
+            model_override     TEXT,
+            allow_auto_restart INTEGER NOT NULL DEFAULT 0,
+            ignore_patterns    TEXT NOT NULL DEFAULT '[]',
+            known_patterns     TEXT NOT NULL DEFAULT '[]',
+            first_seen         REAL NOT NULL,
+            last_seen          REAL NOT NULL,
+            gone               INTEGER NOT NULL DEFAULT 0,
+            last_log_ts        REAL,
+            UNIQUE (machine_id, name)
+        );
+        CREATE INDEX containers_machine ON containers(machine_id)
+        """,
+    )
+
+
 MIGRATIONS: list[Callable[[sqlite3.Connection], None]] = [
     _m001_initial,
+    _m002_machines_containers,
 ]
 
 LATEST = len(MIGRATIONS)
