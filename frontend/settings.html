@@ -318,8 +318,9 @@
             <div>
               <div class="row-between"><h2 style="margin:0">Test all models</h2>
                 <button class="secondary small" @click="plan = null">Close</button></div>
-              <p class="hint">Each model answers the same 8 practice questions about container logs. Models that probably
-                won't fit your graphics card start unticked.</p>
+              <p class="hint">Each model answers the same 8 practice questions about container logs. "May not fit" is a guess
+                from your hardware answer; testing shows how much really runs on the graphics card. A model that's far
+                too slow here stops early.</p>
               <div class="plan-list">
                 <template x-for="m in plan.models" :key="m.name">
                   <label class="check plan-row">

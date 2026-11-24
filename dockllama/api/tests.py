@@ -86,7 +86,9 @@ def tests_status():
 
 @router.get("/tests/plan")
 def test_all_plan():
-    """What "Test all" would do: every usable model, ticked unless it won't fit, with a time estimate."""
+    """What "Test all" would do: every usable model, all ticked, with a time estimate. "May not fit"
+    is only a hint: it comes from the user's hardware answer, which can be wrong, so testing is
+    how it's found out (a model far too slow here stops early anyway)."""
     with db.session() as conn:
         server = _server(conn)
         models = [m for m in ai_servers.installed_models(conn, server["id"]) if m.usable]
@@ -98,7 +100,7 @@ def test_all_plan():
     items = []
     for m in models:
         fits = catalog.fits(m.size / catalog.GIB, server["hardware"])
-        items.append({"name": m.name, "size_gb": round(m.size / 1e9, 1), "fits": fits, "ticked": fits,
+        items.append({"name": m.name, "size_gb": round(m.size / 1e9, 1), "fits": fits, "ticked": True,
                       "estimate_s": round(model_tests.estimate_seconds(m, server["hardware"], latest.get(m.name))),
                       "last": latest.get(m.name)})
     return {"models": items, "tonight_at": tonight_at,

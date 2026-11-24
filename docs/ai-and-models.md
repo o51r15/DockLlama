@@ -30,7 +30,8 @@ outside service being down, and so on) and records the score out of 100, seconds
 time, whether it fit on the graphics card, and whether any answer was cut off.
 
 - **Test / Retest** on any model. Earlier results are kept under **Results**, with the settings used.
-- **Test all**: pick models (ones that won't fit start unticked) and see the time estimate, then run
+- **Test all**: every usable model is ticked (models marked "may not fit" too: your hardware answer is a
+  guess, and testing finds out; one that's far too slow stops early). Untick any, see the time estimate, then run
   it in the background, now while you watch, or tonight (at the start of quiet hours, default 01:00).
 - **One test at a time.** While one runs, the other test buttons are greyed out and say what's running.
   Pause and Cancel stay available. Container checks keep running between models.

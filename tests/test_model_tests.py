@@ -474,3 +474,12 @@ def test_gpu_split_words_and_storage(c, fake):
     c.post("/api/ai/tests", json={"names": ["gemma4:latest"]})
     st = wait_idle(c)
     assert st["results"]["gemma4:latest"]["gpu_pct"] == 90.0 and st["results"]["gemma4:latest"]["fit"] == "partial"
+
+
+def test_test_all_ticks_models_that_may_not_fit(c, fake):
+    fake.servers["thor"].tags.append(tag("deepseek-r1:32b", 19.9, "qwen2", "32.8B"))
+    c.get("/api/ai/models")  # pick up the new model
+    c.put("/api/ai/auto-test", json={"enabled": False})
+    plan = {m["name"]: m for m in c.get("/api/ai/tests/plan").json()["models"]}
+    big = plan["deepseek-r1:32b"]
+    assert big["fits"] is False and big["ticked"] is True  # hint shown, still tested
