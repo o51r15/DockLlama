@@ -180,6 +180,8 @@
           </div>
           <label class="check tight"><input type="checkbox" x-model="autoTest" @change="saveAutoTest()">
             <span>Test new and downloaded models automatically (in the background, one at a time)</span></label>
+          <label class="check tight"><input type="checkbox" x-model="excludeQwen" @change="saveExcludeQwen()">
+            <span>Don't suggest Qwen-based models (they can still be tested and chosen by hand)</span></label>
           <div class="hint" x-show="loadingModels">Reading models from Ollama…</div>
           <template x-for="m in models" :key="m.name">
             <div class="mrow" :class="{inuse: m.in_use, unusable: !m.usable}">
@@ -210,6 +212,7 @@
                   <span class="badge" x-show="m.loaded">Loaded now</span>
                   <span class="badge warnb" x-show="m.usable && !m.fits">May not fit your graphics card</span>
                   <span class="badge" x-show="m.customised">Custom settings</span>
+                  <span class="badge" x-show="m.qwen_based" title="Built on Alibaba's Qwen models. DockLlama gives models no tools, so it can only answer the check questions. You can leave Qwen-based models out of suggestions below the model list.">Qwen-based</span>
                 </div>
                 <div class="hint" x-text="m.usable ? (m.size_gb + ' GB · ' + (m.parameter_size || '') + (m.thinking !== 'none' ? ' · can think' : ''))
                                                : ('Can\'t be used: ' + m.unusable_reason)"></div>

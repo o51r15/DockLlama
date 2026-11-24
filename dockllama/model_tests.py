@@ -237,11 +237,11 @@ def meaningfully_better(candidate: dict, current: dict | None) -> bool:
     return False
 
 
-def best_result(results: dict[str, dict]) -> dict | None:
+def best_result(results: dict[str, dict], exclude: set[str] | frozenset = frozenset()) -> dict | None:
     """The best tested model: highest score; among those within 2 points of it, prefer one
-    that fits on the GPU, then the fastest."""
+    that fits on the GPU, then the fastest. Names in `exclude` are never suggested."""
     done = [r for r in results.values() if r.get("status") == "done" and r.get("score") is not None
-            and r["score"] >= MIN_SUGGEST_SCORE and not r.get("older_version")]
+            and r["score"] >= MIN_SUGGEST_SCORE and not r.get("older_version") and r.get("name") not in exclude]
     if not done:
         return None
     top = max(r["score"] for r in done)
@@ -259,6 +259,15 @@ def describe(result: dict) -> str:
 
 
 # --- the database side --------------------------------------------------------------------
+
+
+def not_suggested(conn: sqlite3.Connection, server_id: int) -> set[str]:
+    """Models to leave out of suggestions: Qwen-based ones when the user asked for that.
+    They can still be tested and chosen by hand."""
+    if not settings.get(conn, "ai.exclude_qwen"):
+        return set()
+    return {r["name"] for r in conn.execute(
+        "SELECT name FROM models WHERE server_id = ? AND qwen_based = 1", (server_id,))}
 
 
 def _row(conn, sql, *args):
@@ -381,7 +390,7 @@ def finish_run(conn: sqlite3.Connection, run_id: int) -> None:
     if run["kind"] in ("all", "new") and any_done and not more_coming:
         server = _row(conn, "SELECT * FROM ai_servers WHERE id = ?", run["server_id"])
         results = latest_results(conn, run["server_id"])
-        best = best_result(results)
+        best = best_result(results, not_suggested(conn, run["server_id"]))
         current = baseline_for(server["model"], results)
         # A better model is only claimed against the current model's own test here (or when no
         # model is chosen yet). An untested current model can't be beaten by comparison.
@@ -404,7 +413,7 @@ def banner(conn: sqlite3.Connection) -> dict | None:
     if run is None:
         return None
     results = latest_results(conn, server["id"])
-    best = best_result(results)
+    best = best_result(results, not_suggested(conn, server["id"]))
     current = baseline_for(server["model"], results)
     comparable = current is not None or not server["model"]
     if comparable and best is not None and best["name"] != server["model"] and meaningfully_better(best, current):

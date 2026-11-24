@@ -126,6 +126,25 @@ class AutoTestBody(BaseModel):
     enabled: bool
 
 
+class ExcludeQwenBody(BaseModel):
+    enabled: bool
+
+
+@router.get("/exclude-qwen")
+def get_exclude_qwen():
+    from .. import settings
+    with db.session() as conn:
+        return {"enabled": settings.get(conn, "ai.exclude_qwen")}
+
+
+@router.put("/exclude-qwen")
+def put_exclude_qwen(body: ExcludeQwenBody):
+    from .. import settings
+    with db.session() as conn:
+        settings.set(conn, "ai.exclude_qwen", body.enabled)
+    return {"enabled": body.enabled}
+
+
 @router.get("/auto-test")
 def get_auto_test():
     from .. import settings
@@ -199,9 +218,10 @@ async def list_models():
                 r["name"] for r in conn.execute("SELECT name FROM model_settings WHERE server_id = ?", (row["id"],))
             }
             results = model_tests.latest_results(conn, row["id"])
-            return fresh, ai_servers.installed_models(conn, row["id"]), settings_rows, results
-    fresh, models, customised, results = await run_in_threadpool(read)
-    suggestion = _suggest(models, results, fresh["hardware"], loaded)
+            skip = model_tests.not_suggested(conn, row["id"])
+            return fresh, ai_servers.installed_models(conn, row["id"]), settings_rows, results, skip
+    fresh, models, customised, results, skip = await run_in_threadpool(read)
+    suggestion = _suggest([m for m in models if m.name not in skip], results, fresh["hardware"], loaded)
     items = []
     for m in sorted(models, key=lambda m: (not m.usable, m.name)):
         entry = catalog.catalog_entry(m.name)

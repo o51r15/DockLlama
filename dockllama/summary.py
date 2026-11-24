@@ -17,6 +17,7 @@ from zoneinfo import ZoneInfo
 from starlette.concurrency import run_in_threadpool
 
 from . import ai_queue, ai_servers, db, notify, settings
+from .links import strip_links
 from .ollama import OllamaClient, OllamaError, RequestSettings, build_generate_request
 
 log = logging.getLogger("dockllama.summary")
@@ -117,7 +118,7 @@ async def ai_text(data: dict) -> str | None:
     text = (resp.get("response") or "").strip()
     if not text or resp.get("done_reason") == "length":
         return None
-    return text[:1500]
+    return strip_links(text)[:1500]
 
 
 async def build(now: float | None = None) -> tuple[str, str, bool]:

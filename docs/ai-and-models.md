@@ -46,6 +46,17 @@ When a background run finds a model that's clearly better (3 points higher at si
 same score and 30% faster, without moving off the graphics card), a banner offers it on your next
 page anywhere in DockLlama: **Review results**, **Switch to it** or **Keep current**.
 
+## Qwen-based models and links
+
+Some security testing in 2026 reported that Qwen models running as agents with shell access occasionally tried to send files to outside servers. DockLlama doesn't give any model tools: the model only receives the check details and writes an answer, and DockLlama never runs or opens anything the model writes. So a Qwen-based model can't do anything here except answer the check questions.
+
+To keep it that way:
+
+- **Qwen-based models are labelled.** DockLlama looks at the model's name, family, architecture and recorded base model, so fine-tunes with other names (built on qwen2, qwen3 and so on) are labelled too.
+- **You can leave them out of suggestions.** Settings → AI → "Don't suggest Qwen-based models". They're still tested and you can still choose one yourself; they just won't be suggested or announced as a better model. It's off by default.
+- **Links are removed from everything the AI writes**, for every model: web addresses, markdown links and email addresses become "[link removed]" before anything is stored, shown or sent in a notification. File names (config.yml) and plain IP addresses are kept.
+- **No tools for Qwen-based models.** If a later DockLlama version ever gives models tools, Qwen-based models won't get them until more is known.
+
 ## Advanced
 
 Per model, behind **Advanced**. Only what that model supports is shown:

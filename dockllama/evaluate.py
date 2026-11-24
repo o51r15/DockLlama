@@ -18,6 +18,8 @@ from __future__ import annotations
 import json
 import re
 
+from .links import strip_links
+
 STATUSES = ("healthy", "degraded", "unhealthy", "critical")
 ACTIONS = ("none", "restart")
 CAUSES = ("oom", "network", "config", "dependency", "crash", "storage", "none")
@@ -166,9 +168,9 @@ def parse_answer(raw: str) -> dict:
         "confidence": max(0, min(100, confidence)),
         "root_cause_category": cause if cause in CAUSES else "none",
         "error_origin": origin if origin in ORIGINS else "none",
-        "summary": str(data["summary"]).strip(),
-        "what_to_do": str(data.get("what_to_do") or "").strip(),
+        "summary": strip_links(str(data["summary"]).strip()),
+        "what_to_do": strip_links(str(data.get("what_to_do") or "").strip()),
         "restart_would_help": bool(restart),
-        "restart_reasoning": str(data.get("restart_reasoning") or "").strip(),
+        "restart_reasoning": strip_links(str(data.get("restart_reasoning") or "").strip()),
         "recommended_action": action if action in ACTIONS else "none",
     }

@@ -53,7 +53,8 @@ def _run_view(conn, run, hardware: str) -> dict:
             remaining += est
         items.append(item)
     finished = sum(1 for t in tests if t["status"] not in ("queued", "running"))
-    best = model_tests.best_result({i["name"]: i for i in items if i["name"] in models})
+    best = model_tests.best_result({i["name"]: i for i in items if i["name"] in models},
+                                   model_tests.not_suggested(conn, run["server_id"]))
     return {"run_id": run["id"], "kind": run["kind"], "mode": run["mode"], "status": run["status"],
             "note": run["note"], "start_after": run["start_after"], "models": items, "finished": finished,
             "total": len(tests), "remaining_s": round(remaining), "suggested": best["name"] if best else None}

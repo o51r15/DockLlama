@@ -101,6 +101,7 @@ REGISTRY: dict[str, Setting] = {
     "general.timezone": Setting("UTC", _timezone),
     "setup.complete": Setting(False, _bool),
     "ai.auto_test_new": Setting(True, _bool),
+    "ai.exclude_qwen": Setting(False, _bool),  # leave Qwen-based models out of suggestions
     "checks.interval_minutes": Setting(10, _minutes),
     "checks.log_lines": Setting(300, _log_lines),
     "notify.reminder_hours": Setting(6, _hours),

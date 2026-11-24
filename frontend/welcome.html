@@ -147,6 +147,7 @@
                   <span class="badge sug" x-show="suggestion && suggestion.name === m.name">Suggested</span>
                   <span class="badge" x-show="resultFor(m.name)" x-text="resultShort(resultFor(m.name))"></span>
                   <span class="badge warnb" x-show="!m.fits">May not fit</span>
+                  <span class="badge" x-show="m.qwen_based" title="Built on Alibaba's Qwen models. DockLlama gives models no tools, so it can only answer the check questions. You can leave them out of suggestions in Settings → AI.">Qwen-based</span>
                   <div class="hint" x-text="(suggestion && suggestion.name === m.name) ? suggestion.reason
                         : (m.size_gb + ' GB' + (m.catalog_score ? ' · tested well by DockLlama' : ''))"></div>
                 </span>

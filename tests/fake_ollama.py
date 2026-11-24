@@ -29,6 +29,10 @@ SHOW = {
                       "model_info": {"general.architecture": "granite", "granite.context_length": 131072}},
     "bge-m3:latest": {"capabilities": ["embedding"],
                       "model_info": {"general.architecture": "bert", "bert.context_length": 8192}},
+    # A fine-tune with its own name, built on Qwen: only the architecture gives it away.
+    "glimmer:latest": {"capabilities": ["completion"],
+                       "model_info": {"general.architecture": "qwen3", "qwen3.context_length": 40960,
+                                      "general.basename": "Glimmer"}},
     "tiny:8k": {"capabilities": ["completion"],
                 "model_info": {"general.architecture": "tiny", "tiny.context_length": 8192}},
 }

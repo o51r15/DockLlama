@@ -315,6 +315,15 @@ def _m008_gpu_share(conn: sqlite3.Connection) -> None:
     _run(conn, "ALTER TABLE model_tests ADD COLUMN gpu_pct REAL")
 
 
+def _m009_qwen_based(conn: sqlite3.Connection) -> None:
+    # Models built on Qwen get a label and can be left out of suggestions. Names that say so
+    # are marked now; the rest are filled in the next time the server's models are read.
+    _run(conn, """
+        ALTER TABLE models ADD COLUMN qwen_based INTEGER NOT NULL DEFAULT 0;
+        UPDATE models SET qwen_based = 1 WHERE lower(name) LIKE '%qwen%' OR lower(family) LIKE '%qwen%';
+    """)
+
+
 MIGRATIONS: list[Callable[[sqlite3.Connection], None]] = [
     _m001_initial,
     _m002_machines_containers,
@@ -324,6 +333,7 @@ MIGRATIONS: list[Callable[[sqlite3.Connection], None]] = [
     _m006_notifications,
     _m007_restarts,
     _m008_gpu_share,
+    _m009_qwen_based,
 ]
 
 LATEST = len(MIGRATIONS)

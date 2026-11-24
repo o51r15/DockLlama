@@ -9,13 +9,21 @@ function aiSection() {
     pulls: {}, pullTimer: null,
     adv: null,
     tests: {busy: false, active: null, scheduled: null, watched: null, results: {}}, testsTimer: null,
-    plan: null, watching: null, hist: null, autoTest: true,
+    plan: null, watching: null, hist: null, autoTest: true, excludeQwen: false,
 
     async load() {
       await this.loadStatus();
       if (this.status.connected) { this.loadModels(); this.pollTests(); } else this.discover();
       this.pollPulls();
       try { this.autoTest = (await api('api/ai/auto-test')).enabled; } catch (e) { /* keeps the default */ }
+      try { this.excludeQwen = (await api('api/ai/exclude-qwen')).enabled; } catch (e) { /* keeps the default */ }
+    },
+    async saveExcludeQwen() {
+      try {
+        await api('api/ai/exclude-qwen', {method: 'PUT', body: {enabled: this.excludeQwen}});
+        this.$dispatch('toast', 'Saved.');
+        this.loadModels();  // the Suggested badge may move
+      } catch (e) { this.modelsProblem = e.message; }
     },
     async saveAutoTest() {
       try { await api('api/ai/auto-test', {method: 'PUT', body: {enabled: this.autoTest}}); this.$dispatch('toast', 'Saved.'); }

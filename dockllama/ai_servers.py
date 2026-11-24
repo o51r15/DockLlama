@@ -89,16 +89,17 @@ def save_models(conn: sqlite3.Connection, server_id: int, models: list[ModelDeta
     for m in models:
         conn.execute(
             """INSERT INTO models (server_id, name, digest, modified_at, size, family, parameter_size,
-                   capabilities, max_context, thinking, think_levels, is_cloud, installed, first_seen)
-               VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 1, ?)
+                   capabilities, max_context, thinking, think_levels, is_cloud, qwen_based, installed, first_seen)
+               VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 1, ?)
                ON CONFLICT(server_id, name) DO UPDATE SET digest = excluded.digest,
                    modified_at = excluded.modified_at, size = excluded.size, family = excluded.family,
                    parameter_size = excluded.parameter_size, capabilities = excluded.capabilities,
                    max_context = excluded.max_context, thinking = excluded.thinking,
-                   think_levels = excluded.think_levels, is_cloud = excluded.is_cloud, installed = 1""",
+                   think_levels = excluded.think_levels, is_cloud = excluded.is_cloud,
+                   qwen_based = excluded.qwen_based, installed = 1""",
             (server_id, m.name, m.digest, m.modified_at, m.size, m.family, m.parameter_size,
              json.dumps(m.capabilities), m.max_context, m.thinking, json.dumps(m.think_levels),
-             int(m.is_cloud), now),
+             int(m.is_cloud), int(m.qwen_based), now),
         )
     placeholders = ",".join("?" * len(names)) or "''"
     conn.execute(
@@ -118,6 +119,7 @@ def model_from_row(row) -> ModelDetails:
         family=row["family"], parameter_size=row["parameter_size"],
         capabilities=json.loads(row["capabilities"]), max_context=row["max_context"],
         thinking=row["thinking"], think_levels=json.loads(row["think_levels"]), is_cloud=bool(row["is_cloud"]),
+        qwen_based=bool(row["qwen_based"]),
     )
 
 

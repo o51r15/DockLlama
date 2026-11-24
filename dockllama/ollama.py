@@ -83,6 +83,10 @@ class ModelDetails:
     thinking: str  # "none" | "toggle" | "levels"
     think_levels: list[str] = field(default_factory=list)
     is_cloud: bool = False
+    # Built on Alibaba's Qwen models. Shown as a label; can be left out of suggestions
+    # (setting ai.exclude_qwen). DockLlama never gives any model tools, and Qwen-based models
+    # in particular must not get tools until more is known (see docs/ai-and-models.md).
+    qwen_based: bool = False
 
     @property
     def usable(self) -> bool:
@@ -105,6 +109,17 @@ class ModelDetails:
         d["usable"] = self.usable
         d["unusable_reason"] = self.unusable_reason
         return d
+
+
+def is_qwen_based(name: str, details: dict, info: dict) -> bool:
+    """True when the model's name, family, architecture or recorded base model mentions Qwen.
+
+    Fine-tunes often get a new name but keep the Qwen architecture (qwen2, qwen3, qwen3moe...)
+    and usually record the base model under general.base_model.*."""
+    fields: list = [name, details.get("family"), *(details.get("families") or []),
+                    info.get("general.architecture"), info.get("general.basename")]
+    fields += [v for k, v in info.items() if k.startswith("general.base_model.")]
+    return any(isinstance(f, str) and "qwen" in f.lower() for f in fields)
 
 
 def details_from(tag: dict, show: dict) -> ModelDetails:
@@ -139,6 +154,7 @@ def details_from(tag: dict, show: dict) -> ModelDetails:
         thinking=thinking,
         think_levels=levels,
         is_cloud=bool(tag.get("remote_host")) or tag["name"].endswith("-cloud") or ":cloud" in tag["name"],
+        qwen_based=is_qwen_based(tag["name"], details, info),
     )
 
 
