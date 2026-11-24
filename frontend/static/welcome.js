@@ -57,11 +57,11 @@ function welcome() {
         await api('api/ai/model', {method: 'PUT', body: {name: this.chosen}});
         this.status.model = this.chosen;
         // Then test every model that fits, in the background. The banner tells the user if one does better.
-        if (!this.tests.busy) {
-          const plan = await api('api/ai/tests/plan');
-          const names = plan.models.filter(m => m.ticked).map(m => m.name);
-          if (names.length > 1) await api('api/ai/tests', {method: 'POST', body: {names, kind: 'all', mode: 'background'}});
-        }
+        // Even if a test is already running (e.g. a model just downloaded), this one is queued
+        // behind it, never skipped.
+        const plan = await api('api/ai/tests/plan');
+        const names = plan.models.filter(m => m.ticked).map(m => m.name);
+        if (names.length > 1) await api('api/ai/tests', {method: 'POST', body: {names, kind: 'all', mode: 'background', queue: true}});
         this.go(3);
       } catch (e) { this.stepError = e.message; }
       this.starting = false;

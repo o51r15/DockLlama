@@ -26,6 +26,8 @@ def _busy_message(conn, run) -> str:
     p = RUNNER.progress
     if run["status"] == "paused":
         return "A model test is paused. Resume or cancel it first."
+    if run["status"] == "waiting":
+        return "Model tests are queued and start in a moment."
     if p is not None and RUNNER.current_run == run["id"]:
         return (f"Testing {p.name} (question {min(p.scenario + 1, len(SCENARIOS))} of {len(SCENARIOS)}). "
                 "Wait for it to finish or cancel it.")
@@ -108,6 +110,7 @@ class StartBody(BaseModel):
     kind: str = "one"  # one | all
     mode: str = "background"  # background | watch
     tonight: bool = False
+    queue: bool = False  # if a test is running, wait for it instead of refusing (Quick start)
 
 
 @router.post("/tests")
@@ -124,8 +127,16 @@ async def start_tests(body: StartBody):
         with db.session() as conn, db.transaction(conn):
             server = _server(conn)
             busy = model_tests.busy_run(conn)
-            if busy is not None and not body.tonight:
+            if busy is not None and not body.tonight and not body.queue:
                 raise HTTPException(409, _busy_message(conn, busy))
+            if busy is not None and body.queue:
+                # Don't test again what's already being tested or waiting to be.
+                pending = {r["name"] for r in conn.execute(
+                    "SELECT t.name FROM model_tests t JOIN test_runs r ON r.id = t.run_id WHERE t.status IN "
+                    "('queued', 'running') AND r.status IN ('waiting', 'running', 'paused')")}
+                names[:] = [n for n in names if n not in pending]
+                if not names:
+                    return None
             if body.tonight and conn.execute("SELECT 1 FROM test_runs WHERE status = 'scheduled'").fetchone():
                 raise HTTPException(409, "A test is already set to run tonight. Cancel it first.")
             for name in names:
@@ -137,7 +148,7 @@ async def start_tests(body: StartBody):
                 if not model.usable:
                     raise HTTPException(400, f"{name} can't be used: {model.unusable_reason}.")
             start_after = model_tests.tonight(conn) if body.tonight else None
-            if body.kind == "all" and not body.tonight:
+            if body.kind == "all" and not body.tonight and busy is None:
                 # A waiting automatic test of new models is folded into Test all.
                 for w in conn.execute("SELECT id FROM test_runs WHERE status = 'waiting'").fetchall():
                     conn.execute("UPDATE model_tests SET status = 'cancelled' WHERE run_id = ? AND status = 'queued'",
@@ -145,7 +156,8 @@ async def start_tests(body: StartBody):
                     conn.execute("UPDATE test_runs SET status = 'cancelled', finished_at = ?, note = ? WHERE id = ?",
                                  (time.time(), "Included in Test all.", w["id"]))
             mode = "background" if body.tonight else body.mode
-            return model_tests.create_run(conn, server["id"], names, body.kind, mode, start_after)
+            return model_tests.create_run(conn, server["id"], names, body.kind, mode, start_after,
+                                          queued=busy is not None and body.queue)
 
     run_id = await run_in_threadpool(create)
     RUNNER.wake()

@@ -378,16 +378,16 @@ def test_a_bad_model_is_never_called_better(c, fake):
     st = wait_idle(c)
     assert st["results"]["gemma4:latest"]["score"] == 0.0
     b = c.get("/api/ai/banner").json()["banner"]
-    assert b["type"] == "best" and "None of the tested models" in b["text"]
+    assert b["type"] == "best" and "wasn't tested" in b["text"]
     assert c.get("/api/ai/models").json()["suggestion"]["name"] != "gemma4:latest"  # 0 points: not suggested
 
 
-def test_untested_current_model_is_compared_with_its_catalog_score(c, fake):
-    # gemma4 scores 100 here; llama3.1 (current, untested here) has a catalog score of 94.9
+def test_an_untested_current_model_is_never_beaten_by_comparison(c, fake):
+    # gemma4 scores 100 here; llama3.1 (current) has never been tested here
     c.post("/api/ai/tests", json={"names": ["gemma4:latest"], "kind": "all"})
     wait_idle(c)
     b = c.get("/api/ai/banner").json()["banner"]
-    assert b["type"] == "better" and "hasn't been tested on this server" in b["text"]
+    assert b["type"] == "best" and "wasn't tested" in b["text"]
 
 
 def test_retry_can_be_switched_off(fake):
@@ -423,3 +423,41 @@ def test_auto_test_switch(c):
     assert c.get("/api/ai/auto-test").json()["enabled"] is True
     assert c.put("/api/ai/auto-test", json={"enabled": False}).json()["enabled"] is False
     assert c.get("/api/ai/auto-test").json()["enabled"] is False
+
+
+def test_quick_start_while_a_download_is_being_tested(c, fake):
+    """Nov 24 on greenmachine: a downloaded model was being tested when Quick start asked for
+    Test all. Test all must queue behind it (not be skipped), the buttons stay greyed out the
+    whole time, and the banner only compares models tested here."""
+    gate = {"open": False}
+
+    async def held(payload, request):
+        while not gate["open"]:
+            await asyncio.sleep(0.01)
+        return perfect_answer(payload)
+    fake.servers["thor"].generate_handler = held
+    with db.session() as conn, db.transaction(conn):
+        sid = conn.execute("SELECT id FROM ai_servers").fetchone()["id"]
+        model_tests.queue_new_models(conn, sid, ["gemma4:latest"])  # the download's automatic test
+    model_tests.RUNNER.wake()
+    time.sleep(0.3)
+    assert c.get("/api/ai/tests").json()["busy"]
+    plain = c.post("/api/ai/tests", json={"names": ["llama3.1:8b", "gemma4:latest"], "kind": "all"})
+    assert plain.status_code == 409  # a person clicking Test all is told to wait
+    r = c.post("/api/ai/tests", json={"names": ["llama3.1:8b", "gemma4:latest"], "kind": "all", "queue": True})
+    assert r.status_code == 200 and r.json()["run_id"]
+    with db.session() as conn:
+        queued = conn.execute("SELECT status FROM test_runs WHERE id = ?", (r.json()["run_id"],)).fetchone()["status"]
+        names = [x["name"] for x in conn.execute("SELECT name FROM model_tests WHERE run_id = ?", (r.json()["run_id"],))]
+    assert queued == "waiting" and names == ["llama3.1:8b"]  # gemma4 is already being tested
+    st = c.get("/api/ai/tests").json()
+    assert st["busy"] and st["busy_message"].startswith("Testing gemma4:latest")
+    gate["open"] = True
+    wait_idle(c)
+    st = c.get("/api/ai/tests").json()
+    assert {n: r["status"] for n, r in st["results"].items()} == {"gemma4:latest": "done", "llama3.1:8b": "done"}
+    with db.session() as conn:
+        banners = [r["banner"] for r in conn.execute("SELECT banner FROM test_runs ORDER BY id")]
+    assert banners == ["none", "pending"]  # one banner, at the end of Test all
+    b = c.get("/api/ai/banner").json()["banner"]
+    assert b["type"] == "best"  # both scored 100 here; nothing clearly better than the current model

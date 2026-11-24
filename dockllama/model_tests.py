@@ -38,7 +38,7 @@ log = logging.getLogger("dockllama.tests")
 DEFAULT_TIMEOUT = 120  # seconds per scenario, like v1 and ollama_bench3
 MIN_TOKENS_PER_SECOND = 2.0
 TEST_KEEP_ALIVE = "10m"  # stays loaded across the 8 scenarios; unloaded afterwards
-BUSY = ("running", "paused")  # a run in one of these greys out every other test button
+BUSY = ("running", "paused", "waiting")  # a run in one of these greys out every other test button
 FINISHED = ("done", "too_slow", "failed")
 
 
@@ -192,16 +192,11 @@ MIN_SUGGEST_SCORE = 70  # below this a model isn't worth suggesting, whatever it
 
 
 def baseline_for(name: str | None, results: dict[str, dict]) -> dict | None:
-    """What a candidate is compared with: the current model's test here, or, if it was never
-    tested here, its catalog score (from DockLlama's own runs)."""
-    if not name:
+    """What a candidate is compared with: the current model's own test on this server. Never a
+    reference score from elsewhere: results are only compared like for like (plan 8A)."""
+    if not name or name not in results or results[name].get("older_version"):
         return None
-    if name in results and not results[name].get("older_version"):
-        return results[name]
-    entry = catalog.catalog_entry(name)
-    if entry:
-        return {"status": "done", "score": entry["score"], "sec_per_check": None, "fit": "unknown", "from_catalog": True}
-    return None
+    return results[name]
 
 
 def meaningfully_better(candidate: dict, current: dict | None) -> bool:
@@ -290,8 +285,8 @@ def history(conn: sqlite3.Connection, server_id: int, name: str) -> list[dict]:
 
 
 def busy_run(conn: sqlite3.Connection):
-    return conn.execute(f"SELECT * FROM test_runs WHERE status IN ({','.join('?' * len(BUSY))}) ORDER BY id",
-                        BUSY).fetchone()
+    return conn.execute(f"SELECT * FROM test_runs WHERE status IN ({','.join('?' * len(BUSY))}) "
+                        "ORDER BY status = 'waiting', id", BUSY).fetchone()
 
 
 def tonight(conn: sqlite3.Connection, now: float | None = None) -> float:
@@ -306,10 +301,10 @@ def tonight(conn: sqlite3.Connection, now: float | None = None) -> float:
 
 
 def create_run(conn: sqlite3.Connection, server_id: int, names: list[str], kind: str, mode: str,
-               start_after: float | None = None) -> int:
-    """Caller holds a transaction and has checked that nothing else is running."""
+               start_after: float | None = None, queued: bool = False) -> int:
+    """Caller holds a transaction. queued=True: wait for whatever is running, then start."""
     baseline = _row(conn, "SELECT model FROM ai_servers WHERE id = ?", server_id)["model"]
-    status = "scheduled" if start_after else ("waiting" if kind == "new" else "running")
+    status = "scheduled" if start_after else ("waiting" if kind == "new" or queued else "running")
     run_id = conn.execute(
         "INSERT INTO test_runs (server_id, kind, mode, status, start_after, baseline, created_at) "
         "VALUES (?, ?, ?, ?, ?, ?, ?)",
@@ -364,12 +359,18 @@ def finish_run(conn: sqlite3.Connection, run_id: int) -> None:
     run = _row(conn, "SELECT * FROM test_runs WHERE id = ?", run_id)
     banner = "none"
     any_done = _row(conn, "SELECT 1 FROM model_tests WHERE run_id = ? AND status = 'done'", run_id) is not None
-    if run["kind"] in ("all", "new") and any_done:
+    more_coming = _row(conn, "SELECT 1 FROM test_runs WHERE server_id = ? AND id != ? AND kind = 'all' AND status IN "
+                             "('waiting', 'running', 'paused')", run["server_id"], run_id) is not None
+    if run["kind"] in ("all", "new") and any_done and not more_coming:
         server = _row(conn, "SELECT * FROM ai_servers WHERE id = ?", run["server_id"])
         results = latest_results(conn, run["server_id"])
         best = best_result(results)
-        better = (best is not None and best["name"] != server["model"]
-                  and meaningfully_better(best, baseline_for(server["model"], results)))
+        current = baseline_for(server["model"], results)
+        # A better model is only claimed against the current model's own test here (or when no
+        # model is chosen yet). An untested current model can't be beaten by comparison.
+        comparable = current is not None or not server["model"]
+        better = (comparable and best is not None and best["name"] != server["model"]
+                  and meaningfully_better(best, current))
         if better or run["kind"] == "all":
             banner = "pending"
     conn.execute("UPDATE test_runs SET status = 'done', finished_at = ?, banner = ? WHERE id = ?",
@@ -388,11 +389,10 @@ def banner(conn: sqlite3.Connection) -> dict | None:
     results = latest_results(conn, server["id"])
     best = best_result(results)
     current = baseline_for(server["model"], results)
-    if best is not None and best["name"] != server["model"] and meaningfully_better(best, current):
+    comparable = current is not None or not server["model"]
+    if comparable and best is not None and best["name"] != server["model"] and meaningfully_better(best, current):
         text = f"Model testing finished. {best['name']} {describe(best)}"
-        if current and current.get("from_catalog"):
-            text += f"; your current model {server['model']} hasn't been tested on this server."
-        elif current and current.get("status") == "done":
+        if current and current.get("status") == "done":
             text += f"; your current model {server['model']} {describe(current)}."
         elif server["model"]:
             text += f"; your current model {server['model']} didn't finish its test."
@@ -405,7 +405,8 @@ def banner(conn: sqlite3.Connection) -> dict | None:
         elif server["model"] in results:
             text = "Model testing finished. Your current model is the best fit for this server."
         else:
-            text = "Model testing finished. None of the tested models did clearly better than your current model."
+            text = (f"Model testing finished, but your current model {server['model']} wasn't tested, so there's "
+                    "nothing to compare it with. Test it in Settings → AI to see how it does here.")
         return {"run_id": run["id"], "type": "best", "name": server["model"], "text": text}
     conn.execute("UPDATE test_runs SET banner = 'dismissed' WHERE id = ?", (run["id"],))
     return None
