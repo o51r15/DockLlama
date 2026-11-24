@@ -9,3 +9,7 @@ config.yaml
 .venv/
 dist/
 *.egg-info/
+
+# build/download artifacts
+*.whl
+*.tar.gz
