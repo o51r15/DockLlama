@@ -214,7 +214,7 @@
                     :title="m.error || ''"></td>
                 <td x-text="m.score != null ? Math.round(m.score) : ''"></td>
                 <td x-text="m.sec_per_check ? m.sec_per_check.toFixed(1) + ' s' : ''"></td>
-                <td x-text="fitText(m.fit)"></td>
+                <td x-text="fitText(m)"></td>
                 <td>
                   <span class="badge on" x-show="m.name === status.model">Chosen</span>
                   <button class="small" x-show="watchedRun().status === 'done' && m.status === 'done' && m.name !== status.model"

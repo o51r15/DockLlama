@@ -84,7 +84,8 @@ def test_a_perfect_model_scores_100_and_is_unloaded(fake):
 def test_models_in_use_elsewhere_stay_loaded_and_partial_fit_is_seen(fake):
     fake.servers["thor"].vram_fraction = 0.6
     r = _run(run_model_test(ollama.OllamaClient("http://thor:11434"), _model(), {}, Progress(1, "x"), keep_loaded=True))
-    assert r["fit"] == "partial" and fake.servers["thor"].unloaded == []
+    assert r["fit"] == "partial" and r["gpu_pct"] == 60.0 and fake.servers["thor"].unloaded == []
+    assert model_tests.fit_words(r) == "60% on the graphics card, 40% on the CPU"
 
 
 def test_thinking_models_are_tested_with_their_settings(fake):
@@ -461,3 +462,15 @@ def test_quick_start_while_a_download_is_being_tested(c, fake):
     assert banners == ["none", "pending"]  # one banner, at the end of Test all
     b = c.get("/api/ai/banner").json()["banner"]
     assert b["type"] == "best"  # both scored 100 here; nothing clearly better than the current model
+
+
+def test_gpu_split_words_and_storage(c, fake):
+    fw = model_tests.fit_words
+    assert fw({"fit": "gpu", "gpu_pct": 100.0}) == "all on the graphics card"
+    assert fw({"fit": "partial", "gpu_pct": 89.6}) == "90% on the graphics card, 10% on the CPU"
+    assert fw({"fit": "cpu", "gpu_pct": 0.0}) == "runs on the CPU"
+    assert fw({"fit": "partial"}) == "runs partly on the CPU"  # results from before the split was kept
+    fake.servers["thor"].vram_fraction = 0.9
+    c.post("/api/ai/tests", json={"names": ["gemma4:latest"]})
+    st = wait_idle(c)
+    assert st["results"]["gemma4:latest"]["gpu_pct"] == 90.0 and st["results"]["gemma4:latest"]["fit"] == "partial"

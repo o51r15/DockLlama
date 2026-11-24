@@ -185,21 +185,34 @@ function aiSection() {
       const a = this.tests.active; if (!a) return null;
       return a.models.find(m => m.name === name && (m.status === 'running' || m.status === 'queued')) || null;
     },
-    fitText(fit) { return {gpu: 'on the graphics card', partial: 'partly on the CPU', cpu: 'on the CPU'}[fit] || ''; },
+    // GPU/CPU split, e.g. "GPU 90% · CPU 10%" (Ollama's size_vram / size, as in `ollama ps`).
+    gpuSplit(r) {
+      if (!r || r.gpu_pct == null) return null;
+      const gpu = r.fit === 'gpu' ? 100 : Math.max(0, Math.min(100, Math.round(r.gpu_pct)));
+      return {gpu, cpu: 100 - gpu};
+    },
+    fitText(r) {
+      const s = this.gpuSplit(r);
+      if (s) return s.cpu === 0 ? 'GPU 100%' : (s.gpu === 0 ? 'CPU 100%' : 'GPU ' + s.gpu + '% · CPU ' + s.cpu + '%');
+      return {gpu: 'on the graphics card', partial: 'partly on the CPU', cpu: 'on the CPU'}[r && r.fit] || '';
+    },
     resultShort(r) {
       if (!r) return '';
       if (r.status === 'too_slow') return 'Too slow here';
       if (r.status === 'failed') return 'Test failed';
       return Math.round(r.score) + '/100 here' + (r.sec_per_check ? ' · ' + r.sec_per_check.toFixed(1) + ' s per check' : '');
     },
-    fitShort(fit) { return {gpu: 'On GPU', partial: 'Partly on CPU', cpu: 'CPU only'}[fit] || ''; },
+    fitShort(r) {
+      if (this.gpuSplit(r)) return this.fitText(r);
+      return {gpu: 'On GPU', partial: 'Partly on CPU', cpu: 'CPU only'}[r && r.fit] || '';
+    },
     resultText(r) {
       if (!r) return '';
       if (r.status === 'too_slow') return 'Too slow here';
       if (r.status === 'failed') return 'Test failed';
       let s = 'Scored ' + Math.round(r.score) + ' here';
       if (r.sec_per_check) s += ' · ' + r.sec_per_check.toFixed(1) + ' s per check';
-      if (this.fitText(r.fit)) s += ' · ' + this.fitText(r.fit);
+      if (this.fitText(r)) s += ' · ' + this.fitText(r);
       return s;
     },
     liveText(l) {

@@ -43,7 +43,7 @@ def _run_view(conn, run, hardware: str) -> dict:
     items = []
     for t in tests:
         item = {"name": t["name"], "status": t["status"], "score": t["score"], "sec_per_check": t["sec_per_check"],
-                "fit": t["fit"], "error": t["error"], "cut_off": bool(t["cut_off"])}
+                "fit": t["fit"], "gpu_pct": t["gpu_pct"], "error": t["error"], "cut_off": bool(t["cut_off"])}
         if p is not None and p.test_id == t["id"]:
             item.update(scenario=p.scenario, of=len(SCENARIOS), phase=p.phase)
         if t["status"] in ("queued", "running") and t["name"] in models:

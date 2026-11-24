@@ -112,16 +112,33 @@ async def run_scenario(client: OllamaClient, model: ModelDetails, request_settin
     return result
 
 
-def _fit(ps_models: list[dict], name: str) -> str:
+def _fit(ps_models: list[dict], name: str) -> tuple[str, float | None]:
+    """Where the loaded model sits, from /api/ps: ("gpu" | "partial" | "cpu" | "unknown", % in
+    graphics memory). Same numbers as `ollama ps`'s "10%/90% CPU/GPU"."""
     for m in ps_models:
         if m.get("name") == name or m.get("model") == name:
             size, vram = m.get("size") or 0, m.get("size_vram")
             if not size or vram is None:
-                return "unknown"
+                return "unknown", None
+            pct = round(min(vram / size, 1.0) * 100, 1)
             if vram >= size * 0.99:
-                return "gpu"
-            return "partial" if vram > 0 else "cpu"
-    return "unknown"
+                return "gpu", pct
+            return ("partial" if vram > 0 else "cpu"), pct
+    return "unknown", None
+
+
+def fit_words(result: dict) -> str:
+    """'all on the graphics card' / '90% on the graphics card, 10% on the CPU' / 'runs on the CPU'."""
+    pct = result.get("gpu_pct")
+    if pct is None:
+        return {"gpu": "fits on the graphics card", "partial": "runs partly on the CPU", "cpu": "runs on the CPU"}.get(
+            result.get("fit"), "")
+    gpu = round(pct)
+    if gpu >= 100 or result.get("fit") == "gpu":
+        return "all on the graphics card"
+    if gpu <= 0:
+        return "runs on the CPU"
+    return f"{gpu}% on the graphics card, {100 - gpu}% on the CPU"
 
 
 async def test_model(client: OllamaClient, model: ModelDetails, clean_settings: dict, progress: Progress,
@@ -133,7 +150,7 @@ async def test_model(client: OllamaClient, model: ModelDetails, clean_settings: 
     retry = clean_settings.get("retry", True)
     results: list[dict | None] = [None] * len(SCENARIOS)
     timed_out: list[int] = []
-    fit = "unknown"
+    fit, gpu_pct = "unknown", None
     try:
         for i, scenario in enumerate(SCENARIOS):
             progress.phase = "loading" if i == 0 else "testing"
@@ -153,7 +170,7 @@ async def test_model(client: OllamaClient, model: ModelDetails, clean_settings: 
             results[i] = r
             if i == 0:
                 try:  # where it loaded; checked while it's surely loaded
-                    fit = _fit(await client.ps(), model.name)
+                    fit, gpu_pct = _fit(await client.ps(), model.name)
                 except OllamaError:
                     pass
         for i in timed_out:  # busy-server noise: one more try at the end
@@ -180,6 +197,7 @@ async def test_model(client: OllamaClient, model: ModelDetails, clean_settings: 
         "sec_per_check": round(sum(times) / len(times), 2) if times else None,
         "load_s": done[0]["load_s"] if done else None,
         "fit": fit,
+        "gpu_pct": gpu_pct,
         "cut_off": int(any(r["cut_off"] for r in done)),
         "details": done,
     }
@@ -235,9 +253,8 @@ def describe(result: dict) -> str:
     bits = [f"scored {result['score']:.0f}/100"]
     if result.get("sec_per_check"):
         bits.append(f"{result['sec_per_check']:.1f} s per check")
-    where = {"gpu": "fits on the graphics card", "partial": "runs partly on the CPU", "cpu": "runs on the CPU"}
-    if result.get("fit") in where:
-        bits.append(where[result["fit"]])
+    if fit_words(result):
+        bits.append(fit_words(result))
     return ", ".join(bits)
 
 
@@ -250,7 +267,7 @@ def _row(conn, sql, *args):
 
 def result_dict(row: sqlite3.Row, current_digest: str | None = None) -> dict:
     d = {k: row[k] for k in ("id", "run_id", "name", "digest", "status", "score", "sec_per_check", "load_s",
-                             "fit", "error", "started_at", "finished_at")}
+                             "fit", "gpu_pct", "error", "started_at", "finished_at")}
     d["cut_off"] = bool(row["cut_off"])
     d["settings"] = json.loads(row["settings"])
     d["older_version"] = bool(current_digest and row["digest"] and row["digest"] != current_digest)
@@ -577,10 +594,10 @@ class Runner:
                                  (outcome["pause_note"], run_id))
                 return
             conn.execute(
-                """UPDATE model_tests SET status = ?, score = ?, sec_per_check = ?, load_s = ?, fit = ?,
+                """UPDATE model_tests SET status = ?, score = ?, sec_per_check = ?, load_s = ?, fit = ?, gpu_pct = ?,
                        cut_off = ?, details = ?, error = ?, finished_at = ?, scenario = ? WHERE id = ?""",
                 (status, outcome.get("score"), outcome.get("sec_per_check"), outcome.get("load_s"),
-                 outcome.get("fit"), outcome.get("cut_off", 0), json.dumps(outcome.get("details", [])),
+                 outcome.get("fit"), outcome.get("gpu_pct"), outcome.get("cut_off", 0), json.dumps(outcome.get("details", [])),
                  outcome.get("error"), time.time(), len(SCENARIOS) if status == "done" else 0, test_id))
 
 

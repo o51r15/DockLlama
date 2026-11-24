@@ -196,8 +196,9 @@
                       <span class="badge" :class="resultFor(m.name).status === 'done' ? 'res' : 'warnb'"
                             :title="resultFor(m.name).error || resultText(resultFor(m.name))" x-text="resultShort(resultFor(m.name))"></span>
                       <span class="badge" :class="resultFor(m.name).fit === 'gpu' ? '' : 'warnb'"
-                            x-show="resultFor(m.name).status === 'done' && fitShort(resultFor(m.name).fit)"
-                            x-text="fitShort(resultFor(m.name).fit)"></span>
+                            title="How much of the model sat in graphics memory during its test (as ollama ps shows it)"
+                            x-show="resultFor(m.name).status === 'done' && fitShort(resultFor(m.name))"
+                            x-text="fitShort(resultFor(m.name))"></span>
                     </span>
                   </template>
                   <span class="badge warnb" x-show="resultFor(m.name) && resultFor(m.name).older_version"
@@ -371,7 +372,7 @@
                           :title="m.error || ''"></td>
                       <td x-text="m.score != null ? Math.round(m.score) : ''"></td>
                       <td x-text="m.sec_per_check ? m.sec_per_check.toFixed(1) + ' s' : ''"></td>
-                      <td x-text="fitText(m.fit)"></td>
+                      <td x-text="fitText(m)"></td>
                       <td><button class="small" x-show="watchedRun().status === 'done' && m.status === 'done' && m.name !== status.model"
                                   @click="watchUse(m.name)">Use this model</button></td>
                     </tr>

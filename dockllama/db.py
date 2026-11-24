@@ -310,6 +310,11 @@ def _m007_restarts(conn: sqlite3.Connection) -> None:
     )
 
 
+def _m008_gpu_share(conn: sqlite3.Connection) -> None:
+    # How much of a tested model sat in graphics memory (Ollama's size_vram / size), as a percentage.
+    _run(conn, "ALTER TABLE model_tests ADD COLUMN gpu_pct REAL")
+
+
 MIGRATIONS: list[Callable[[sqlite3.Connection], None]] = [
     _m001_initial,
     _m002_machines_containers,
@@ -318,6 +323,7 @@ MIGRATIONS: list[Callable[[sqlite3.Connection], None]] = [
     _m005_checks,
     _m006_notifications,
     _m007_restarts,
+    _m008_gpu_share,
 ]
 
 LATEST = len(MIGRATIONS)
