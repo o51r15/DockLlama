@@ -110,6 +110,28 @@
           <span>Watch this container</span></label>
       </div>
 
+      <h2>Automatic restart</h2>
+      <div class="panel">
+        <template x-if="c.info && (c.info.is_self || c.info.is_ollama)">
+          <p class="hint" x-text="c.info.is_self ? 'DockLlama never restarts itself.' : 'DockLlama never restarts the container running its AI.'"></p>
+        </template>
+        <template x-if="!(c.info && (c.info.is_self || c.info.is_ollama))">
+          <div>
+            <label class="check"><input type="checkbox" :checked="c.allow_auto_restart" @change="setRestart({allow_auto_restart: $event.target.checked})">
+              <span>Allow DockLlama to restart this container when it's stuck</span></label>
+            <div class="hint" x-text="fixing && fixing.mode === 'auto' ? 'Auto-restart is on.' : 'Only takes effect when Settings → Checking and fixing is set to Auto-restart (it is Watch only now).'"></div>
+            <label>Restart together with (group name)</label>
+            <div class="inline-form narrow-form">
+              <input type="text" x-model="group" placeholder="e.g. media" maxlength="40">
+              <input type="number" x-model.number="order" min="0" max="99" title="Order within the group (lower restarts first)" style="max-width:90px">
+              <button class="secondary small" @click="setRestart({restart_group: group, restart_order: order || 0})">Save</button>
+            </div>
+            <div class="hint">Containers with the same group name restart together when one of them needs it, lowest number first
+              (for example a database before the app that uses it).</div>
+          </div>
+        </template>
+      </div>
+
       <h2>History</h2>
       <div class="panel timeline">
         <template x-for="h in historyGroups()" :key="h.id">
@@ -146,10 +168,14 @@ function page() {
   const id = new URLSearchParams(location.search).get('id');
   return {
     c: null, error: '', checking: false, restarting: false, confirmRestart: false, showPrompt: false,
-    notes: '', notesSaved: false, logs: '', toast: '', tt: null,
-    async init() { await this.load(); },
+    notes: '', notesSaved: false, logs: '', toast: '', tt: null, fixing: null, group: '', order: 0,
+    async init() { await this.load(); try { this.fixing = await api('api/fixing'); } catch (e) { /* optional */ } },
     async load() {
-      try { this.c = await api('api/containers/' + id + '/detail'); this.notes = this.c.notes_for_ai; document.title = this.c.name + ' · DockLlama'; }
+      try {
+        this.c = await api('api/containers/' + id + '/detail'); this.notes = this.c.notes_for_ai;
+        this.group = this.c.restart_group || ''; this.order = this.c.restart_order || 0;
+        document.title = this.c.name + ' · DockLlama';
+      }
       catch (e) { this.error = e.message; }
     },
     async checkNow() {
@@ -167,6 +193,10 @@ function page() {
     },
     async saveNotes() {
       try { await api('api/containers/' + id, {method: 'PATCH', body: {notes_for_ai: this.notes}}); this.c.notes_for_ai = this.notes; this.notesSaved = true; }
+      catch (e) { this.flash(e.message); }
+    },
+    async setRestart(change) {
+      try { const r = await api('api/containers/' + id, {method: 'PATCH', body: change}); Object.assign(this.c, r); this.flash('Saved.'); }
       catch (e) { this.flash(e.message); }
     },
     async setWatched(on) {

@@ -43,6 +43,7 @@ def _row_settings(row) -> dict:
         "monitored": bool(row["monitored"]),
         "notes_for_ai": row["notes_for_ai"],
         "restart_group": row["restart_group"],
+        "restart_order": row["restart_order"],
         "model_override": row["model_override"],
         "allow_auto_restart": bool(row["allow_auto_restart"]),
         "ignore_patterns": json.loads(row["ignore_patterns"]),
@@ -109,11 +110,18 @@ class ContainerUpdate(BaseModel):
     monitored: bool | None = None
     notes_for_ai: str | None = Field(default=None, max_length=MAX_NOTES)
     allow_auto_restart: bool | None = None
+    restart_group: str | None = Field(default=None, max_length=40)  # "" = not in a group
+    restart_order: int | None = Field(default=None, ge=0, le=99)
+    model_override: str | None = Field(default=None, max_length=200)  # "" = use the main model
 
 
 @router.patch("/containers/{db_id}")
 def update_container(db_id: int, body: ContainerUpdate):
     changes = body.model_dump(exclude_none=True)
+    if "restart_group" in changes:
+        changes["restart_group"] = changes["restart_group"].strip().lower()  # "" = not in a group
+    if "model_override" in changes:
+        changes["model_override"] = changes["model_override"].strip() or None
     if not changes:
         raise HTTPException(400, "Nothing to change.")
     with db.session() as conn, db.transaction(conn):

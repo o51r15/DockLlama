@@ -99,6 +99,7 @@ async def detail(db_id: int):
     return {
         "id": db_id, "name": row["name"], "machine": row["machine"], "monitored": bool(row["monitored"]),
         "notes_for_ai": row["notes_for_ai"], "allow_auto_restart": bool(row["allow_auto_restart"]),
+        "restart_group": row["restart_group"], "restart_order": row["restart_order"],
         "status": status, "shown": SHOWN.get(status, "Not checked yet"),
         "since": state["since"] if state else None, "summary": state["summary"] if state else "",
         "what_to_do": state["what_to_do"] if state else "", "last_checked": state["last_checked"] if state else None,

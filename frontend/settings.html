@@ -420,6 +420,58 @@
       </div>
     </section>
 
+    <!-- Fixing -->
+    <section x-show="section === 'fixing'" x-data="fixingSection()" x-init="load()">
+      <h1>Checking and fixing</h1>
+      <p class="sub">How often DockLlama checks, and whether it may restart containers by itself.</p>
+      <template x-if="f">
+        <div>
+          <h2>Mode</h2>
+          <label class="check radio-card" :class="{picked: f.mode === 'watch'}">
+            <input type="radio" value="watch" x-model="f.mode" @change="save({mode: f.mode})">
+            <span><strong>Watch only (recommended to start)</strong><br>
+              <span class="hint">DockLlama tells you about problems and never restarts anything.</span></span>
+          </label>
+          <label class="check radio-card" :class="{picked: f.mode === 'auto'}">
+            <input type="radio" value="auto" x-model="f.mode" @change="save({mode: f.mode})">
+            <span><strong>Auto-restart</strong><br>
+              <span class="hint">DockLlama restarts a stuck container when a restart would help, but only containers you
+                allow (on each container's page). It never restarts crash loops, out-of-memory kills or stopped
+                containers (Docker already handles those), itself, or the container running your AI.</span></span>
+          </label>
+          <div class="hint" x-show="f.mode === 'auto'"
+               x-text="f.allowed.length ? 'Allowed to restart: ' + f.allowed.join(', ') + '.' : 'No containers are allowed to restart yet. Turn it on in each container\'s page (Dashboard → container → Automatic restart).'"></div>
+
+          <h2>Limits</h2>
+          <div class="limit-line">Wait at least
+            <select x-model.number="f.cooldown_minutes" @change="save({cooldown_minutes: f.cooldown_minutes})">
+              <template x-for="m in withCurrent([2, 5, 10, 15, 30, 60], f.cooldown_minutes)" :key="m"><option :value="m" x-text="m" :selected="m === f.cooldown_minutes"></option></template>
+            </select> minutes between restarts of the same container.</div>
+          <div class="limit-line">After
+            <select x-model.number="f.max_per_hour" @change="save({max_per_hour: f.max_per_hour})">
+              <template x-for="n in withCurrent([1, 2, 3, 4, 5], f.max_per_hour)" :key="n"><option :value="n" x-text="n" :selected="n === f.max_per_hour"></option></template>
+            </select> restarts in an hour, stop and tell me instead.</div>
+
+          <h2>How often to check</h2>
+          <div class="limit-line">Every
+            <select x-model.number="f.interval_minutes" @change="save({interval_minutes: f.interval_minutes})">
+              <template x-for="m in withCurrent([2, 5, 10, 15, 30, 60], f.interval_minutes)" :key="m"><option :value="m" x-text="m" :selected="m === f.interval_minutes"></option></template>
+            </select> minutes.</div>
+          <div class="hint">Shorter catches problems sooner but keeps your AI server busier.</div>
+
+          <h2>Quiet hours</h2>
+          <label class="check"><input type="checkbox" x-model="f.quiet_enabled" @change="save({quiet_enabled: f.quiet_enabled})">
+            <span>No restarts and no messages during these hours (DockLlama keeps checking, and tells you afterwards if a
+              problem is still there).</span></label>
+          <div class="limit-line" x-show="f.quiet_enabled">From
+            <input type="time" x-model="f.quiet_start" @change="save({quiet_start: f.quiet_start})"> to
+            <input type="time" x-model="f.quiet_end" @change="save({quiet_end: f.quiet_end})">
+            <span class="hint" x-text="'(' + f.timezone + ')' + (f.quiet_now ? ' · quiet now' : '')"></span></div>
+          <div class="error" x-show="error" x-text="error"></div>
+        </div>
+      </template>
+    </section>
+
     <!-- Notifications -->
     <section x-show="section === 'notifications'" x-data="notifyForm()" x-init="loadTargets()">
       <h1>Notifications</h1>

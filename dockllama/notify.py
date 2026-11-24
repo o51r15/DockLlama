@@ -291,9 +291,13 @@ async def deliver(messages: list[dict]) -> int:
 
 
 async def process() -> int:
-    """One pass: plan from the database (in one transaction), then send."""
+    """One pass: plan from the database (in one transaction), then send. Nothing goes out during
+    quiet hours; what happened is sent when they end (if it's still true then)."""
     def plan():
+        from .restarts import in_quiet_hours
         with db.session() as conn, db.transaction(conn):
+            if in_quiet_hours(conn):
+                return []
             msgs = plan_messages(conn)
             for e in conn.execute("SELECT * FROM events WHERE kind = 'outgoing' AND handled = 0 ORDER BY id").fetchall():
                 d = json.loads(e["data"])

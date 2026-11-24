@@ -67,6 +67,24 @@ def _hours(v: Any) -> int:
     raise SettingError("must be a whole number of hours from 0 (never) to 168")
 
 
+def _mode(v: Any) -> str:
+    if v in ("watch", "auto"):
+        return v
+    raise SettingError("must be watch or auto")
+
+
+def _cooldown(v: Any) -> int:
+    if isinstance(v, int) and not isinstance(v, bool) and 1 <= v <= 1440:
+        return v
+    raise SettingError("must be 1 to 1440 minutes")
+
+
+def _per_hour(v: Any) -> int:
+    if isinstance(v, int) and not isinstance(v, bool) and 1 <= v <= 20:
+        return v
+    raise SettingError("must be 1 to 20")
+
+
 def _clock(v: Any) -> str:
     if isinstance(v, str):
         parts = v.split(":")
@@ -89,6 +107,11 @@ REGISTRY: dict[str, Setting] = {
     "general.base_url": Setting(None, _opt_str),  # how users reach DockLlama, for links in messages
     # Start of quiet hours, local time; "Run tonight" starts model tests then. Phase 8 adds the rest.
     "quiet.start": Setting("01:00", _clock),
+    "quiet.end": Setting("07:00", _clock),
+    "quiet.enabled": Setting(False, _bool),
+    "fixing.mode": Setting("watch", _mode),  # watch = never restart; auto = restart when the rules allow
+    "fixing.cooldown_minutes": Setting(5, _cooldown),
+    "fixing.max_per_hour": Setting(3, _per_hour),
 }
 
 

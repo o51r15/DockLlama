@@ -18,6 +18,7 @@ function settingsPage() {
       {id: 'ai', label: 'AI'},
       {id: 'machines', label: 'Machines'},
       {id: 'containers', label: 'Containers'},
+      {id: 'fixing', label: 'Checking and fixing'},
       {id: 'notifications', label: 'Notifications'},
       {id: 'account', label: 'Account'},
     ],
@@ -134,6 +135,20 @@ function settingsPage() {
     async logout() {
       await fetch('api/auth/logout', {method: 'POST'});
       window.location.href = 'login';
+    },
+  };
+}
+
+// Settings → Checking and fixing
+function fixingSection() {
+  return {
+    f: null, error: '',
+    withCurrent(list, value) { return [...new Set([...list, value])].sort((a, b) => a - b); },
+    async load() { try { this.f = await api('api/fixing'); } catch (e) { this.error = e.message; } },
+    async save(change) {
+      this.error = '';
+      try { this.f = await api('api/fixing', {method: 'PUT', body: change}); this.$dispatch('toast', 'Saved.'); }
+      catch (e) { this.error = e.message; await this.load(); }
     },
   };
 }

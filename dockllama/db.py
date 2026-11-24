@@ -299,6 +299,17 @@ def _m006_notifications(conn: sqlite3.Connection) -> None:
     )
 
 
+def _m007_restarts(conn: sqlite3.Connection) -> None:
+    _run(
+        conn,
+        """
+        ALTER TABLE containers ADD COLUMN restart_order INTEGER NOT NULL DEFAULT 0;
+        ALTER TABLE container_state ADD COLUMN health_fail_checks INTEGER NOT NULL DEFAULT 0;
+        ALTER TABLE container_state ADD COLUMN escalated_at REAL
+        """,
+    )
+
+
 MIGRATIONS: list[Callable[[sqlite3.Connection], None]] = [
     _m001_initial,
     _m002_machines_containers,
@@ -306,6 +317,7 @@ MIGRATIONS: list[Callable[[sqlite3.Connection], None]] = [
     _m004_model_tests,
     _m005_checks,
     _m006_notifications,
+    _m007_restarts,
 ]
 
 LATEST = len(MIGRATIONS)

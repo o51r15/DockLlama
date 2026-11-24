@@ -227,8 +227,11 @@ def _save(conn, c: Collected, status: str, source: str, summary: str, what_to_do
     conn.execute("UPDATE containers SET last_log_ts = ? WHERE id = ?", (c.last_log_ts, cid))
     if c.cpu is not None or c.mem is not None:
         conn.execute("INSERT INTO stats (container_id, at, cpu, mem) VALUES (?, ?, ?, ?)", (cid, now, c.cpu, c.mem))
+    health_failing = bool(c.rule and c.rule.rule == "health_failing")
     if unchanged and state is not None:
-        conn.execute("UPDATE container_state SET last_checked = ?, facts = ? WHERE container_id = ?", (now, facts_json, cid))
+        conn.execute("UPDATE container_state SET last_checked = ?, facts = ?, health_fail_checks = "
+                     "CASE WHEN ? THEN health_fail_checks + 1 ELSE 0 END WHERE container_id = ?",
+                     (now, facts_json, health_failing, cid))
         return
     verdict = (ai or {}).get("verdict") or {}
     # Full evidence when there's something to explain; a "still fine" check keeps only the basics,
@@ -250,17 +253,20 @@ def _save(conn, c: Collected, status: str, source: str, summary: str, what_to_do
     asked_ai = source == "ai" and ai is not None and "verdict" in ai
     if state is None:
         conn.execute("""INSERT INTO container_state (container_id, status, since, summary, what_to_do, last_check_id,
-                            last_checked, last_ai_check, facts, unknown_streak) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
-                     (cid, status, now, summary, what_to_do, check_id, now, now if asked_ai else None, facts_json, streak))
+                            last_checked, last_ai_check, facts, unknown_streak, health_fail_checks)
+                        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
+                     (cid, status, now, summary, what_to_do, check_id, now, now if asked_ai else None, facts_json,
+                      streak, int(health_failing)))
         conn.execute("INSERT INTO events (at, container_id, kind, data) VALUES (?, ?, 'status_change', ?)",
                      (now, cid, json.dumps({"from": None, "to": status, "summary": summary, "check_id": check_id})))
         return
     changed = state["status"] != status
     conn.execute("""UPDATE container_state SET status = ?, since = ?, summary = ?, what_to_do = ?, last_check_id = ?,
-                        last_checked = ?, last_ai_check = COALESCE(?, last_ai_check), facts = ?, unknown_streak = ?
+                        last_checked = ?, last_ai_check = COALESCE(?, last_ai_check), facts = ?, unknown_streak = ?,
+                        health_fail_checks = CASE WHEN ? THEN health_fail_checks + 1 ELSE 0 END
                     WHERE container_id = ?""",
                  (status, now if changed else state["since"], summary, what_to_do, check_id, now,
-                  now if asked_ai else None, facts_json, streak, cid))
+                  now if asked_ai else None, facts_json, streak, health_failing, cid))
     if changed:
         conn.execute("INSERT INTO events (at, container_id, kind, data) VALUES (?, ?, 'status_change', ?)",
                      (now, cid, json.dumps({"from": state["status"], "to": status, "summary": summary,
@@ -332,7 +338,9 @@ def _load(container_ids: list[int] | None):
             q = f"SELECT * FROM containers WHERE id IN ({','.join('?' * len(container_ids)) or 'NULL'})"
             args = tuple(container_ids)
         rows = [dict(r) for r in conn.execute(q + " ORDER BY name", args)]
-        states = {r["container_id"]: dict(r) for r in conn.execute("SELECT * FROM container_state")}
+        states = {r["container_id"]: dict(r) for r in conn.execute(
+            "SELECT s.*, k.restart_would_help AS _last_restart_would_help FROM container_state s "
+            "LEFT JOIN checks k ON k.id = s.last_check_id")}
         server = ai_servers.connected(conn)
         interval = settings.get(conn, "checks.interval_minutes")
         log_lines = settings.get(conn, "checks.log_lines")
@@ -415,8 +423,14 @@ async def run_checks(container_ids: list[int] | None = None, force_ai: bool = Fa
                     with db.session() as conn, db.transaction(conn):
                         _save(conn, c, status, source, summary, todo, ai, prompt, unchanged)
                 await run_in_threadpool(save)
+                verdict = (ai or {}).get("verdict") or {}
+                if unchanged and state is not None and ai is None:
+                    verdict = {"restart_would_help": state.get("_last_restart_would_help")}
                 results.append({"id": c.row["id"], "name": c.row["name"], "status": status, "source": source,
-                                "summary": summary, "what_to_do": todo, "unchanged": unchanged})
+                                "summary": summary, "what_to_do": todo, "unchanged": unchanged,
+                                "machine_id": c.row["machine_id"], "rule": c.rule.rule if c.rule else None,
+                                "docker_state": c.facts.state if c.facts else None,
+                                "restart_would_help": bool(verdict.get("restart_would_help"))})
                 if track:
                     ROUND.done += 1
     finally:
@@ -457,6 +471,12 @@ class Scheduler:
                 pass
         self._task = None
 
+    def reschedule(self, interval_minutes: int) -> None:
+        """A new interval takes effect now, not after the old wait."""
+        if self._wake is not None and self.next_at is not None:
+            self.next_at = min(self.next_at, time.time() + interval_minutes * 60)
+            self._wake.set()
+
     def run_now(self) -> None:
         if self._wake is not None:
             self.next_at = time.time()
@@ -477,7 +497,9 @@ class Scheduler:
                 ready, interval = await run_in_threadpool(self._settings)
                 self.next_at = time.time() + interval * 60
                 if ready and not ROUND.running:
-                    await run_checks()
+                    results = await run_checks()
+                    from .restarts import after_round
+                    await after_round(results, run_checks)
                     if time.time() - self._last_prune > 86400:
                         def do_prune():
                             with db.session() as conn, db.transaction(conn):

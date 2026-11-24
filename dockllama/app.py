@@ -17,6 +17,7 @@ from .api import auth as auth_api
 from .api import checks as checks_api
 from .api import containers as containers_api
 from .api import dashboard as dashboard_api
+from .api import fixing as fixing_api
 from .api import notify as notify_api
 from .api import setup as setup_api
 from .api import tests as tests_api
@@ -102,6 +103,7 @@ def create_app() -> FastAPI:
     app.include_router(checks_api.router)
     app.include_router(dashboard_api.router)
     app.include_router(notify_api.router)
+    app.include_router(fixing_api.router)
 
     for route, filename in PAGES.items():
         app.add_api_route(route, _page(filename), methods=["GET"], include_in_schema=False)

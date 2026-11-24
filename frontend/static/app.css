@@ -307,3 +307,9 @@ textarea { width: 100%; background: var(--bg); color: var(--text); border: 1px s
 h3 { font-size: 15px; margin: 18px 0 4px; }
 .narrow-form select { max-width: 260px; }
 @media (max-width: 640px) { .ntfy-sub { flex-direction: column; } }
+
+/* Checking and fixing (phase 8) */
+.radio-card { padding: 10px 12px; border: 1px solid var(--border); border-radius: var(--radius); margin-top: 8px; }
+.radio-card.picked { border-color: var(--accent); background: rgba(91, 156, 246, 0.06); }
+.limit-line { margin-top: 10px; display: flex; flex-wrap: wrap; align-items: center; gap: 8px; }
+.limit-line select, .limit-line input[type=time] { width: auto; max-width: 110px; margin: 0; padding: 6px 8px; }
