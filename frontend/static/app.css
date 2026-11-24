@@ -296,3 +296,14 @@ textarea { width: 100%; background: var(--bg); color: var(--text); border: 1px s
   .wrap-mobile { flex-direction: column; align-items: flex-start; }
   .tiles { grid-template-columns: 1fr; }
 }
+
+/* Notifications (phase 7) */
+.event-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(260px, 1fr)); gap: 0 16px; margin-top: 6px; }
+.check.tight { margin-top: 6px; }
+.ntfy-sub { display: flex; gap: 16px; align-items: flex-start; margin-top: 14px; padding: 12px; border-radius: 8px;
+  background: var(--surface-2); }
+.ntfy-sub img { border-radius: 6px; flex: none; }
+.ntfy-sub ol { margin: 6px 0; padding-left: 20px; }
+h3 { font-size: 15px; margin: 18px 0 4px; }
+.narrow-form select { max-width: 260px; }
+@media (max-width: 640px) { .ntfy-sub { flex-direction: column; } }

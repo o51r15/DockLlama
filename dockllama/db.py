@@ -278,12 +278,34 @@ def _m005_checks(conn: sqlite3.Connection) -> None:
     )
 
 
+def _m006_notifications(conn: sqlite3.Connection) -> None:
+    _run(
+        conn,
+        """
+        CREATE TABLE notify_targets (
+            id         INTEGER PRIMARY KEY,
+            service    TEXT NOT NULL,              -- ntfy | discord | telegram | gotify | pushover | email | apprise
+            fields     TEXT NOT NULL,              -- JSON: what the user typed (contains secrets; never exported)
+            url        TEXT NOT NULL,              -- the Apprise URL built from the fields
+            events     TEXT NOT NULL,              -- JSON: which kinds of message go here
+            enabled    INTEGER NOT NULL DEFAULT 1,
+            created_at REAL NOT NULL,
+            last_ok    REAL,
+            last_error TEXT
+        );
+        ALTER TABLE container_state ADD COLUMN alerted INTEGER NOT NULL DEFAULT 0;
+        ALTER TABLE container_state ADD COLUMN last_alert_at REAL
+        """,
+    )
+
+
 MIGRATIONS: list[Callable[[sqlite3.Connection], None]] = [
     _m001_initial,
     _m002_machines_containers,
     _m003_ai,
     _m004_model_tests,
     _m005_checks,
+    _m006_notifications,
 ]
 
 LATEST = len(MIGRATIONS)

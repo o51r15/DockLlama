@@ -273,14 +273,101 @@
     <div class="error" x-show="stepError" x-text="stepError"></div>
     <div class="wizard-nav">
       <button class="secondary" @click="back()">Back</button>
-      <button :disabled="finishing || (containers.length && !tickedCount())" @click="finish()"
-              x-text="finishing ? 'Finishing…' : 'Finish'"></button>
+      <button :disabled="containers.length && !tickedCount()" @click="saveContainers()">Next</button>
+    </div>
+  </section>
+
+  <!-- Step 5: Notifications -->
+  <section x-show="step === 4">
+    <h1>Get told when something breaks (optional)</h1>
+    <p class="sub">DockLlama sends one message when a problem starts and one when it clears. You can add or change this
+      any time in Settings → Notifications.</p>
+    <div x-data="notifyForm()" x-init="loadTargets()">
+      <!-- notify-form: copied from frontend/partials/notify-form.html (tests check the copies match) -->
+      <div class="error" x-show="formError" x-text="formError"></div>
+      <template x-for="t in targets" :key="t.id">
+        <div class="panel">
+          <div class="row-between">
+            <div class="cmain"><strong x-text="t.description"></strong>
+              <div class="hint" x-text="t.last_error ? 'Last try failed: ' + t.last_error : (t.last_ok ? 'Last message sent ' + new Date(t.last_ok * 1000).toLocaleString() : 'Nothing sent yet')"></div></div>
+            <div class="actions-row tight">
+              <button class="secondary small" @click="testSaved(t)">Send test</button>
+              <button class="secondary small" @click="remove(t)">Remove</button>
+            </div>
+          </div>
+          <template x-if="t.subscribe">
+            <div class="hint">Subscribe on another phone: <a :href="t.subscribe" target="_blank" rel="noopener" x-text="t.subscribe"></a></div>
+          </template>
+          <div class="event-grid">
+            <template x-for="ev in eventList" :key="ev.key">
+              <label class="check tight"><input type="checkbox" :checked="t.events[ev.key]" @change="toggleEvent(t, ev.key, $event.target.checked)">
+                <span x-text="ev.label"></span></label>
+            </template>
+          </div>
+          <label class="check tight"><input type="checkbox" :checked="!t.enabled" @change="setEnabled(t, !$event.target.checked)">
+            <span>Pause messages to this one</span></label>
+        </div>
+      </template>
+      <button class="secondary small" x-show="targets.length && !adding" @click="startAdd('ntfy')">Add another place to send messages</button>
+
+      <div class="panel" x-show="form">
+        <template x-if="form">
+          <div>
+            <label for="nsvc">Send messages with</label>
+            <select id="nsvc" :value="form.service" @change="startAdd($event.target.value)">
+              <template x-for="s in services" :key="s.id"><option :value="s.id" x-text="s.label" :selected="s.id === form.service"></option></template>
+            </select>
+            <div class="hint" x-text="blurb()"></div>
+            <template x-for="f in fieldsFor[form.service]" :key="form.service + f.key">
+              <div>
+                <label x-text="f.label"></label>
+                <input :type="f.type || 'text'" x-model="form.fields[f.key]" :placeholder="f.placeholder || ''" autocomplete="off">
+                <div class="hint" x-show="f.hint" x-text="f.hint"></div>
+              </div>
+            </template>
+            <template x-if="form.service === 'ntfy' && form.fields.topic">
+              <div class="ntfy-sub">
+                <img :src="qrUrl(subscribeLink())" alt="QR code to subscribe" width="150" height="150">
+                <div>
+                  <strong>On your phone:</strong>
+                  <ol>
+                    <li>Install the <em>ntfy</em> app (Android or iPhone).</li>
+                    <li>Scan this code, or in the app tap <em>+</em> and enter the topic above.</li>
+                    <li>Click <em>Send test</em> below. It should pop up on your phone.</li>
+                  </ol>
+                  <div class="hint">Or open <a :href="subscribeLink()" target="_blank" rel="noopener" x-text="subscribeLink()"></a> in a browser.</div>
+                </div>
+              </div>
+            </template>
+            <h3>What to send</h3>
+            <div class="event-grid">
+              <template x-for="ev in eventList" :key="ev.key">
+                <label class="check tight"><input type="checkbox" x-model="form.events[ev.key]"> <span x-text="ev.label"></span></label>
+              </template>
+            </div>
+            <div class="success" x-show="testResult && testResult.ok">Test sent. If it didn't arrive, check the details.</div>
+            <div class="error" x-show="testResult && !testResult.ok" x-text="testResult && testResult.problem"></div>
+            <div class="actions-row">
+              <button class="secondary small" :disabled="testing" @click="sendTest()" x-text="testing ? 'Sending…' : 'Send test'"></button>
+              <button class="small" :disabled="saving" @click="save()">Save</button>
+              <button class="secondary small" x-show="targets.length" @click="form = null; adding = false">Cancel</button>
+            </div>
+          </div>
+        </template>
+      </div>
+      <!-- /notify-form -->
+    </div>
+    <div class="error" x-show="stepError" x-text="stepError"></div>
+    <div class="wizard-nav">
+      <button class="secondary" @click="back()">Back</button>
+      <button :disabled="finishing" @click="finish()" x-text="finishing ? 'Finishing…' : 'Finish'"></button>
     </div>
   </section>
 </main>
 <div class="toast" x-show="toast" x-text="toast" x-transition.opacity></div>
 <script src="static/settings.js"></script>
 <script src="static/settings-ai.js"></script>
+<script src="static/notify.js"></script>
 <script src="static/welcome.js"></script>
 </body>
 </html>

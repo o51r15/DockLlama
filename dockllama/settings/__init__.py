@@ -61,6 +61,12 @@ def _log_lines(v: Any) -> int:
     raise SettingError("must be a whole number of lines from 20 to 2000")
 
 
+def _hours(v: Any) -> int:
+    if isinstance(v, int) and not isinstance(v, bool) and 0 <= v <= 168:
+        return v
+    raise SettingError("must be a whole number of hours from 0 (never) to 168")
+
+
 def _clock(v: Any) -> str:
     if isinstance(v, str):
         parts = v.split(":")
@@ -79,6 +85,8 @@ REGISTRY: dict[str, Setting] = {
     "ai.auto_test_new": Setting(True, _bool),
     "checks.interval_minutes": Setting(10, _minutes),
     "checks.log_lines": Setting(300, _log_lines),
+    "notify.reminder_hours": Setting(6, _hours),
+    "general.base_url": Setting(None, _opt_str),  # how users reach DockLlama, for links in messages
     # Start of quiet hours, local time; "Run tonight" starts model tests then. Phase 8 adds the rest.
     "quiet.start": Setting("01:00", _clock),
 }

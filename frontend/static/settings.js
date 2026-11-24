@@ -18,6 +18,7 @@ function settingsPage() {
       {id: 'ai', label: 'AI'},
       {id: 'machines', label: 'Machines'},
       {id: 'containers', label: 'Containers'},
+      {id: 'notifications', label: 'Notifications'},
       {id: 'account', label: 'Account'},
     ],
     section: 'containers',

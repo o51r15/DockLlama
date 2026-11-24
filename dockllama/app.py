@@ -17,10 +17,12 @@ from .api import auth as auth_api
 from .api import checks as checks_api
 from .api import containers as containers_api
 from .api import dashboard as dashboard_api
+from .api import notify as notify_api
 from .api import setup as setup_api
 from .api import tests as tests_api
 from .checks import SCHEDULER
 from .model_tests import RUNNER
+from .notify import NOTIFIER
 
 log = logging.getLogger("dockllama")
 
@@ -38,9 +40,11 @@ async def lifespan(app: FastAPI):
     if os.path.exists(machines.SOCKET_PATH) and not os.environ.get("DOCKLLAMA_NO_EVENT_WATCH"):
         machines.get_machine(1).start_event_watch()
     await SCHEDULER.start()
+    await NOTIFIER.start()
     try:
         yield
     finally:
+        await NOTIFIER.stop()
         await SCHEDULER.stop()
         await RUNNER.stop()
 
@@ -97,6 +101,7 @@ def create_app() -> FastAPI:
     app.include_router(setup_api.router)
     app.include_router(checks_api.router)
     app.include_router(dashboard_api.router)
+    app.include_router(notify_api.router)
 
     for route, filename in PAGES.items():
         app.add_api_route(route, _page(filename), methods=["GET"], include_in_schema=False)

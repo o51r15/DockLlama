@@ -422,6 +422,8 @@ async def run_checks(container_ids: list[int] | None = None, force_ai: bool = Fa
     finally:
         if track:
             ROUND.__dict__.update(running=False, finished_at=time.time(), current=None, phase="")
+        from .notify import NOTIFIER
+        NOTIFIER.wake()  # send what this round changed now, not at the next minute
     return results
 
 

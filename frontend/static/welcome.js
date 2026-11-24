@@ -3,7 +3,7 @@
 function welcome() {
   const ai = aiSection();
   return Object.assign(ai, {
-    steps: ['Password', 'AI', 'Model', 'Containers'],
+    steps: ['Password', 'AI', 'Model', 'Containers', 'Notifications'],
     step: 1, // index into steps; 0 (password) is already done on /setup
     noOllama: false, withoutAi: false,
     chosen: '', starting: false, stepError: '',
@@ -118,13 +118,19 @@ function welcome() {
       if (s < 60) return 'each round takes under a minute';
       return 'each round takes about ' + Math.round(s / 60) + ' minute' + (Math.round(s / 60) === 1 ? '' : 's');
     },
-    async finish() {
-      this.finishing = true; this.stepError = '';
+    async saveContainers() {
+      this.stepError = '';
       try {
         const on = this.containers.filter(c => this.ticks[c.db_id]).map(c => c.db_id);
         const off = this.containers.filter(c => !this.ticks[c.db_id]).map(c => c.db_id);
         if (on.length) await api('api/containers/monitor', {method: 'POST', body: {db_ids: on, monitored: true}});
         if (off.length) await api('api/containers/monitor', {method: 'POST', body: {db_ids: off, monitored: false}});
+        this.go(4);
+      } catch (e) { this.stepError = e.message; }
+    },
+    async finish() {
+      this.finishing = true; this.stepError = '';
+      try {
         await api('api/setup/finish', {method: 'POST', body: {}});
         window.location.href = './';
       } catch (e) { this.stepError = e.message; this.finishing = false; }

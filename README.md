@@ -9,11 +9,11 @@ files, no group IDs to look up.
 > v2 is not finished. The v1 code is kept under the [`v1-final`](../../tree/v1-final) tag.
 > Progress follows the build phases in the v2 plan.
 
-## What works so far (phases 1–6)
+## What works so far (phases 1–7)
 
 - One-command install with Docker Compose
 - A setup guide in the browser: password, connect AI (or continue without it), pick a model
-  (Quick start or test them all first), pick containers. No files to edit.
+  (Quick start or test them all first), pick containers, set up notifications. No files to edit.
 - First-run password setup and sign-in; change password in Settings
 - Automatic Docker socket permissions (no `--group-add`)
 - Settings → Containers: every container on this machine with its state in plain words, and a
@@ -24,6 +24,9 @@ files, no group IDs to look up.
 - A dashboard: problems first as cards (plain status, what to do, the evidence behind it), everything
   else as small tiles; a page per container with history, CPU/memory, recent logs, Check now,
   Restart and "Tell DockLlama what's normal". Works on a phone.
+- Notifications to ntfy (with a QR code to subscribe), Discord, Telegram, Gotify, Pushover, email or
+  any Apprise URL: one message when a problem starts, one when it clears, optional "still broken"
+  reminders, and one message if DockLlama itself can't check. Several at once come as one message.
 - Checks every 10 minutes: Docker's own facts (crashes, restart loops, out-of-memory kills, failing
   health checks, stopped vs killed) plus, with AI, a plain-language read of the new log lines.
   Secrets in logs are masked before anything is stored or sent. Without AI, the Docker checks still run.
