@@ -219,11 +219,71 @@ def _m004_model_tests(conn: sqlite3.Connection) -> None:
     )
 
 
+def _m005_checks(conn: sqlite3.Connection) -> None:
+    _run(
+        conn,
+        """
+        -- Every check of a container that produced a verdict (unchanged rounds aren't stored).
+        CREATE TABLE checks (
+            id                 INTEGER PRIMARY KEY,
+            container_id       INTEGER NOT NULL REFERENCES containers(id) ON DELETE CASCADE,
+            at                 REAL NOT NULL,
+            status             TEXT NOT NULL,      -- healthy | degraded | unhealthy | critical | stopped | unknown
+            source             TEXT NOT NULL,      -- ai | rules | no_ai
+            summary            TEXT NOT NULL DEFAULT '',
+            what_to_do         TEXT NOT NULL DEFAULT '',
+            rule               TEXT,               -- the rule that fired, if any
+            health_score       INTEGER,
+            restart_would_help INTEGER,
+            recommended_action TEXT,
+            model              TEXT,
+            duration_s         REAL,
+            prompt_tokens      INTEGER,
+            done_reason        TEXT,
+            warnings           TEXT NOT NULL DEFAULT '[]',
+            evidence           TEXT NOT NULL DEFAULT '{}'  -- Docker facts, the (redacted) summary sent, log tail
+        );
+        CREATE INDEX checks_by_container ON checks(container_id, at);
+        -- Where each container stands now.
+        CREATE TABLE container_state (
+            container_id   INTEGER PRIMARY KEY REFERENCES containers(id) ON DELETE CASCADE,
+            status         TEXT NOT NULL,
+            since          REAL NOT NULL,          -- when it entered this status
+            summary        TEXT NOT NULL DEFAULT '',
+            what_to_do     TEXT NOT NULL DEFAULT '',
+            last_check_id  INTEGER,
+            last_checked   REAL,
+            last_ai_check  REAL,
+            facts          TEXT,                   -- JSON: rules.Facts from the last check
+            unknown_streak INTEGER NOT NULL DEFAULT 0
+        );
+        -- Status changes now; restarts and notifications in later phases.
+        CREATE TABLE events (
+            id           INTEGER PRIMARY KEY,
+            at           REAL NOT NULL,
+            container_id INTEGER REFERENCES containers(id) ON DELETE SET NULL,
+            kind         TEXT NOT NULL,            -- status_change | restart | notify | …
+            data         TEXT NOT NULL DEFAULT '{}',
+            handled      INTEGER NOT NULL DEFAULT 0  -- for the notifier (phase 7)
+        );
+        CREATE INDEX events_by_time ON events(at);
+        CREATE TABLE stats (
+            container_id INTEGER NOT NULL REFERENCES containers(id) ON DELETE CASCADE,
+            at           REAL NOT NULL,
+            cpu          REAL,
+            mem          REAL
+        );
+        CREATE INDEX stats_by_container ON stats(container_id, at)
+        """,
+    )
+
+
 MIGRATIONS: list[Callable[[sqlite3.Connection], None]] = [
     _m001_initial,
     _m002_machines_containers,
     _m003_ai,
     _m004_model_tests,
+    _m005_checks,
 ]
 
 LATEST = len(MIGRATIONS)

@@ -6,6 +6,7 @@ from fastapi import APIRouter
 from pydantic import BaseModel
 
 from .. import ai_servers, db, model_tests, settings
+from ..checks import SCHEDULER
 
 router = APIRouter(prefix="/api/setup", tags=["setup"])
 
@@ -43,4 +44,6 @@ class FinishBody(BaseModel):
 def finish(body: FinishBody):
     with db.session() as conn:
         settings.set(conn, "setup.complete", body.complete)
+    if body.complete:
+        SCHEDULER.run_now()  # the dashboard shows the first round straight away
     return {"ok": True}

@@ -199,6 +199,7 @@ function aiSection() {
     },
     liveText(l) {
       if (l.status === 'queued') return 'Waiting to test';
+      if (l.phase === 'waiting') return 'Waiting for a check round to finish…';
       if (l.phase === 'loading') return 'Loading the model…';
       if (l.phase === 'retrying') return 'Trying a slow question again…';
       return 'Testing: question ' + Math.min(l.scenario + 1, l.of) + ' of ' + l.of;

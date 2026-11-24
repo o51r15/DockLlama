@@ -54,7 +54,7 @@ class Progress:
     test_id: int
     name: str
     scenario: int = 0  # scenarios finished
-    phase: str = "loading"  # loading | testing | retrying | finishing
+    phase: str = "loading"  # waiting (for a check round) | loading | testing | retrying | finishing
 
 
 def _seconds(ns) -> float | None:
@@ -519,11 +519,19 @@ class Runner:
 
     async def _run(self, run: dict, test: dict, model: ModelDetails, clean: dict, server: dict) -> None:
         client = OllamaClient(server["address"])
-        self.progress = Progress(test["id"], model.name)
+        self.progress = Progress(test["id"], model.name, phase="waiting")
         self.current_run = run["id"]
         self._stop_reason = None
         outcome: dict
-        async with ai_queue.lock():
+        async with ai_queue.lock():  # waits here while a check round is using the AI
+            self.progress.phase = "loading"
+            status_now = await run_in_threadpool(self._run_status, run["id"])
+            if status_now != "running":  # paused or cancelled while it waited
+                self.progress = None
+                self.current_run = None
+                await run_in_threadpool(self._save, run["id"], test["id"],
+                                        {"status": "queued" if status_now == "paused" else "cancelled"})
+                return
             ai_queue.checks_paused = run["mode"] == "watch"
             try:
                 loaded_before = {m.get("name") for m in await client.ps()}
@@ -549,6 +557,12 @@ class Runner:
         self.progress = None
         self.current_run = None
         await run_in_threadpool(self._save, run["id"], test["id"], outcome)
+
+    @staticmethod
+    def _run_status(run_id: int) -> str | None:
+        with db.session() as conn:
+            row = conn.execute("SELECT status FROM test_runs WHERE id = ?", (run_id,)).fetchone()
+            return row["status"] if row else None
 
     @staticmethod
     def _save(run_id: int, test_id: int, outcome: dict) -> None:

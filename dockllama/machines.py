@@ -180,12 +180,118 @@ class LocalDocker:
                 continue
         return sorted(result, key=lambda i: ((i.compose_project or "~"), i.name))
 
+    # --- for checks (phase 5) ---------------------------------------------------------
+
+    def _call(self, fn):
+        try:
+            return fn(self._connect())
+        except MachineError:
+            raise
+        except docker.errors.NotFound as exc:
+            raise MachineError("That container doesn't exist any more.") from exc
+        except Exception as exc:  # noqa: BLE001
+            raise MachineError(f"Docker didn't answer: {exc}") from exc
+
+    def inspect(self, name: str) -> dict:
+        return self._call(lambda c: c.api.inspect_container(name))
+
+    def logs(self, name: str, since: float | None, tail: int) -> list[tuple[float, str]]:
+        """New log lines (oldest first) with Docker's own timestamps, at most `tail` of them."""
+        def get(c):
+            kwargs = {"stdout": True, "stderr": True, "timestamps": True, "tail": tail}
+            if since:
+                kwargs["since"] = since
+            return c.api.logs(name, **kwargs)
+        raw = self._call(get)
+        out = []
+        for line in raw.decode("utf-8", errors="replace").splitlines():
+            ts, _, text = line.partition(" ")
+            stamp = parse_docker_time(ts)
+            if stamp is None:  # a continuation without a timestamp; keep it with the previous one
+                stamp, text = (out[-1][0] if out else 0.0), line
+            if since and stamp <= since:
+                continue  # Docker's `since` is inclusive to the second
+            out.append((stamp, text))
+        return out
+
+    def stats(self, name: str) -> tuple[float | None, float | None]:
+        """CPU % (of the whole machine, like `docker stats`) and memory % of its limit."""
+        def get(c):
+            return c.api.stats(name, stream=False)
+        try:
+            s = self._call(get)
+        except MachineError:
+            return None, None
+        return cpu_percent(s), mem_percent(s)
+
+    def events(self, container_id: str, since: float, until: float) -> list[str]:
+        """Docker's event actions for one container in a time window (kill, die, stop, oom, …)."""
+        def get(c):
+            gen = c.api.events(since=int(since), until=int(until) + 1, decode=True,
+                               filters={"type": "container", "container": container_id})
+            return [e.get("Action") or e.get("status") or "" for e in gen]
+        try:
+            return self._call(get)
+        except MachineError:
+            return []
+
+    async def ainspect(self, name: str) -> dict:
+        return await asyncio.to_thread(self.inspect, name)
+
+    async def alogs(self, name: str, since: float | None, tail: int) -> list[tuple[float, str]]:
+        return await asyncio.to_thread(self.logs, name, since, tail)
+
+    async def astats(self, name: str) -> tuple[float | None, float | None]:
+        return await asyncio.to_thread(self.stats, name)
+
+    async def aevents(self, container_id: str, since: float, until: float) -> list[str]:
+        return await asyncio.to_thread(self.events, container_id, since, until)
+
     # Async wrappers: the SDK blocks, so it runs in a worker thread.
     async def aversion(self) -> str:
         return await asyncio.to_thread(self.version)
 
     async def alist_containers(self) -> list[ContainerInfo]:
         return await asyncio.to_thread(self.list_containers)
+
+
+def parse_docker_time(text: str | None) -> float | None:
+    """Docker's RFC 3339 times with nanoseconds ("2026-11-24T03:00:00.123456789Z") as a timestamp."""
+    if not text or text.startswith("0001-"):
+        return None
+    m = re.match(r"(\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2})(\.\d+)?(Z|[+-]\d{2}:\d{2})$", text.strip())
+    if not m:
+        return None
+    from datetime import datetime
+    base = datetime.fromisoformat(m.group(1) + ("+00:00" if m.group(3) == "Z" else m.group(3)))
+    frac = float("0" + m.group(2)) if m.group(2) else 0.0
+    return base.timestamp() + frac
+
+
+def cpu_percent(s: dict) -> float | None:
+    try:
+        cpu, pre = s["cpu_stats"], s["precpu_stats"]
+        cpu_delta = cpu["cpu_usage"]["total_usage"] - pre["cpu_usage"]["total_usage"]
+        sys_delta = cpu.get("system_cpu_usage", 0) - pre.get("system_cpu_usage", 0)
+        cpus = cpu.get("online_cpus") or len(cpu["cpu_usage"].get("percpu_usage") or []) or 1
+        if sys_delta <= 0 or cpu_delta < 0:
+            return None
+        return round(cpu_delta / sys_delta * cpus * 100, 1)
+    except (KeyError, TypeError):
+        return None
+
+
+def mem_percent(s: dict) -> float | None:
+    try:
+        m = s["memory_stats"]
+        usage, limit = m["usage"], m["limit"]
+        st = m.get("stats") or {}
+        cache = st.get("inactive_file", st.get("total_inactive_file", st.get("cache", 0)))  # like `docker stats`
+        if not limit:
+            return None
+        return round(max(usage - cache, 0) / limit * 100, 1)
+    except (KeyError, TypeError):
+        return None
 
 
 _local = LocalDocker()

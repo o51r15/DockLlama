@@ -13,9 +13,11 @@ from starlette.concurrency import run_in_threadpool
 from . import __version__, db, paths, settings
 from .api import ai as ai_api
 from .api import auth as auth_api
+from .api import checks as checks_api
 from .api import containers as containers_api
 from .api import setup as setup_api
 from .api import tests as tests_api
+from .checks import SCHEDULER
 from .model_tests import RUNNER
 
 log = logging.getLogger("dockllama")
@@ -31,9 +33,11 @@ async def lifespan(app: FastAPI):
     version = await run_in_threadpool(db.migrate)
     log.info("DockLlama %s started, database schema v%s at %s", __version__, version, paths.DB_PATH)
     await RUNNER.start()
+    await SCHEDULER.start()
     try:
         yield
     finally:
+        await SCHEDULER.stop()
         await RUNNER.stop()
 
 
@@ -87,6 +91,7 @@ def create_app() -> FastAPI:
     app.include_router(ai_api.router)
     app.include_router(tests_api.router)
     app.include_router(setup_api.router)
+    app.include_router(checks_api.router)
 
     for route, filename in PAGES.items():
         app.add_api_route(route, _page(filename), methods=["GET"], include_in_schema=False)

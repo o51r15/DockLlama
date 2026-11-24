@@ -55,6 +55,12 @@ def _minutes(v: Any) -> int:
     raise SettingError("must be a whole number of minutes from 1 to 1440")
 
 
+def _log_lines(v: Any) -> int:
+    if isinstance(v, int) and not isinstance(v, bool) and 20 <= v <= 2000:
+        return v
+    raise SettingError("must be a whole number of lines from 20 to 2000")
+
+
 def _clock(v: Any) -> str:
     if isinstance(v, str):
         parts = v.split(":")
@@ -72,6 +78,7 @@ REGISTRY: dict[str, Setting] = {
     "setup.complete": Setting(False, _bool),
     "ai.auto_test_new": Setting(True, _bool),
     "checks.interval_minutes": Setting(10, _minutes),
+    "checks.log_lines": Setting(300, _log_lines),
     # Start of quiet hours, local time; "Run tonight" starts model tests then. Phase 8 adds the rest.
     "quiet.start": Setting("01:00", _clock),
 }

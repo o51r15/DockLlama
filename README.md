@@ -9,7 +9,7 @@ files, no group IDs to look up.
 > v2 is not finished. The v1 code is kept under the [`v1-final`](../../tree/v1-final) tag.
 > Progress follows the build phases in the v2 plan.
 
-## What works so far (phases 1–4)
+## What works so far (phases 1–5)
 
 - One-command install with Docker Compose
 - A setup guide in the browser: password, connect AI (or continue without it), pick a model
@@ -21,6 +21,9 @@ files, no group IDs to look up.
 - Settings → AI: finds Ollama automatically (or type its address), suggests a model that fits your
   hardware, lets you pick any installed model, one-click downloads of suggested models, and an
   Advanced panel per model (thinking, context size, and more — only what that model supports)
+- Checks every 10 minutes: Docker's own facts (crashes, restart loops, out-of-memory kills, failing
+  health checks, stopped vs killed) plus, with AI, a plain-language read of the new log lines.
+  Secrets in logs are masked before anything is stored or sent. Without AI, the Docker checks still run.
 - Model testing on your own server: Test or Retest any model, or Test all (in the background, now
   while you watch, or tonight). One test at a time; results are kept per server and model version.
   When a background run finds a clearly better model, a banner suggests it on your next page —

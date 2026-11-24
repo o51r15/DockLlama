@@ -397,3 +397,23 @@ def test_retry_can_be_switched_off(fake):
     r = _run(run_model_test(ollama.OllamaClient("http://thor:11434"), _model(), {"retry": False}, Progress(1, "x"),
                             keep_loaded=False))
     assert r["score"] == 0.0 and len(fake.servers["thor"].generate_calls) == 8
+
+
+def test_pause_while_waiting_for_a_check_round(c, fake):
+    from dockllama import ai_queue
+    from dockllama.model_tests import RUNNER
+
+    async def hold_lock_then_pause(run_id):
+        async with ai_queue.lock():
+            for _ in range(100):
+                if RUNNER.progress and RUNNER.progress.phase == "waiting":
+                    break
+                await asyncio.sleep(0.01)
+            with db.session() as conn:
+                conn.execute("UPDATE test_runs SET status = 'paused' WHERE id = ?", (run_id,))
+    run_id = c.post("/api/ai/tests", json={"names": ["gemma4:latest"]}).json()["run_id"]
+    c.portal.call(hold_lock_then_pause, run_id)
+    time.sleep(0.3)
+    st = c.get("/api/ai/tests").json()
+    assert st["active"]["status"] == "paused" and st["active"]["models"][0]["status"] == "queued"
+    assert fake.servers["thor"].generate_calls == []
