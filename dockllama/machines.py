@@ -11,7 +11,9 @@ import asyncio
 import os
 import re
 import sqlite3
+import threading
 import time
+from collections import deque
 from dataclasses import asdict, dataclass
 from functools import lru_cache
 
@@ -135,6 +137,9 @@ class LocalDocker:
     def __init__(self, socket_path: str = SOCKET_PATH):
         self.socket_path = socket_path
         self._client: docker.DockerClient | None = None
+        self._watching = False
+        self._seen: dict[str, deque] = {}
+        self._seen_lock = threading.Lock()
 
     def _connect(self) -> docker.DockerClient:
         if not os.path.exists(self.socket_path):
@@ -225,7 +230,11 @@ class LocalDocker:
         return cpu_percent(s), mem_percent(s)
 
     def events(self, container_id: str, since: float, until: float) -> list[str]:
-        """Docker's event actions for one container in a time window (kill, die, stop, oom, …)."""
+        """Docker's event actions for one container in a time window (kill, die, stop, oom, …):
+        what the background listener saw, plus whatever Docker still has."""
+        mine = self.remembered_events(container_id, since, until)
+        if mine:
+            return mine
         def get(c):
             gen = c.api.events(since=int(since), until=int(until) + 1, decode=True,
                                filters={"type": "container", "container": container_id})
@@ -234,6 +243,40 @@ class LocalDocker:
             return self._call(get)
         except MachineError:
             return []
+
+    def restart(self, name: str, timeout: int = 10) -> None:
+        self._call(lambda c: c.api.restart(name, timeout=timeout))
+
+    async def arestart(self, name: str, timeout: int = 10) -> None:
+        await asyncio.to_thread(self.restart, name, timeout)
+
+    def start_event_watch(self) -> None:
+        """Listen to Docker's event stream in a background thread and remember stop/restart/die
+        events per container. Docker only keeps a few hundred recent events, and a crash-looping
+        container elsewhere can flush a "stop" out of that before the next check reads it."""
+        if self._watching:
+            return
+        self._watching = True
+        threading.Thread(target=self._watch_events, name="docker-events", daemon=True).start()
+
+    def _watch_events(self) -> None:
+        while self._watching:
+            try:
+                client = docker.DockerClient(base_url=f"unix://{self.socket_path}", timeout=None)
+                for e in client.api.events(decode=True, filters={"type": "container",
+                                                                  "event": ["stop", "restart", "die", "kill", "oom"]}):
+                    cid = e.get("id") or (e.get("Actor") or {}).get("ID")
+                    if not cid:
+                        continue
+                    t = (e.get("timeNano") or 0) / 1e9 or float(e.get("time") or time.time())
+                    with self._seen_lock:
+                        self._seen.setdefault(cid, deque(maxlen=50)).append((t, e.get("Action") or e.get("status") or ""))
+            except Exception:  # noqa: BLE001 - socket gone, Docker restarting: try again shortly
+                time.sleep(5)
+
+    def remembered_events(self, container_id: str, since: float, until: float) -> list[str]:
+        with self._seen_lock:
+            return [a for t, a in self._seen.get(container_id, ()) if since <= t <= until]
 
     async def ainspect(self, name: str) -> dict:
         return await asyncio.to_thread(self.inspect, name)

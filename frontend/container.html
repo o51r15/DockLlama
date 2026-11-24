@@ -1,0 +1,204 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>DockLlama</title>
+<link rel="icon" href="static/favicon.svg" type="image/svg+xml">
+<link rel="stylesheet" href="static/app.css">
+<script src="static/common.js"></script>
+<script defer src="static/vendor/alpine-3.17.5.min.js"></script>
+</head>
+<body x-data="page()" x-cloak @keydown.escape.window="confirmRestart = false">
+<header class="top">
+  <a class="brand" href="./" style="margin:0"><img src="static/favicon.svg" alt=""><span>DockLlama</span></a>
+  <nav class="topnav">
+    <a href="./">Dashboard</a>
+    <a href="settings">Settings</a>
+  </nav>
+</header>
+
+<main class="page dash">
+  <a class="back" href="./">← Dashboard</a>
+  <div class="error" x-show="error" x-text="error"></div>
+  <template x-if="c">
+    <div>
+      <div class="row-between wrap-mobile">
+        <div>
+          <h1 style="margin:0" x-text="c.name"></h1>
+          <div class="hint" x-text="c.machine + (c.info ? ' · ' + c.info.image : '')"></div>
+        </div>
+        <div class="actions-row tight">
+          <button class="secondary small" :disabled="checking" @click="checkNow()" x-text="checking ? 'Checking…' : 'Check now'"></button>
+          <button class="secondary small" :disabled="!c.can_restart || restarting" :title="c.why_not_restart"
+                  @click="confirmRestart = true" x-text="restarting ? 'Restarting…' : 'Restart'"></button>
+        </div>
+      </div>
+
+      <div class="pcard" :class="statusClass(c.status)" style="margin-top:16px">
+        <div>
+          <span class="pill" :class="statusClass(c.status)" x-text="c.shown" :title="c.status"></span>
+          <span class="hint" x-text="forHowLong(c.since, c.now)"></span>
+          <span class="hint" x-show="c.last_checked" x-text="' · checked ' + ago(c.last_checked, c.now)"></span>
+        </div>
+        <p class="psummary" x-text="c.summary || 'Not checked yet.'"></p>
+        <p class="todo" x-show="c.what_to_do"><strong>What to do:</strong> <span x-text="c.what_to_do"></span></p>
+        <div class="hint" x-show="c.latest && c.latest.model"
+             x-text="c.latest && ('Read by ' + c.latest.model + (c.latest.duration_s ? ' in ' + c.latest.duration_s.toFixed(1) + ' s' : ''))"></div>
+        <template x-if="c.latest && c.latest.warnings.length">
+          <div><template x-for="w in c.latest.warnings" :key="w"><div class="warning" x-text="w"></div></template></div>
+        </template>
+        <div class="warning" x-show="c.info && !c.info.logs_readable"
+             x-text="c.info && ('This container\'s logs can\'t be read (log driver: ' + c.info.log_driver + '). DockLlama still watches whether it\'s running, but can\'t read what it says.')"></div>
+      </div>
+
+      <div class="warning" x-show="confirmRestart">
+        <strong x-text="'Restart ' + c.name + '?'"></strong>
+        <p style="margin:6px 0" x-show="c.info && c.info.is_ollama">This container runs your AI. Checks will fail until it's back.</p>
+        <div class="actions-row">
+          <button class="small" @click="restart()">Restart it</button>
+          <button class="secondary small" @click="confirmRestart = false">Cancel</button>
+        </div>
+      </div>
+
+      <h2>Evidence</h2>
+      <div class="panel">
+        <div class="facts">
+          <div><span class="hint">Docker says</span><span x-text="c.info ? c.info.state_text : 'Not found'"></span></div>
+          <div x-show="c.info"><span class="hint">Restarts</span><span x-text="c.info && c.info.restart_count"></span></div>
+          <div x-show="c.info"><span class="hint">Health check</span><span x-text="c.info && (c.info.health || 'none')"></span></div>
+          <div x-show="c.latest && c.latest.evidence.rule"><span class="hint">Rule</span><span x-text="c.latest && c.latest.evidence.rule"></span></div>
+        </div>
+        <template x-if="c.latest && c.latest.evidence.tail && c.latest.evidence.tail.length">
+          <div><div class="hint" style="margin-top:10px">Log lines behind this verdict</div>
+            <pre class="logbox" x-text="c.latest.evidence.tail.join('\n')"></pre></div>
+        </template>
+        <template x-if="c.latest && c.latest.evidence.prompt">
+          <div>
+            <button class="link small" @click="showPrompt = !showPrompt" x-text="showPrompt ? 'Hide what the AI read' : 'Show exactly what the AI read'"></button>
+            <pre class="logbox" x-show="showPrompt" x-text="c.latest.evidence.prompt"></pre>
+          </div>
+        </template>
+      </div>
+
+      <h2>CPU and memory, last 24 hours</h2>
+      <div class="panel">
+        <template x-if="c.stats.length > 1">
+          <div>
+            <svg class="chart" viewBox="0 0 600 140" preserveAspectRatio="none" role="img" aria-label="CPU and memory over time">
+              <line x1="0" y1="130" x2="600" y2="130" class="axis"></line>
+              <polyline class="cpu" :points="line('cpu')"></polyline>
+              <polyline class="mem" :points="line('mem')"></polyline>
+            </svg>
+            <div class="legend"><span class="cpu">CPU <span x-text="last('cpu')"></span></span>
+              <span class="mem">Memory <span x-text="last('mem')"></span></span>
+              <span class="hint" x-text="'scale 0–' + scaleMax() + '%'"></span></div>
+          </div>
+        </template>
+        <div class="hint" x-show="c.stats.length <= 1">Not enough data yet. A point is added at each check.</div>
+      </div>
+
+      <h2>Tell DockLlama what's normal</h2>
+      <div class="panel">
+        <p class="hint">Plain English the AI reads with every check, e.g. "This is a VPN. Brief reconnects are normal."</p>
+        <textarea rows="3" x-model="notes" maxlength="4000"></textarea>
+        <div class="actions-row">
+          <button class="small" @click="saveNotes()" :disabled="notes === c.notes_for_ai">Save</button>
+          <span class="hint" x-show="notesSaved">Saved. Used from the next check.</span>
+        </div>
+        <label class="check"><input type="checkbox" :checked="c.monitored" @change="setWatched($event.target.checked)">
+          <span>Watch this container</span></label>
+      </div>
+
+      <h2>History</h2>
+      <div class="panel timeline">
+        <template x-for="h in historyGroups()" :key="h.id">
+          <div class="tl-row">
+            <span class="dot" :class="statusClass(h.status)"></span>
+            <div class="cmain">
+              <div><strong x-text="h.shown"></strong>
+                <span class="hint" x-text="h.count > 1 ? clock(h.first) + ' to ' + clock(h.at) + ' · ' + h.count + ' checks' : clock(h.at)"></span></div>
+              <div class="hint" x-text="h.summary"></div>
+            </div>
+          </div>
+        </template>
+        <template x-for="r in c.restarts" :key="r.at">
+          <div class="tl-row"><span class="dot grey"></span>
+            <div class="cmain"><strong>Restarted</strong> <span class="hint" x-text="clock(r.at) + ' · ' + (r.reason || '')"></span></div></div>
+        </template>
+        <div class="hint" x-show="!c.history.length">No checks yet.</div>
+      </div>
+
+      <h2>Recent logs</h2>
+      <div class="panel">
+        <div class="actions-row tight" style="margin-bottom:8px">
+          <button class="secondary small" @click="loadLogs()" x-text="logs ? 'Refresh' : 'Show the last 100 lines'"></button>
+          <span class="hint">Secrets like passwords and tokens are masked.</span>
+        </div>
+        <pre class="logbox tall" x-show="logs" x-text="logs"></pre>
+      </div>
+    </div>
+  </template>
+</main>
+<div class="toast" x-show="toast" x-text="toast" x-transition.opacity></div>
+<script>
+function page() {
+  const id = new URLSearchParams(location.search).get('id');
+  return {
+    c: null, error: '', checking: false, restarting: false, confirmRestart: false, showPrompt: false,
+    notes: '', notesSaved: false, logs: '', toast: '', tt: null,
+    async init() { await this.load(); },
+    async load() {
+      try { this.c = await api('api/containers/' + id + '/detail'); this.notes = this.c.notes_for_ai; document.title = this.c.name + ' · DockLlama'; }
+      catch (e) { this.error = e.message; }
+    },
+    async checkNow() {
+      this.checking = true;
+      try { const r = await api('api/containers/' + id + '/check', {method: 'POST'}); this.flash(r.shown); await this.load(); }
+      catch (e) { this.flash(e.message); }
+      this.checking = false;
+    },
+    async restart() {
+      this.confirmRestart = false; this.restarting = true;
+      try { await api('api/containers/' + id + '/restart', {method: 'POST'}); this.flash('Restarted. DockLlama checks it again in a few seconds.');
+            setTimeout(() => this.load(), 12000); }
+      catch (e) { this.flash(e.message); }
+      this.restarting = false;
+    },
+    async saveNotes() {
+      try { await api('api/containers/' + id, {method: 'PATCH', body: {notes_for_ai: this.notes}}); this.c.notes_for_ai = this.notes; this.notesSaved = true; }
+      catch (e) { this.flash(e.message); }
+    },
+    async setWatched(on) {
+      try { await api('api/containers/' + id, {method: 'PATCH', body: {monitored: on}}); this.c.monitored = on; this.flash(on ? 'Watching it.' : 'Not watching it any more.'); }
+      catch (e) { this.flash(e.message); }
+    },
+    async loadLogs() {
+      try { const r = await api('api/containers/' + id + '/logs?lines=100'); this.logs = r.lines.map(l => l.text).join('\n') || '(no log lines)'; }
+      catch (e) { this.flash(e.message); }
+    },
+    historyGroups() {
+      // Runs of the same status become one entry (newest summary), so the timeline shows changes.
+      const out = [];
+      for (const h of this.c.history) {
+        const g = out[out.length - 1];
+        if (g && g.status === h.status) { g.count += 1; g.first = h.at; }
+        else out.push({...h, count: 1, first: h.at});
+      }
+      return out;
+    },
+    scaleMax() {
+      const m = Math.max(...this.c.stats.map(s => Math.max(s.cpu || 0, s.mem || 0)), 1);
+      return m > 50 ? 100 : (m > 20 ? 50 : (m > 5 ? 20 : 5));
+    },
+    line(key) {
+      const s = this.c.stats, t0 = s[0].at, t1 = s[s.length - 1].at, span = Math.max(t1 - t0, 1), max = this.scaleMax();
+      return s.filter(p => p[key] != null).map(p => ((p.at - t0) / span * 600).toFixed(1) + ',' + (130 - Math.min(p[key], max) / max * 120).toFixed(1)).join(' ');
+    },
+    last(key) { const p = [...this.c.stats].reverse().find(x => x[key] != null); return p ? p[key].toFixed(1) + '%' : ''; },
+    flash(msg) { this.toast = msg; clearTimeout(this.tt); this.tt = setTimeout(() => this.toast = '', 3500); },
+  };
+}
+</script>
+</body>
+</html>

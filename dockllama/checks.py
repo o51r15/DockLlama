@@ -118,6 +118,11 @@ async def collect(docker: machines.LocalDocker, row: dict, state: dict | None, l
         since = (state or {}).get("last_checked") or (f.started_at or time.time()) - 600
         f.events = await docker.aevents(a["Id"], since - 5, time.time())
     f.stopped_by_user = any(e in ("stop", "restart") for e in f.events)
+    # Still the same exit as last time? Then it's still whatever it was judged to be then, even if
+    # Docker has since forgotten the event.
+    if (not f.stopped_by_user and c.previous and c.previous.stopped_by_user and f.state in ("exited", "dead")
+            and c.previous.finished_at == f.finished_at):
+        f.stopped_by_user = True
     c.facts = f
     c.rule = rules.evaluate(f, c.previous)
     log_driver = ((a.get("HostConfig") or {}).get("LogConfig") or {}).get("Type") or "json-file"

@@ -287,3 +287,22 @@ def test_rule_leads_when_the_ai_only_saw_calm_logs(data_dir, docker, fake):
     docker.add("job", "exited", 137); docker.log("job", "INFO working")
     r = first_round(docker)
     assert r["job"]["status"] == "critical" and r["job"]["summary"] == "It stopped with code 137 (SIGKILL)."
+
+
+def test_a_user_stop_stays_a_stop_after_docker_forgets_the_event(data_dir, docker):
+    setup_db([], with_ai=False)
+    docker.add("svc", "exited", 137); docker.events_by_id["id-svc"] = ["kill", "stop", "die"]
+    assert first_round(docker)["svc"]["status"] == "stopped"
+    docker.events_by_id["id-svc"] = []  # flushed out of Docker's short event log
+    run()
+    assert state("svc")["status"] == "stopped"
+    docker.containers["svc"]["State"]["FinishedAt"] = "2026-11-24T05:00:00Z"  # a new exit: judged afresh
+    run()
+    assert state("svc")["status"] == "critical"
+
+
+def test_event_listener_memory():
+    d = machines.LocalDocker("/nonexistent.sock")
+    d._seen["abc"] = __import__("collections").deque([(100.0, "kill"), (101.0, "stop"), (500.0, "die")])
+    assert d.remembered_events("abc", 90, 200) == ["kill", "stop"]
+    assert d.events("abc", 90, 200) == ["kill", "stop"]  # no Docker call needed

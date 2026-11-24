@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import logging
+import os
 from contextlib import asynccontextmanager
 
 from fastapi import FastAPI, Request
@@ -10,11 +11,12 @@ from fastapi.responses import FileResponse, JSONResponse, RedirectResponse
 from fastapi.staticfiles import StaticFiles
 from starlette.concurrency import run_in_threadpool
 
-from . import __version__, db, paths, settings
+from . import __version__, db, machines, paths, settings
 from .api import ai as ai_api
 from .api import auth as auth_api
 from .api import checks as checks_api
 from .api import containers as containers_api
+from .api import dashboard as dashboard_api
 from .api import setup as setup_api
 from .api import tests as tests_api
 from .checks import SCHEDULER
@@ -25,7 +27,7 @@ log = logging.getLogger("dockllama")
 # Reachable without signing in.
 PUBLIC_API = {"/api/health", "/api/auth/status", "/api/auth/setup", "/api/auth/login"}
 PAGES = {"/": "index.html", "/login": "login.html", "/setup": "setup.html", "/settings": "settings.html",
-         "/welcome": "welcome.html"}
+         "/welcome": "welcome.html", "/container": "container.html"}
 
 
 @asynccontextmanager
@@ -33,6 +35,8 @@ async def lifespan(app: FastAPI):
     version = await run_in_threadpool(db.migrate)
     log.info("DockLlama %s started, database schema v%s at %s", __version__, version, paths.DB_PATH)
     await RUNNER.start()
+    if os.path.exists(machines.SOCKET_PATH) and not os.environ.get("DOCKLLAMA_NO_EVENT_WATCH"):
+        machines.get_machine(1).start_event_watch()
     await SCHEDULER.start()
     try:
         yield
@@ -92,6 +96,7 @@ def create_app() -> FastAPI:
     app.include_router(tests_api.router)
     app.include_router(setup_api.router)
     app.include_router(checks_api.router)
+    app.include_router(dashboard_api.router)
 
     for route, filename in PAGES.items():
         app.add_api_route(route, _page(filename), methods=["GET"], include_in_schema=False)

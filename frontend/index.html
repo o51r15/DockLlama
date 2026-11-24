@@ -6,10 +6,11 @@
 <title>DockLlama</title>
 <link rel="icon" href="static/favicon.svg" type="image/svg+xml">
 <link rel="stylesheet" href="static/app.css">
+<script src="static/common.js"></script>
 <script src="static/banner.js"></script>
 <script defer src="static/vendor/alpine-3.17.5.min.js"></script>
 </head>
-<body x-data="home()" x-init="load()" x-cloak>
+<body x-data="dash()" x-cloak @toast.window="flash($event.detail)">
 <header class="top">
   <a class="brand" href="./" style="margin:0"><img src="static/favicon.svg" alt=""><span>DockLlama</span></a>
   <nav class="topnav">
@@ -39,24 +40,129 @@
     <div class="error" x-show="error" x-text="error"></div>
   </div>
 </div>
-<main class="page">
-  <h1>You're signed in</h1>
-  <p class="sub">DockLlama v2 is being rebuilt. The rest of the setup and the dashboard come in the next steps.</p>
-  <p class="hint">Version <span x-text="version"></span></p>
+
+<main class="page dash">
+  <!-- Headline -->
+  <div class="headline" :class="d.attention ? (d.problems ? 'bad' : 'warn') : 'ok'" x-show="loaded">
+    <div class="headline-text">
+      <button class="link-like" @click="onlyProblems = !onlyProblems" x-show="d.attention"
+              x-text="d.attention + (d.attention === 1 ? ' container needs' : ' containers need') + ' attention'"></button>
+      <strong x-show="!d.attention && d.containers.length"
+              x-text="(fine() === d.containers.length ? 'All ' : '') + fine() + (fine() === 1 ? ' container is' : ' containers are') + ' fine'"></strong>
+      <strong x-show="!d.containers.length">Nothing is being watched yet</strong>
+      <span class="hint" x-show="d.attention && fine()" x-text="' · ' + fine() + ' fine'"></span>
+      <span class="hint" x-show="stoppedCount()" x-text="' · ' + stoppedCount() + ' stopped'"></span>
+      <div class="hint">
+        <span x-show="d.round.running" x-text="'Checking ' + Math.min(d.round.done + 1, d.round.total) + ' of ' + d.round.total + '…'"></span>
+        <span x-show="!d.round.running && d.last_checked" x-text="'Last checked ' + ago(d.last_checked, d.now)"></span>
+        <span x-show="!d.round.running && !d.last_checked && d.containers.length">The first check starts in a moment…</span>
+      </div>
+    </div>
+    <button class="secondary small" :disabled="d.round.running || checkingAll" @click="checkAll()"
+            x-show="d.containers.length" x-text="d.round.running ? 'Checking…' : 'Check all now'"></button>
+  </div>
+  <div class="progress thin" x-show="d.round.running"><span :style="'width:' + (d.round.total ? 100 * d.round.done / d.round.total : 0) + '%'"></span></div>
+
+  <!-- Notices -->
+  <div class="warning" x-show="d.machine_error" x-text="d.machine_error"></div>
+  <div class="notice" x-show="loaded && !d.ai.connected">
+    No AI is connected, so DockLlama checks containers with Docker's own information (crashes, restart loops,
+    out-of-memory kills, health checks) but can't read their logs. <a href="settings#ai">Connect AI</a>
+  </div>
+  <div class="notice" x-show="loaded && !d.containers.length">
+    Pick the containers to watch in <a href="settings#containers">Settings → Containers</a>.
+  </div>
+  <div class="row-between filter-row" x-show="onlyProblems">
+    <span class="hint">Showing only containers that need attention.</span>
+    <button class="link small" @click="onlyProblems = false">Show all</button>
+  </div>
+
+  <!-- Problems first, as cards -->
+  <template x-for="c in problemList()" :key="c.id">
+    <div class="pcard" :class="statusClass(c.status)">
+      <div class="row-between">
+        <div class="cmain">
+          <a class="pname" :href="'container?id=' + c.id" x-text="c.name"></a>
+          <span class="pill" :class="statusClass(c.status)" x-text="c.shown" :title="c.status"></span>
+          <span class="hint" x-text="forHowLong(c.since, d.now)"></span>
+        </div>
+        <button class="secondary small" :disabled="!!busy[c.id]" @click="checkNow(c)"
+                x-text="busy[c.id] ? 'Checking…' : 'Check now'"></button>
+      </div>
+      <p class="psummary" x-text="c.summary"></p>
+      <p class="todo" x-show="c.what_to_do"><strong>What to do:</strong> <span x-text="c.what_to_do"></span></p>
+      <button class="link small" @click="toggleEvidence(c)" x-text="ev[c.id] ? 'Hide evidence' : 'Evidence'"></button>
+      <template x-if="ev[c.id]">
+        <div class="evidence">
+          <div class="hint" x-show="ev[c.id].facts" x-text="'Docker: ' + ev[c.id].facts"></div>
+          <div class="hint" x-show="ev[c.id].rule" x-text="'Rule: ' + ev[c.id].rule"></div>
+          <div class="hint" x-show="ev[c.id].ai_error" x-text="'AI: ' + ev[c.id].ai_error"></div>
+          <pre class="logbox" x-show="ev[c.id].tail.length" x-text="ev[c.id].tail.join('\n')"></pre>
+          <div class="hint" x-show="!ev[c.id].tail.length">No log lines were part of this check.</div>
+          <a class="small" :href="'container?id=' + c.id">Open the container page</a>
+        </div>
+      </template>
+    </div>
+  </template>
+
+  <!-- Everything else, as tiles -->
+  <div class="tiles" x-show="!onlyProblems">
+    <template x-for="c in tileList()" :key="c.id">
+      <a class="tile" :href="'container?id=' + c.id" :title="c.summary">
+        <span class="dot" :class="statusClass(c.status)"></span>
+        <span class="tname" x-text="c.name"></span>
+        <span class="hint" x-text="c.status === 'healthy' ? ago(c.last_checked, d.now) : c.shown"></span>
+      </a>
+    </template>
+  </div>
 </main>
+<div class="toast" x-show="toast" x-text="toast" x-transition.opacity></div>
 <script>
-function home() {
+function dash() {
   return {
-    version: '', loginRequired: false,
-    async load() {
-      const [h, s] = await Promise.all([fetch('api/health'), fetch('api/auth/status')]);
-      this.version = (await h.json()).version;
-      this.loginRequired = (await s.json()).login_required;
+    d: {containers: [], counts: {}, round: {}, ai: {}}, loaded: false, loginRequired: false, onlyProblems: false,
+    busy: {}, ev: {}, checkingAll: false, toast: '', tt: null, timer: null,
+    async init() {
+      this.loginRequired = (await api('api/auth/status')).login_required;
+      await this.refresh();
     },
-    async logout() {
-      await fetch('api/auth/logout', {method: 'POST'});
-      window.location.href = 'login';
+    async refresh() {
+      clearTimeout(this.timer);
+      try { this.d = await api('api/dashboard'); this.loaded = true; } catch (e) { /* keep the last view */ }
+      this.timer = setTimeout(() => this.refresh(), this.d.round && this.d.round.running ? 2000 : 15000);
     },
+    problems() { return ['critical', 'unhealthy', 'gone', 'unknown', 'degraded']; },
+    problemList() { return this.d.containers.filter(c => this.problems().includes(c.status)); },
+    tileList() { return this.d.containers.filter(c => !this.problems().includes(c.status)); },
+    fine() { return this.d.counts.healthy || 0; },
+    stoppedCount() { return this.d.counts.stopped || 0; },
+    async checkNow(c) {
+      this.busy = {...this.busy, [c.id]: true};
+      try {
+        const r = await api('api/containers/' + c.id + '/check', {method: 'POST'});
+        this.flash(c.name + ': ' + r.shown);
+        if (this.ev[c.id]) { delete this.ev[c.id]; this.ev = {...this.ev}; }
+      } catch (e) { this.flash(e.message); }
+      this.busy = {...this.busy, [c.id]: false};
+      this.refresh();
+    },
+    async checkAll() {
+      this.checkingAll = true;
+      try { await api('api/checks/run', {method: 'POST'}); setTimeout(() => this.refresh(), 800); }
+      catch (e) { this.flash(e.message); }
+      this.checkingAll = false;
+    },
+    async toggleEvidence(c) {
+      if (this.ev[c.id]) { const n = {...this.ev}; delete n[c.id]; this.ev = n; return; }
+      try {
+        const det = await api('api/containers/' + c.id + '/detail');
+        const e = (det.latest && det.latest.evidence) || {};
+        this.ev = {...this.ev, [c.id]: {facts: det.info ? det.info.state_text : '', rule: e.rule || '',
+                                         ai_error: e.ai_error || '', tail: e.tail || []}};
+      } catch (err) { this.flash(err.message); }
+    },
+    flash(msg) { this.toast = msg; clearTimeout(this.tt); this.tt = setTimeout(() => this.toast = '', 3500); },
+    async logout() { await fetch('api/auth/logout', {method: 'POST'}); window.location.href = 'login'; },
   };
 }
 </script>
