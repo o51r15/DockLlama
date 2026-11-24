@@ -59,6 +59,7 @@ def test_qwen_models_are_labelled_and_stored(c, fake):
 
 
 def test_exclude_setting_keeps_qwen_out_of_suggestions_and_the_banner(c, fake):
+    c.put("/api/ai/auto-test", json={"enabled": False})  # don't race an automatic test of the new model
     _add_glimmer(c, fake)
 
     def only_glimmer_perfect(payload, request):  # glimmer is clearly the best model

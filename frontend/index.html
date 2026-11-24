@@ -109,11 +109,12 @@
   <!-- Everything else, as tiles -->
   <div class="tiles" x-show="!onlyProblems">
     <template x-for="c in tileList()" :key="c.id">
-      <a class="tile" :href="'container?id=' + c.id" :title="c.summary">
+      <a class="tile" :href="'container?id=' + c.id" :title="c.name + (c.summary ? ' — ' + c.summary : '')">
         <span class="dot" :class="statusClass(c.status)"></span>
-        <span class="tname" x-text="c.name"></span>
-        <span class="hint" x-show="multi()" x-text="c.machine"></span>
-        <span class="hint" x-text="c.status === 'healthy' ? ago(c.last_checked, d.now) : c.shown"></span>
+        <span class="tbody">
+          <span class="tname" x-text="c.name"></span>
+          <span class="hint" x-text="(multi() ? c.machine + ' · ' : '') + (c.status === 'healthy' ? ago(c.last_checked, d.now) : c.shown)"></span>
+        </span>
       </a>
     </template>
   </div>
