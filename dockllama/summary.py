@@ -110,7 +110,7 @@ async def ai_text(data: dict) -> str | None:
     if model.thinking != "none":
         payload["options"]["num_predict"] = 1500  # thinking shares the budget
     try:
-        async with ai_queue.lock():
+        async with ai_queue.turn("summary"):
             resp = await OllamaClient(address).generate(payload, timeout=120)
     except OllamaError as exc:
         log.warning("Daily summary falls back to the template: %s", exc)

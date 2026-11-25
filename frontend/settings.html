@@ -464,9 +464,14 @@
           <h2>How often to check</h2>
           <div class="limit-line">Every
             <select x-model.number="f.interval_minutes" @change="save({interval_minutes: f.interval_minutes})">
-              <template x-for="m in withCurrent([2, 5, 10, 15, 30, 60], f.interval_minutes)" :key="m"><option :value="m" x-text="m" :selected="m === f.interval_minutes"></option></template>
+              <template x-for="m in withCurrent([2, 5, 10, 15, 30, 60], f.interval_minutes)" :key="m">
+                <option :value="m" x-text="m < f.min_interval ? m + ' (too short)' : m" :selected="m === f.interval_minutes"
+                        :disabled="m < f.min_interval && m !== f.interval_minutes"></option></template>
             </select> minutes.</div>
-          <div class="hint">Shorter catches problems sooner but keeps your AI server busier.</div>
+          <div class="hint" x-text="roundLine()"></div>
+          <div class="warning" x-show="f.interval_minutes < f.min_interval">Checking every
+            <span x-text="f.interval_minutes"></span> minutes is shorter than a round takes now, so rounds run back to back
+            and your AI server never rests. Pick <span x-text="f.min_interval"></span> minutes or more.</div>
 
           <h2>Quiet hours</h2>
           <label class="check"><input type="checkbox" x-model="f.quiet_enabled" @change="save({quiet_enabled: f.quiet_enabled})">

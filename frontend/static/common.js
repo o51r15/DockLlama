@@ -36,3 +36,22 @@ function statusClass(status) {
 }
 
 function clock(ts) { return new Date(ts * 1000).toLocaleString([], {dateStyle: 'medium', timeStyle: 'short'}); }
+
+// Check one container now. While it waits for the AI, calls onLine("Waiting in line (2 ahead)", details)
+// every second, then onLine(null) once it's being checked.
+async function checkNowWithLine(id, onLine) {
+  let done = false;
+  const poll = async () => {
+    while (!done) {
+      try {
+        const l = await api('api/containers/' + id + '/check/line');
+        if (done) break;
+        onLine(l.waiting ? 'Waiting in line (' + l.ahead + ' ahead)' : null, l.what || []);
+      } catch (e) { /* the check itself reports errors */ }
+      await new Promise(r => setTimeout(r, 1000));
+    }
+  };
+  poll();
+  try { return await api('api/containers/' + id + '/check', {method: 'POST'}); }
+  finally { done = true; onLine(null, []); }
+}

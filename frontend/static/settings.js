@@ -156,6 +156,13 @@ function fixingSection() {
     f: null, error: '',
     withCurrent(list, value) { return [...new Set([...list, value])].sort((a, b) => a - b); },
     async load() { try { this.f = await api('api/fixing'); } catch (e) { this.error = e.message; } },
+    roundLine() {
+      if (!this.f) return '';
+      const s = this.f.round_seconds, t = s < 90 ? Math.max(1, Math.round(s)) + ' seconds' : Math.round(s / 60) + ' minutes';
+      return (this.f.round_measured ? 'A check round takes about ' : 'A check round should take about ') + t +
+        ' with the containers you watch, so every ' + this.f.min_interval + ' minutes is the shortest that fits. ' +
+        'Shorter catches problems sooner but keeps your AI server busier.';
+    },
     async save(change) {
       this.error = '';
       try { this.f = await api('api/fixing', {method: 'PUT', body: change}); this.$dispatch('toast', 'Saved.'); }

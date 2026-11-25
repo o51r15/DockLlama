@@ -88,7 +88,7 @@
           <span class="hint" x-text="forHowLong(c.since, d.now)"></span>
         </div>
         <button class="secondary small" :disabled="!!busy[c.id]" @click="checkNow(c)"
-                x-text="busy[c.id] ? 'Checking…' : 'Check now'"></button>
+                x-text="busy[c.id] ? (line[c.id] || 'Checking…') : 'Check now'"></button>
       </div>
       <p class="psummary" x-text="c.summary"></p>
       <p class="todo" x-show="c.what_to_do"><strong>What to do:</strong> <span x-text="c.what_to_do"></span></p>
@@ -124,7 +124,7 @@
 function dash() {
   return {
     d: {containers: [], counts: {}, round: {}, ai: {}}, loaded: false, loginRequired: false, onlyProblems: false,
-    busy: {}, ev: {}, checkingAll: false, toast: '', tt: null, timer: null,
+    busy: {}, line: {}, ev: {}, checkingAll: false, toast: '', tt: null, timer: null,
     async init() {
       this.loginRequired = (await api('api/auth/status')).login_required;
       await this.refresh();
@@ -143,7 +143,7 @@ function dash() {
     async checkNow(c) {
       this.busy = {...this.busy, [c.id]: true};
       try {
-        const r = await api('api/containers/' + c.id + '/check', {method: 'POST'});
+        const r = await checkNowWithLine(c.id, (text) => { this.line = {...this.line, [c.id]: text}; });
         this.flash(c.name + ': ' + r.shown);
         if (this.ev[c.id]) { delete this.ev[c.id]; this.ev = {...this.ev}; }
       } catch (e) { this.flash(e.message); }

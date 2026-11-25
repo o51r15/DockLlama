@@ -447,7 +447,9 @@ async def run_checks(container_ids: list[int] | None = None, force_ai: bool = Fa
         ai_ctx = _ai_context(server, models, model_settings, active_prompt)
         if track:
             ROUND.phase = "asking AI" if ai_ctx else "checking"
-        async with ai_queue.lock():
+        kind = "round" if track else "check"
+        single = rows[0]["id"] if (not track and len(rows) == 1) else None
+        async with ai_queue.turn(kind, container_id=single):
             if ai_ctx is not None:
                 ai_ctx["paused"] = ai_queue.checks_paused
             for c in collected:
@@ -477,6 +479,13 @@ async def run_checks(container_ids: list[int] | None = None, force_ai: bool = Fa
     finally:
         if track:
             ROUND.__dict__.update(running=False, finished_at=time.time(), current=None, phase="")
+            if results:  # remember how long a full round takes here, for the "how often" guard
+                took = ROUND.finished_at - ROUND.started_at
+
+                def remember(took=took):
+                    with db.session() as conn:
+                        settings.set(conn, "checks.last_round_s", round(took, 1))
+                await run_in_threadpool(remember)
         from .notify import NOTIFIER
         NOTIFIER.wake()  # send what this round changed now, not at the next minute
     return results

@@ -44,6 +44,13 @@ async def check_now(db_id: int):
     return {**results[0], "shown": SHOWN.get(results[0]["status"]), "waited": waiting}
 
 
+@router.get("/containers/{db_id}/check/line")
+def check_line(db_id: int):
+    """Where this container's Check now is in line for the AI, while it waits."""
+    pos = ai_queue.position(db_id, ROUND.total - ROUND.done if ROUND.running else 0)
+    return {"waiting": pos is not None, **(pos or {"ahead": 0, "what": []})}
+
+
 def _check_dict(r) -> dict:
     d = dict(r)
     d["warnings"] = json.loads(d["warnings"])

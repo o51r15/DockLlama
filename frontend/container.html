@@ -29,7 +29,8 @@
           <div class="hint" x-text="c.machine + (c.info ? ' · ' + c.info.image : '')"></div>
         </div>
         <div class="actions-row tight">
-          <button class="secondary small" :disabled="checking" @click="checkNow()" x-text="checking ? 'Checking…' : 'Check now'"></button>
+          <button class="secondary small" :disabled="checking" @click="checkNow()" :title="inLineWhat ? 'Ahead: ' + inLineWhat : ''"
+                  x-text="checking ? (inLine || 'Checking…') : 'Check now'"></button>
           <button class="secondary small" :disabled="!c.can_restart || restarting" :title="c.why_not_restart"
                   @click="confirmRestart = true" x-text="restarting ? 'Restarting…' : 'Restart'"></button>
         </div>
@@ -237,7 +238,7 @@ function webCheck() {
 function page() {
   const id = new URLSearchParams(location.search).get('id');
   return {
-    c: null, error: '', checking: false, restarting: false, confirmRestart: false, showPrompt: false,
+    c: null, error: '', checking: false, restarting: false, confirmRestart: false, showPrompt: false, inLine: null, inLineWhat: '',
     notes: '', notesSaved: false, logs: '', toast: '', tt: null, fixing: null, group: '', order: 0,
     async init() { await this.load(); try { this.fixing = await api('api/fixing'); } catch (e) { /* optional */ } },
     async load() {
@@ -250,7 +251,10 @@ function page() {
     },
     async checkNow() {
       this.checking = true;
-      try { const r = await api('api/containers/' + id + '/check', {method: 'POST'}); this.flash(r.shown); await this.load(); }
+      try {
+        const r = await checkNowWithLine(id, (text, what) => { this.inLine = text; this.inLineWhat = what.join(', '); });
+        this.flash(r.shown); await this.load();
+      }
       catch (e) { this.flash(e.message); }
       this.checking = false;
     },

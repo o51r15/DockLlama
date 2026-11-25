@@ -14,24 +14,33 @@ SECONDS_PER_CHECK_WITHOUT_AI = 0.2  # Docker facts and rules only
 SECONDS_PER_CHECK_GUESS = 5.0  # an untested model; replaced by the test result once there is one
 
 
+def per_check(conn) -> tuple[float, str]:
+    """Seconds one container's check takes with the model in use: (seconds, tested | guess | no_ai)."""
+    server = ai_servers.connected(conn)
+    if server is None or not server["model"]:
+        return SECONDS_PER_CHECK_WITHOUT_AI, "no_ai"
+    result = model_tests.latest_results(conn, server["id"]).get(server["model"])
+    if result and result.get("sec_per_check"):
+        return result["sec_per_check"], "tested"
+    return SECONDS_PER_CHECK_GUESS, "guess"
+
+
+def watched_count(conn) -> int:
+    return conn.execute("SELECT COUNT(*) n FROM containers WHERE monitored = 1 AND gone = 0").fetchone()["n"]
+
+
 @router.get("/state")
 def state():
     with db.session() as conn:
         server = ai_servers.connected(conn)
-        per_check, source = SECONDS_PER_CHECK_WITHOUT_AI, "no_ai"
-        if server is not None and server["model"]:
-            result = model_tests.latest_results(conn, server["id"]).get(server["model"])
-            if result and result.get("sec_per_check"):
-                per_check, source = result["sec_per_check"], "tested"
-            else:
-                per_check, source = SECONDS_PER_CHECK_GUESS, "guess"
-        watched = conn.execute("SELECT COUNT(*) n FROM containers WHERE monitored = 1 AND gone = 0").fetchone()["n"]
+        per_check_s, source = per_check(conn)
+        watched = watched_count(conn)
         return {
             "complete": settings.get(conn, "setup.complete"),
             "ai_connected": server is not None,
             "model": server["model"] if server else None,
             "interval_minutes": settings.get(conn, "checks.interval_minutes"),
-            "seconds_per_check": per_check, "per_check_source": source,
+            "seconds_per_check": per_check_s, "per_check_source": source,
             "watched": watched,
         }
 

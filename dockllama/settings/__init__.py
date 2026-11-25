@@ -33,6 +33,12 @@ def _bool(v: Any) -> bool:
     raise SettingError("must be true or false")
 
 
+def _opt_seconds(v: Any) -> float | None:
+    if v is None or (isinstance(v, (int, float)) and not isinstance(v, bool) and v >= 0):
+        return v
+    raise SettingError("must be a number of seconds")
+
+
 def _opt_str(v: Any) -> str | None:
     if v is None or isinstance(v, str):
         return v
@@ -129,6 +135,8 @@ REGISTRY: dict[str, Setting] = {
     "ai.active_prompt": Setting(0, _prompt_id),  # 0 = the built-in Default; otherwise prompts.id  # leave Qwen-based models out of suggestions
     "checks.interval_minutes": Setting(10, _minutes),
     "checks.log_lines": Setting(300, _log_lines),
+    # How long the last full check round took (measured), for the "how often" guard.
+    "checks.last_round_s": Setting(None, _opt_seconds, exportable=False),
     # How long check history, evidence, CPU/RAM history and the event log are kept.
     # Model test results, settings and each container's current status are always kept.
     "data.retention_days": Setting(30, _days),

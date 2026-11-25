@@ -577,7 +577,7 @@ class Runner:
         self.current_run = run["id"]
         self._stop_reason = None
         outcome: dict
-        async with ai_queue.lock():  # waits here while a check round is using the AI
+        async with ai_queue.turn("test", model.name):  # waits here while a check round is using the AI
             self.progress.phase = "loading"
             status_now = await run_in_threadpool(self._run_status, run["id"])
             if status_now != "running":  # paused or cancelled while it waited
