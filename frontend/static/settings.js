@@ -156,6 +156,42 @@ function fixingSection() {
     f: null, error: '',
     withCurrent(list, value) { return [...new Set([...list, value])].sort((a, b) => a - b); },
     async load() { try { this.f = await api('api/fixing'); } catch (e) { this.error = e.message; } },
+    // --- Auto-restart and the containers it covers -------------------------------------------------
+    picking: false, cov: null, chosen: {}, busy: false,
+    chooseWatch() { this.picking = false; if (this.f.mode !== 'watch') this.save({mode: 'watch'}); },
+    chooseAuto() { if (this.f.mode !== 'auto') this.openPicker(true); },
+    async openPicker(fresh = false) {
+      this.picking = true; this.cov = null; this.error = '';
+      try {
+        this.cov = await api('api/fixing/coverage');
+        const chosen = {};
+        for (const m of this.cov.machines) for (const c of m.containers) {
+          // Turning Auto-restart on for the first time: everything it can restart starts ticked.
+          chosen[c.id] = fresh && this.f.coverage.covered === 0 ? (!c.never && m.allows_restart) : c.allowed;
+        }
+        this.chosen = chosen;
+      } catch (e) { this.error = e.message; this.picking = false; }
+    },
+    pickable() { return this.cov ? this.cov.machines.flatMap(m => m.allows_restart ? m.containers.filter(c => !c.never) : []) : []; },
+    pickAll(on) { const ch = {...this.chosen}; for (const c of this.pickable()) ch[c.id] = on; this.chosen = ch; },
+    pickedCount() { return this.pickable().filter(c => this.chosen[c.id]).length; },
+    pickerButton() {
+      const n = this.pickedCount(), what = n === 1 ? '1 container' : n + ' containers';
+      if (this.f.mode !== 'auto') return n ? 'Turn on auto-restart for ' + what : 'Pick at least one container';
+      return 'Save (' + what + ')';
+    },
+    async confirmPicker() {
+      const ids = this.pickable().filter(c => this.chosen[c.id]).map(c => c.id);
+      if (this.f.mode !== 'auto' && !ids.length) return;
+      this.busy = true; this.error = '';
+      try {
+        this.f = await api('api/fixing/coverage', {method: 'PUT', body: {allowed_ids: ids, turn_on: this.f.mode !== 'auto'}});
+        this.picking = false; this.$dispatch('toast', 'Saved.');
+      } catch (e) { this.error = e.message; }
+      this.busy = false;
+    },
+    cancelPicker() { this.picking = false; },
+
     // --- How often to check: a slider coloured by how busy the AI server would be ----------------
     sliderIdx: 0, snapNote: '',
     steps() {

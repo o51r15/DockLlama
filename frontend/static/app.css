@@ -86,7 +86,7 @@ nav.side a.active { background: var(--surface-2); color: var(--text); }
   padding: calc(var(--space) * 2) calc(var(--space) * 3); margin-bottom: calc(var(--space) * 2); }
 .panel.narrow { max-width: 420px; }
 .row-between { display: flex; justify-content: space-between; align-items: center; gap: var(--space); }
-.pill { font-size: 13px; font-weight: 700; padding: 3px 10px; border-radius: 999px; background: var(--surface-2); }
+.pill { font-size: 13px; font-weight: 700; padding: 3px 10px; border-radius: 999px; background: var(--surface-2); white-space: nowrap; }
 .pill.ok { color: var(--ok); } .pill.bad { color: var(--bad); }
 .success { margin-top: calc(var(--space) * 2); color: var(--ok); }
 .warn-text { color: var(--warn); }
@@ -341,3 +341,33 @@ table.prompt-results td:nth-child(3), table.prompt-results td:nth-child(4) { whi
 .interval-slider input[type=range]::-moz-range-thumb { width: 16px; height: 16px; border-radius: 50%;
   background: var(--text); border: 3px solid var(--bg); cursor: pointer; }
 .interval-ends { display: flex; justify-content: space-between; font-size: 12px; color: var(--muted); margin-top: 6px; }
+
+/* Settings → Checking and fixing → Auto-restart: what it covers */
+.mode-auto > label.check { margin: 0; }
+.coverage-line { display: flex; flex-wrap: wrap; align-items: center; gap: 6px 12px; margin: 10px 0 2px 28px; }
+.coverage-line button { width: auto; margin: 0 0 0 auto; }
+.coverage-picker { margin: 12px 0 2px 28px; padding-top: 12px; border-top: 1px solid var(--border); }
+.picker-head { display: flex; align-items: baseline; justify-content: space-between; gap: 12px; margin-bottom: 6px; }
+.picker-links { font-size: 13px; color: var(--muted); white-space: nowrap; }
+.picker-links button.link { padding: 2px 4px; font-size: 13px; }
+.picker-machine { margin-top: 12px; }
+.picker-machine-head { display: flex; align-items: center; gap: 8px; font-size: 13px; font-weight: 600;
+  color: var(--muted); text-transform: uppercase; letter-spacing: 0.04em; margin-bottom: 6px; }
+.picker-machine-head .badge { text-transform: none; letter-spacing: 0; font-weight: 500; margin: 0; }
+.picker-note { font-size: 13px; color: var(--warn); margin: 0 0 8px; }
+.picker-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(230px, 1fr)); gap: 2px 16px; }
+.picker-row { display: flex; align-items: center; gap: 10px; padding: 6px 4px; border-radius: 6px; cursor: pointer; min-width: 0; }
+.picker-row:hover { background: var(--surface-2); }
+.picker-row.off { cursor: default; opacity: 0.55; }
+.picker-row.off:hover { background: none; }
+.picker-row .switch { transform: scale(0.85); transform-origin: left center; margin-right: -4px; }
+.picker-name { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.picker-row .hint { margin-left: auto; white-space: nowrap; font-size: 12px; }
+.picker-foot { display: flex; gap: 8px; margin-top: 14px; }
+.picker-foot button { width: auto; margin: 0; }
+
+/* Container page: whether Auto-restart covers this container */
+.restart-status { display: flex; flex-wrap: wrap; align-items: center; gap: 4px 10px; font-size: 14px; margin-bottom: 10px; }
+.restart-status.warn { color: var(--warn); }
+.restart-status.grey { color: var(--muted); }
+.restart-status a { color: var(--accent); }

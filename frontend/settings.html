@@ -436,20 +436,78 @@
       <template x-if="f">
         <div>
           <h2>Mode</h2>
-          <label class="check radio-card" :class="{picked: f.mode === 'watch'}">
-            <input type="radio" value="watch" x-model="f.mode" @change="save({mode: f.mode})">
+          <label class="check radio-card" :class="{picked: f.mode === 'watch' && !picking}">
+            <input type="radio" name="mode" value="watch" :checked="f.mode === 'watch' && !picking" @change="chooseWatch()">
             <span><strong>Watch only (recommended to start)</strong><br>
               <span class="hint">DockLlama tells you about problems and never restarts anything.</span></span>
           </label>
-          <label class="check radio-card" :class="{picked: f.mode === 'auto'}">
-            <input type="radio" value="auto" x-model="f.mode" @change="save({mode: f.mode})">
-            <span><strong>Auto-restart</strong><br>
-              <span class="hint">DockLlama restarts a stuck container when a restart would help, but only containers you
-                allow (on each container's page). It never restarts crash loops, out-of-memory kills or stopped
-                containers (Docker already handles those), itself, or the container running your AI.</span></span>
-          </label>
-          <div class="hint" x-show="f.mode === 'auto'"
-               x-text="f.allowed.length ? 'Allowed to restart: ' + f.allowed.join(', ') + '.' : 'No containers are allowed to restart yet. Turn it on in each container\'s page (Dashboard → container → Automatic restart).'"></div>
+          <div class="radio-card mode-auto" :class="{picked: f.mode === 'auto' || picking}">
+            <label class="check">
+              <input type="radio" name="mode" value="auto" :checked="f.mode === 'auto' || picking" @change="chooseAuto()">
+              <span><strong>Auto-restart</strong><br>
+                <span class="hint">When a container gets stuck and a restart would help, DockLlama restarts it, for the
+                  containers you choose. Crash loops, out-of-memory kills and stopped containers are left to Docker,
+                  which already handles them. DockLlama never restarts itself or the container running your AI.</span></span>
+            </label>
+
+            <!-- What Auto-restart covers, once it's on -->
+            <div class="coverage-line" x-show="f.mode === 'auto' && !picking">
+              <span class="pill" :class="f.coverage.covered ? 'ok' : 'warn'"
+                    x-text="f.coverage.covered ? 'Covers ' + f.coverage.covered + ' of ' + f.coverage.watched + ' watched containers'
+                                               : 'Covers no containers yet'"></span>
+              <span class="hint" x-show="f.coverage.not_allowed"
+                    x-text="f.coverage.not_allowed + (f.coverage.not_allowed === 1 ? ' isn\'t' : ' aren\'t') + ' chosen'"></span>
+              <span class="hint" x-show="f.coverage.machine_watch_only"
+                    x-text="f.coverage.machine_watch_only + ' on a machine set to watch only'"></span>
+              <button class="secondary small" @click="openPicker()">Choose containers</button>
+            </div>
+
+            <!-- Choosing containers: unfolds in place -->
+            <div class="coverage-picker" x-show="picking" x-transition.opacity.duration.150ms>
+              <div class="picker-head">
+                <strong>Which containers may DockLlama restart?</strong>
+                <span class="picker-links">
+                  <button class="link" @click="pickAll(true)">All</button> ·
+                  <button class="link" @click="pickAll(false)">None</button>
+                </span>
+              </div>
+              <p class="hint" x-show="!cov">Loading your containers…</p>
+              <template x-if="cov">
+                <div>
+                  <p class="hint" x-show="!cov.machines.length">You aren't watching any containers yet (Settings → Containers).</p>
+                  <template x-for="m in cov.machines" :key="m.id">
+                    <div class="picker-machine">
+                      <div class="picker-machine-head">
+                        <span x-text="m.kind === 'local' ? 'This machine' : m.name"></span>
+                        <span class="badge" :class="m.allows_restart ? 'sug' : 'warnb'"
+                              x-text="m.allows_restart ? 'Restarts allowed' : 'Watch only'"></span>
+                      </div>
+                      <div class="picker-note" x-show="!m.allows_restart">
+                        This machine's DockLlama Remote only allows watching. To allow restarts there, change
+                        <code>DOCKLLAMA_REMOTE_RESTARTS=no</code> to <code>yes</code> in its compose file and recreate it.
+                      </div>
+                      <div class="picker-grid">
+                        <template x-for="c in m.containers" :key="c.id">
+                          <label class="picker-row" :class="{off: c.never || !m.allows_restart}">
+                            <span class="switch"><input type="checkbox" :disabled="!!c.never || !m.allows_restart"
+                                   :checked="!c.never && m.allows_restart && !!chosen[c.id]"
+                                   @change="chosen[c.id] = $event.target.checked"><span></span></span>
+                            <span class="picker-name" x-text="c.name"></span>
+                            <span class="hint" x-show="c.never" x-text="'never · ' + c.never"></span>
+                          </label>
+                        </template>
+                      </div>
+                    </div>
+                  </template>
+                </div>
+              </template>
+              <div class="picker-foot">
+                <button class="small" @click="confirmPicker()" :disabled="busy || !cov || (f.mode !== 'auto' && !pickedCount())"
+                        x-text="pickerButton()"></button>
+                <button class="secondary small" @click="cancelPicker()">Cancel</button>
+              </div>
+            </div>
+          </div>
 
           <h2>Limits</h2>
           <div class="limit-line">Wait at least
@@ -611,8 +669,13 @@
           <div class="row-between">
             <div>
               <strong x-text="m.name"></strong>
+              <span class="badge" :class="m.kind === 'local' || m.allows_restart ? 'sug' : 'warnb'"
+                    x-text="m.kind === 'local' || m.allows_restart ? 'Restarts allowed' : 'Watch only'"></span>
               <div class="hint" x-show="m.connected" x-text="'Docker ' + m.docker_version + ' · ' + m.container_count + ' containers'
-                    + (m.kind === 'remote' ? ' · ' + m.url + (m.allows_restart ? ' · restarts allowed' : ' · no restarts') : '')"></div>
+                    + (m.kind === 'remote' ? ' · ' + m.url : '')"></div>
+              <div class="picker-note" x-show="m.kind === 'remote' && !m.allows_restart">DockLlama can't restart containers here.
+                To allow it, change <code>DOCKLLAMA_REMOTE_RESTARTS=no</code> to <code>yes</code> in this machine's compose file
+                and recreate the Remote.</div>
             </div>
             <div class="actions-row tight">
               <span class="pill" :class="m.connected ? 'ok' : 'bad'" x-text="m.connected ? 'Connected' : 'Not connected'"></span>

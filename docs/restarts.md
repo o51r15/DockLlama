@@ -1,8 +1,18 @@
 # Restarts and quiet hours
 
-DockLlama starts in **Watch only**: it tells you about problems and never restarts anything. Switch to
-**Auto-restart** in Settings → Checking and fixing, and allow it per container (on the container's
-page, under Automatic restart).
+DockLlama starts in **Watch only**: it tells you about problems and never restarts anything.
+
+To turn restarts on, pick **Auto-restart** in Settings → Checking and fixing. The list of watched containers
+opens right there, grouped by machine, with every container DockLlama can restart already switched on.
+Switch off any you'd rather leave alone, then click **Turn on auto-restart for N containers**.
+
+Once it's on, the Auto-restart card says how much it covers, for example "Covers 12 of 22 watched
+containers · 6 aren't chosen · 4 on a machine set to watch only". **Choose containers** opens the list
+again. Each container's page also says whether DockLlama will restart it, and why not if it won't.
+
+Containers on another machine can only be restarted if that machine's DockLlama Remote allows it
+(`DOCKLLAMA_REMOTE_RESTARTS=yes` in its compose file). The list, the Machines page and the container page
+show "Watch only" for machines that don't, with that line.
 
 ## When it restarts
 
@@ -11,7 +21,8 @@ All of these must be true:
 - Auto-restart is on, and the container is allowed;
 - the machine allows restarts (always for this machine; for other machines, see [Watching other machines](other-machines.md));
 - the container is running, and either the AI says it's broken **and** that a restart would help, or
-  Docker's health check has failed 3 checks in a row (Docker doesn't restart unhealthy containers itself);
+  Docker's health check has failed 3 checks in a row (Docker doesn't restart unhealthy containers itself),
+  or its [web page check](how-checks-work.md#web-page-check) has failed 3 checks in a row;
 - it isn't quiet hours, the wait since its last restart has passed (default 5 minutes), and it's under
   the limit (default 3 restarts in any hour).
 

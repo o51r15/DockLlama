@@ -111,6 +111,7 @@ async def detail(db_id: int):
         "stats": [dict(s) for s in stats],
         "restarts": [{"at": r["at"], **json.loads(r["data"])} for r in restarts],
         "can_restart": can_restart, "why_not_restart": why_not, "now": time.time(),
+        "machine_allows_restart": bool(row["machine_allows_restart"]),
     }
 
 

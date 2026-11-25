@@ -5,11 +5,15 @@ from __future__ import annotations
 from fastapi import APIRouter, HTTPException
 from pydantic import BaseModel
 
+import asyncio
 import math
 
 from .. import db, settings
 from ..restarts import in_quiet_hours
 from .setup import per_check, watched_count
+from starlette.concurrency import run_in_threadpool
+
+from .. import machines
 
 HEADROOM = 1.25  # an interval must leave a quarter of a round spare
 
@@ -53,9 +57,67 @@ def get_fixing():
         out["round_seconds"], out["round_measured"] = round_time(conn)
         out["min_interval"] = min_interval(out["round_seconds"])
         out["timezone"] = settings.get(conn, "general.timezone")
-        out["allowed"] = [r["name"] for r in conn.execute(
-            "SELECT name FROM containers WHERE allow_auto_restart = 1 AND gone = 0 ORDER BY name")]
+        out["coverage"] = coverage_counts(conn)
         return out
+
+
+def coverage_counts(conn) -> dict:
+    """How many watched containers Auto-restart actually covers, and why the rest aren't."""
+    rows = conn.execute("SELECT c.allow_auto_restart, m.allows_restart FROM containers c JOIN machines m "
+                        "ON m.id = c.machine_id WHERE c.monitored = 1 AND c.gone = 0 AND m.enabled = 1").fetchall()
+    return {"watched": len(rows),
+            "covered": sum(1 for r in rows if r["allow_auto_restart"] and r["allows_restart"]),
+            "not_allowed": sum(1 for r in rows if not r["allow_auto_restart"] and r["allows_restart"]),
+            "machine_watch_only": sum(1 for r in rows if not r["allows_restart"])}
+
+
+@router.get("/coverage")
+async def coverage():
+    """Every watched container, grouped by machine, for choosing which ones Auto-restart covers."""
+    def read():
+        with db.session() as conn:
+            ms = [dict(r) for r in conn.execute("SELECT id, name, kind, allows_restart FROM machines "
+                                                "WHERE enabled = 1 ORDER BY kind = 'local' DESC, name")]
+            cs = conn.execute("SELECT id, machine_id, name, allow_auto_restart FROM containers "
+                              "WHERE monitored = 1 AND gone = 0 ORDER BY name COLLATE NOCASE").fetchall()
+            return ms, cs, coverage_counts(conn)
+    ms, cs, counts = await run_in_threadpool(read)
+
+    async def never_for(m) -> dict[str, str] | None:
+        """DockLlama itself and the container running the AI are never restarted. None when the
+        machine can't be reached quickly; the list still shows, without those marks."""
+        try:
+            infos = await asyncio.wait_for(machines.get_machine(m["id"]).alist_containers(), timeout=3)
+        except (machines.MachineError, asyncio.TimeoutError):
+            return None
+        return {i.name: ("DockLlama itself" if i.is_self else "runs your AI") for i in infos if i.is_self or i.is_ollama}
+
+    nevers = await asyncio.gather(*(never_for(m) for m in ms))  # all machines at once
+    out = []
+    for m, found in zip(ms, nevers):
+        never, reachable = found or {}, found is not None
+        mine = [{"id": c["id"], "name": c["name"], "allowed": bool(c["allow_auto_restart"]),
+                 "never": never.get(c["name"])} for c in cs if c["machine_id"] == m["id"]]
+        if mine:
+            out.append({**m, "allows_restart": bool(m["allows_restart"]), "reachable": reachable, "containers": mine})
+    return {"machines": out, "counts": counts}
+
+
+class CoverageBody(BaseModel):
+    allowed_ids: list[int]          # watched containers Auto-restart may restart; every other one is turned off
+    turn_on: bool = False           # also switch the mode to Auto-restart, in the same step
+
+
+@router.put("/coverage")
+def set_coverage(body: CoverageBody):
+    allowed = set(body.allowed_ids)
+    with db.session() as conn, db.transaction(conn):
+        watched = [r["id"] for r in conn.execute("SELECT id FROM containers WHERE monitored = 1 AND gone = 0")]
+        for cid in watched:
+            conn.execute("UPDATE containers SET allow_auto_restart = ? WHERE id = ?", (int(cid in allowed), cid))
+        if body.turn_on:
+            settings.set(conn, "fixing.mode", "auto")
+    return get_fixing()
 
 
 class FixingBody(BaseModel):

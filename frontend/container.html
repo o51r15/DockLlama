@@ -156,9 +156,14 @@
         </template>
         <template x-if="!(c.info && (c.info.is_self || c.info.is_ollama))">
           <div>
-            <label class="check"><input type="checkbox" :checked="c.allow_auto_restart" @change="setRestart({allow_auto_restart: $event.target.checked})">
+            <div class="restart-status" :class="restartStatus().tone">
+              <span class="dot" :class="restartStatus().tone === 'ok' ? 'ok' : (restartStatus().tone === 'warn' ? 'warn' : 'grey')"></span>
+              <span x-text="restartStatus().text"></span>
+              <a href="settings#fixing" x-show="restartStatus().link" x-text="restartStatus().link"></a>
+            </div>
+            <label class="check"><input type="checkbox" :checked="c.allow_auto_restart" :disabled="!c.machine_allows_restart"
+                   @change="setRestart({allow_auto_restart: $event.target.checked})">
               <span>Allow DockLlama to restart this container when it's stuck</span></label>
-            <div class="hint" x-text="fixing && fixing.mode === 'auto' ? 'Auto-restart is on.' : 'Only takes effect when Settings → Checking and fixing is set to Auto-restart (it is Watch only now).'"></div>
             <label>Restart together with (group name)</label>
             <div class="inline-form narrow-form">
               <input type="text" x-model="group" placeholder="e.g. media" maxlength="40">
@@ -248,6 +253,17 @@ function page() {
         document.title = this.c.name + ' · DockLlama';
       }
       catch (e) { this.error = e.message; }
+    },
+    restartStatus() {
+      const auto = this.fixing && this.fixing.mode === 'auto';
+      if (!this.c.machine_allows_restart)
+        return {tone: 'warn', text: this.c.machine + ' only allows watching, so DockLlama can\'t restart containers there. '
+                + 'To change that, set DOCKLLAMA_REMOTE_RESTARTS=yes in its DockLlama Remote compose file.'};
+      if (!auto)
+        return {tone: 'grey', text: 'Auto-restart is off for every container (Watch only).', link: 'Change in Settings'};
+      if (!this.c.allow_auto_restart)
+        return {tone: 'warn', text: 'Auto-restart is on, but not for this container. Turn it on below.'};
+      return {tone: 'ok', text: 'DockLlama will restart this container if it gets stuck.'};
     },
     async checkNow() {
       this.checking = true;
