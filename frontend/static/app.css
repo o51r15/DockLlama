@@ -316,3 +316,15 @@ h3 { font-size: 15px; margin: 18px 0 4px; }
 .limit-line { margin-top: 10px; display: flex; flex-wrap: wrap; align-items: center; gap: 8px; }
 .limit-line select, .limit-line input[type=time] { width: auto; max-width: 110px; margin: 0; padding: 6px 8px; }
 .steps-list { padding-left: 20px; margin: 10px 0 6px; }
+
+/* Settings → Advanced → AI instructions */
+.prompt-tabs { display: flex; flex-wrap: wrap; gap: 6px; margin: 8px 0 12px; }
+.prompt-tabs button, .panel .actions-row.tight button, .prompt-run { width: auto; margin: 0; }
+.prompt-text { width: 100%; min-height: 360px; font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+  font-size: 13px; line-height: 1.45; }
+.prompt-text[readonly] { opacity: 0.85; }
+.prompt-format { white-space: pre-wrap; font-size: 12px; background: var(--surface-2); padding: 10px;
+  border-radius: var(--radius); }
+table.prompt-results { width: 100%; border-collapse: collapse; margin: 8px 0 12px; font-size: 14px; }
+table.prompt-results th, table.prompt-results td { text-align: left; padding: 6px 8px; border-bottom: 1px solid var(--border); }
+table.prompt-results td:nth-child(3), table.prompt-results td:nth-child(4) { white-space: nowrap; }

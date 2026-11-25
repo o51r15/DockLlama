@@ -57,6 +57,17 @@ To keep it that way:
 - **Links are removed from everything the AI writes**, for every model: web addresses, markdown links and email addresses become "[link removed]" before anything is stored, shown or sent in a notification. File names (config.yml) and plain IP addresses are kept.
 - **No tools for Qwen-based models.** If a later DockLlama version ever gives models tools, Qwen-based models won't get them until more is known.
 
+## Your own AI instructions (Advanced)
+
+Settings → Advanced → **AI instructions** shows the instructions that tell the AI how to judge a container. Most people should leave them alone.
+
+- **Default** is built in and can't be edited, so DockLlama updates can keep improving it.
+- **New prompt** makes Prompt 1, 2, 3… Each starts as a copy of the Default for you to change.
+- Exactly one prompt is used for checks. "Use this for checks…" switches to it from the next check; you can switch back to the Default at any time. The container page's Evidence shows which instructions judged it.
+- DockLlama always adds the answer format it needs at the end. A custom prompt can change what the AI decides, but not how its answer is read.
+- **Test this prompt** runs the same 8 test questions as model testing, with your prompt, on the models you pick. Results show only on that screen, next to each model's Default score. If you edit the prompt afterwards, older results are marked "earlier version".
+- Normal model testing, model suggestions and the "better model" banner always use the Default, so scores stay comparable.
+
 ## Advanced
 
 Per model, behind **Advanced**. Only what that model supports is shown:

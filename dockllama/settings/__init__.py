@@ -85,6 +85,12 @@ def _per_hour(v: Any) -> int:
     raise SettingError("must be 1 to 20")
 
 
+def _prompt_id(v: Any) -> int:
+    if isinstance(v, int) and not isinstance(v, bool) and v >= 0:
+        return v
+    raise SettingError("must be a prompt number")
+
+
 def _days(v: Any) -> int:
     if isinstance(v, int) and not isinstance(v, bool) and 1 <= v <= 3650:
         return v
@@ -107,7 +113,8 @@ REGISTRY: dict[str, Setting] = {
     "general.timezone": Setting("UTC", _timezone),
     "setup.complete": Setting(False, _bool),
     "ai.auto_test_new": Setting(True, _bool),
-    "ai.exclude_qwen": Setting(False, _bool),  # leave Qwen-based models out of suggestions
+    "ai.exclude_qwen": Setting(False, _bool),
+    "ai.active_prompt": Setting(0, _prompt_id),  # 0 = the built-in Default; otherwise prompts.id  # leave Qwen-based models out of suggestions
     "checks.interval_minutes": Setting(10, _minutes),
     "checks.log_lines": Setting(300, _log_lines),
     # How long check history, evidence, CPU/RAM history and the event log are kept.

@@ -184,6 +184,29 @@ def test_with_ai_and_skip_unchanged(data_dir, docker, fake):
     assert "db connection lost" in fake.servers["thor"].generate_calls[-1]["prompt"]
 
 
+def test_checks_use_the_prompt_in_use(data_dir, docker, fake):
+    """Default is sent as is; after picking Prompt 1, checks send its text plus the locked answer
+    format, and the evidence says which instructions judged the container."""
+    from dockllama import prompts as prompts_mod
+    from dockllama.evaluate import ANSWER_FORMAT, SYSTEM_PROMPT
+    setup_db([], with_ai=True)
+    fake.servers["thor"].generate_handler = verdict(status="degraded", score=60, summary="Some warnings.")
+    docker.add("web")
+    docker.log("web", "WARN slow")
+    first_round(docker)
+    assert fake.servers["thor"].generate_calls[-1]["system"] == SYSTEM_PROMPT
+    with db.session() as conn, db.transaction(conn):
+        pid = prompts_mod.create(conn, "Only call a container unhealthy if users would notice. " * 3)
+        prompts_mod.use(conn, pid)
+    docker.log("web", "WARN slower")
+    run()
+    sent = fake.servers["thor"].generate_calls[-1]["system"]
+    assert sent.startswith("Only call a container unhealthy") and sent.endswith(ANSWER_FORMAT)
+    with db.session() as conn:
+        ev = json.loads(conn.execute("SELECT evidence FROM checks ORDER BY id DESC LIMIT 1").fetchone()["evidence"])
+    assert ev["instructions"] == "Prompt 1"
+
+
 def test_rules_win_when_worse_and_ai_failure_is_never_healthy(data_dir, docker, fake):
     setup_db([], with_ai=True)
     fake.servers["thor"].generate_handler = verdict()

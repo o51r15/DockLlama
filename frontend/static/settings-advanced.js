@@ -34,3 +34,90 @@ function advancedSection() {
     seen(t) { return t ? new Date(t * 1000).toLocaleDateString() : 'never'; },
   };
 }
+
+// Settings → Advanced → AI instructions: Default (read-only) plus Prompt 1, 2, 3…, one in use.
+function promptsEditor() {
+  return {
+    open: false, understood: false, data: null, sel: 0, form: {name: '', text: ''}, dirty: false,
+    error: '', busy: false, results: null, picked: {}, poll: null, confirmUse: null,
+    async load() {
+      try { this.data = await api('api/prompts'); } catch (e) { this.error = e.message; }
+    },
+    get current() { return this.data && this.data.prompts.find(p => p.id === this.sel); },
+    get activeLabel() {
+      if (!this.data || !this.data.active) return 'Default';
+      const p = this.data.prompts.find(x => x.id === this.data.active);
+      return p ? p.label : 'Default';
+    },
+    begin() { this.open = true; this.select(this.data.active || 0); },
+    select(id) {
+      if (this.dirty && !confirm('You have unsaved changes to this prompt. Leave them?')) return;
+      this.sel = id; this.dirty = false; this.error = ''; this.results = null; this.picked = {};
+      const p = this.current;
+      this.form = p ? {name: p.name, text: p.text} : {name: '', text: this.data.default};
+      if (p) this.loadResults();
+    },
+    async create() {
+      this.error = '';
+      try {
+        const p = await api('api/prompts', {method: 'POST', body: {}});
+        await this.load(); this.dirty = false; this.select(p.id);
+      } catch (e) { this.error = e.message; }
+    },
+    async save() {
+      this.error = ''; this.busy = true;
+      try {
+        await api('api/prompts/' + this.sel, {method: 'PUT', body: this.form});
+        await this.load(); this.dirty = false; this.$dispatch('toast', 'Saved.'); this.loadResults();
+      } catch (e) { this.error = e.message; }
+      this.busy = false;
+    },
+    async remove() {
+      if (!confirm('Delete ' + this.current.label + ' and its test results? This can\'t be undone.')) return;
+      this.error = '';
+      try {
+        this.data = await api('api/prompts/' + this.sel, {method: 'DELETE'});
+        this.dirty = false; this.select(this.data.active || 0);
+      } catch (e) { this.error = e.message; }
+    },
+    async use(id) {
+      this.error = '';
+      try {
+        this.data = await api('api/prompts/active', {method: 'PUT', body: {id}});
+        this.confirmUse = null;
+        this.$dispatch('toast', id ? 'Checks now use this prompt.' : 'Checks now use the Default.');
+      } catch (e) { this.error = e.message; }
+    },
+    async loadResults() {
+      if (!this.sel) return;
+      try {
+        this.results = await api('api/prompts/' + this.sel + '/results');
+        const waiting = this.results.models.some(m => m.pending);
+        clearTimeout(this.poll);
+        if (waiting) this.poll = setTimeout(() => this.loadResults(), 3000);
+      } catch (e) { this.error = e.message; }
+    },
+    pickAll(on) { for (const m of this.results.models) this.picked[m.name] = on; },
+    get pickedNames() { return Object.keys(this.picked).filter(n => this.picked[n]); },
+    async runTest() {
+      this.error = '';
+      if (this.dirty) { this.error = 'Save your changes first, so the test uses them.'; return; }
+      try {
+        await api('api/prompts/' + this.sel + '/test', {method: 'POST', body: {names: this.pickedNames}});
+        this.picked = {}; this.$dispatch('toast', 'Testing started.');
+        setTimeout(() => this.loadResults(), 500);
+      } catch (e) { this.error = e.message; }
+    },
+    score(r) {
+      if (!r) return '—';
+      if (r.status === 'done') return Math.round(r.score) + (r.sec_per_check ? ' · ' + r.sec_per_check.toFixed(1) + ' s' : '');
+      if (r.status === 'too_slow') return 'Too slow';
+      return 'Failed';
+    },
+    diff(m) {
+      if (!m.this || !m.default || m.this.status !== 'done' || m.default.status !== 'done') return '';
+      const d = Math.round(m.this.score - m.default.score);
+      return d === 0 ? 'same' : (d > 0 ? '+' + d : String(d));
+    },
+  };
+}

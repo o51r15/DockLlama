@@ -69,6 +69,8 @@
           <div x-show="c.info"><span class="hint">Restarts</span><span x-text="c.info && c.info.restart_count"></span></div>
           <div x-show="c.info"><span class="hint">Health check</span><span x-text="c.info && (c.info.health || 'none')"></span></div>
           <div x-show="c.latest && c.latest.evidence.rule"><span class="hint">Rule</span><span x-text="c.latest && c.latest.evidence.rule"></span></div>
+          <div x-show="c.latest && c.latest.evidence.instructions && c.latest.evidence.instructions !== 'Default'">
+            <span class="hint">AI instructions</span><span x-text="c.latest && c.latest.evidence.instructions"></span></div>
         </div>
         <template x-if="c.latest && c.latest.evidence.tail && c.latest.evidence.tail.length">
           <div><div class="hint" style="margin-top:10px">Log lines behind this verdict</div>

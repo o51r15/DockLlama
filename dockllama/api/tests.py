@@ -8,7 +8,7 @@ from fastapi import APIRouter, HTTPException
 from pydantic import BaseModel
 from starlette.concurrency import run_in_threadpool
 
-from .. import ai_queue, ai_servers, catalog, db, model_tests
+from .. import ai_queue, ai_servers, catalog, db, model_tests, prompts
 from ..model_tests import RUNNER
 from ..scenarios import SCENARIOS
 
@@ -55,7 +55,11 @@ def _run_view(conn, run, hardware: str) -> dict:
     finished = sum(1 for t in tests if t["status"] not in ("queued", "running"))
     best = model_tests.best_result({i["name"]: i for i in items if i["name"] in models},
                                    model_tests.not_suggested(conn, run["server_id"]))
-    return {"run_id": run["id"], "kind": run["kind"], "mode": run["mode"], "status": run["status"],
+    prompt = None
+    if run["prompt_id"] is not None:  # a custom-prompt test: it never suggests a model
+        best = None
+        prompt = prompts.label(prompts.get(conn, run["prompt_id"]))
+    return {"run_id": run["id"], "kind": run["kind"], "mode": run["mode"], "status": run["status"], "prompt": prompt,
             "note": run["note"], "start_after": run["start_after"], "models": items, "finished": finished,
             "total": len(tests), "remaining_s": round(remaining), "suggested": best["name"] if best else None}
 
@@ -135,7 +139,7 @@ async def start_tests(body: StartBody):
             if busy is not None and body.queue:
                 # Don't test again what's already being tested or waiting to be.
                 pending = {r["name"] for r in conn.execute(
-                    "SELECT t.name FROM model_tests t JOIN test_runs r ON r.id = t.run_id WHERE t.status IN "
+                    "SELECT t.name FROM model_tests t JOIN test_runs r ON r.id = t.run_id WHERE t.prompt_id IS NULL AND t.status IN "
                     "('queued', 'running') AND r.status IN ('waiting', 'running', 'paused')")}
                 names[:] = [n for n in names if n not in pending]
                 if not names:

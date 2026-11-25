@@ -29,7 +29,7 @@ from zoneinfo import ZoneInfo
 from starlette.concurrency import run_in_threadpool
 
 from . import advanced, ai_queue, ai_servers, catalog, db, settings
-from .evaluate import RETRY_SUFFIX, SCHEMA, SYSTEM_PROMPT, AnswerError, parse_answer
+from .evaluate import RETRY_SUFFIX, SCHEMA, SYSTEM_PROMPT, AnswerError, parse_answer, system_prompt
 from .ollama import ModelDetails, OllamaClient, OllamaError, build_generate_request
 from .scenarios import SCENARIOS, score_answer
 
@@ -62,10 +62,10 @@ def _seconds(ns) -> float | None:
 
 
 async def run_scenario(client: OllamaClient, model: ModelDetails, request_settings, scenario: dict,
-                       timeout: float, retry: bool = True) -> dict:
+                       timeout: float, retry: bool = True, system: str = SYSTEM_PROMPT) -> dict:
     """Ask one scenario. Never raises for a bad answer; raises OllamaError for server problems
     (kind 'timeout' when the model took too long)."""
-    payload = build_generate_request(model, scenario["summary"], system=SYSTEM_PROMPT, schema=SCHEMA,
+    payload = build_generate_request(model, scenario["summary"], system=system, schema=SCHEMA,
                                      settings=request_settings)
     started = time.monotonic()
     responses = [await client.generate(payload, timeout=timeout)]
@@ -142,8 +142,9 @@ def fit_words(result: dict) -> str:
 
 
 async def test_model(client: OllamaClient, model: ModelDetails, clean_settings: dict, progress: Progress,
-                     keep_loaded: bool) -> dict:
-    """Run the 8 scenarios on one model. Returns the result fields for model_tests."""
+                     keep_loaded: bool, system: str = SYSTEM_PROMPT) -> dict:
+    """Run the 8 scenarios on one model. Returns the result fields for model_tests.
+    `system` is the built-in prompt except when testing a custom prompt from its own screen."""
     req = advanced.to_request(clean_settings)
     req.keep_alive = TEST_KEEP_ALIVE
     timeout = clean_settings.get("timeout") or DEFAULT_TIMEOUT
@@ -156,7 +157,7 @@ async def test_model(client: OllamaClient, model: ModelDetails, clean_settings: 
             progress.phase = "loading" if i == 0 else "testing"
             progress.scenario = i
             try:
-                r = await run_scenario(client, model, req, scenario, timeout, retry)
+                r = await run_scenario(client, model, req, scenario, timeout, retry, system)
             except OllamaError as exc:
                 if exc.kind != "timeout":
                     raise
@@ -288,8 +289,8 @@ def latest_results(conn: sqlite3.Connection, server_id: int) -> dict[str, dict]:
     digests = {r["name"]: r["digest"] for r in conn.execute(
         "SELECT name, digest FROM models WHERE server_id = ? AND installed = 1", (server_id,))}
     rows = conn.execute(
-        f"""SELECT * FROM model_tests WHERE server_id = ? AND status IN ({",".join("?" * len(FINISHED))})
-            ORDER BY finished_at""", (server_id, *FINISHED)).fetchall()
+        f"""SELECT * FROM model_tests WHERE server_id = ? AND prompt_id IS NULL
+            AND status IN ({",".join("?" * len(FINISHED))}) ORDER BY finished_at""", (server_id, *FINISHED)).fetchall()
     out = {}
     for row in rows:
         if row["name"] in digests:
@@ -300,8 +301,9 @@ def latest_results(conn: sqlite3.Connection, server_id: int) -> dict[str, dict]:
 def history(conn: sqlite3.Connection, server_id: int, name: str) -> list[dict]:
     digest = _row(conn, "SELECT digest FROM models WHERE server_id = ? AND name = ?", server_id, name)
     rows = conn.execute(
-        f"""SELECT * FROM model_tests WHERE server_id = ? AND name = ? AND status IN ({",".join("?" * len(FINISHED))})
-            ORDER BY finished_at DESC LIMIT 20""", (server_id, name, *FINISHED)).fetchall()
+        f"""SELECT * FROM model_tests WHERE server_id = ? AND name = ? AND prompt_id IS NULL
+            AND status IN ({",".join("?" * len(FINISHED))}) ORDER BY finished_at DESC LIMIT 20""",
+        (server_id, name, *FINISHED)).fetchall()
     out = []
     for row in rows:
         d = result_dict(row, digest["digest"] if digest else None)
@@ -327,17 +329,18 @@ def tonight(conn: sqlite3.Connection, now: float | None = None) -> float:
 
 
 def create_run(conn: sqlite3.Connection, server_id: int, names: list[str], kind: str, mode: str,
-               start_after: float | None = None, queued: bool = False) -> int:
-    """Caller holds a transaction. queued=True: wait for whatever is running, then start."""
+               start_after: float | None = None, queued: bool = False, prompt_id: int | None = None) -> int:
+    """Caller holds a transaction. queued=True: wait for whatever is running, then start.
+    prompt_id: a custom-prompt test (kind 'prompt'); its results never feed suggestions."""
     baseline = _row(conn, "SELECT model FROM ai_servers WHERE id = ?", server_id)["model"]
     status = "scheduled" if start_after else ("waiting" if kind == "new" or queued else "running")
     run_id = conn.execute(
-        "INSERT INTO test_runs (server_id, kind, mode, status, start_after, baseline, created_at) "
-        "VALUES (?, ?, ?, ?, ?, ?, ?)",
-        (server_id, kind, mode, status, start_after, baseline, time.time())).lastrowid
+        "INSERT INTO test_runs (server_id, kind, mode, status, start_after, baseline, created_at, prompt_id) "
+        "VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
+        (server_id, kind, mode, status, start_after, baseline, time.time(), prompt_id)).lastrowid
     for pos, name in enumerate(names):
-        conn.execute("INSERT INTO model_tests (run_id, server_id, name, position, status) VALUES (?, ?, ?, ?, 'queued')",
-                     (run_id, server_id, name, pos))
+        conn.execute("INSERT INTO model_tests (run_id, server_id, name, position, status, prompt_id) "
+                     "VALUES (?, ?, ?, ?, 'queued', ?)", (run_id, server_id, name, pos, prompt_id))
     return run_id
 
 
@@ -351,7 +354,7 @@ def queue_new_models(conn: sqlite3.Connection, server_id: int, names: list[str])
         row = _row(conn, "SELECT * FROM models WHERE server_id = ? AND name = ? AND installed = 1", server_id, name)
         if row is not None and ai_servers.model_from_row(row).usable:
             queued = _row(conn, "SELECT 1 FROM model_tests t JOIN test_runs r ON r.id = t.run_id WHERE "
-                                "t.server_id = ? AND t.name = ? AND t.status IN ('queued', 'running') "
+                                "t.server_id = ? AND t.name = ? AND t.prompt_id IS NULL AND t.status IN ('queued', 'running') "
                                 "AND r.status IN ('waiting', 'scheduled', 'running', 'paused')", server_id, name)
             if queued is None:
                 usable.append(name)
@@ -553,11 +556,22 @@ class Runner:
                          server["id"], test["name"])
                 clean = json.loads(s["settings"]) if s else {}
                 model = ai_servers.model_from_row(model_row)
+                system = SYSTEM_PROMPT
+                prompt_rev = None
+                if run["prompt_id"] is not None:
+                    p = _row(conn, "SELECT text, revision FROM prompts WHERE id = ?", run["prompt_id"])
+                    if p is None:  # the prompt was deleted while its test waited (normally cascades)
+                        conn.execute("UPDATE test_runs SET status = 'cancelled', finished_at = ? WHERE id = ?",
+                                     (time.time(), run["id"]))
+                        continue
+                    system, prompt_rev = system_prompt(p["text"]), p["revision"]
                 conn.execute("UPDATE model_tests SET status = 'running', started_at = ?, digest = ?, settings = ?, "
-                             "scenario = 0 WHERE id = ?", (time.time(), model.digest, json.dumps(clean), test["id"]))
-                return dict(run), dict(test), model, clean, dict(server)
+                             "scenario = 0, prompt_rev = ? WHERE id = ?",
+                             (time.time(), model.digest, json.dumps(clean), prompt_rev, test["id"]))
+                return dict(run), dict(test), model, clean, dict(server), system
 
-    async def _run(self, run: dict, test: dict, model: ModelDetails, clean: dict, server: dict) -> None:
+    async def _run(self, run: dict, test: dict, model: ModelDetails, clean: dict, server: dict,
+                   system: str = SYSTEM_PROMPT) -> None:
         client = OllamaClient(server["address"])
         self.progress = Progress(test["id"], model.name, phase="waiting")
         self.current_run = run["id"]
@@ -581,7 +595,7 @@ class Runner:
             try:
                 if self._stop_reason is not None:  # paused or cancelled while it was getting ready
                     raise asyncio.CancelledError
-                self._current = asyncio.create_task(test_model(client, model, clean, self.progress, keep))
+                self._current = asyncio.create_task(test_model(client, model, clean, self.progress, keep, system))
                 outcome = await self._current
             except asyncio.CancelledError:
                 if self._stop_reason is None:

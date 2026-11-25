@@ -90,6 +90,22 @@ Respond with ONLY a JSON object:
 - When in doubt, score higher. Missing a minor problem is better than an unnecessary restart.
 - Keep summaries factual and brief."""
 
+# The answer format DockLlama needs is never editable: a custom prompt replaces the instructions
+# around it, and this block is added at the end. The built-in prompt is sent exactly as above,
+# so scores from before custom prompts existed stay comparable.
+_FORMAT_AT = SYSTEM_PROMPT.index("## Response format")
+_RULES_AT = SYSTEM_PROMPT.index("## Rules")
+ANSWER_FORMAT = SYSTEM_PROMPT[_FORMAT_AT:_RULES_AT].strip()
+DEFAULT_INSTRUCTIONS = (SYSTEM_PROMPT[:_FORMAT_AT] + SYSTEM_PROMPT[_RULES_AT:]).strip()
+
+
+def system_prompt(instructions: str | None = None) -> str:
+    """The full prompt sent to the AI: the built-in one, or custom instructions + the locked format."""
+    if instructions is None:
+        return SYSTEM_PROMPT
+    return instructions.strip() + "\n\n" + ANSWER_FORMAT
+
+
 RETRY_SUFFIX = "\n\nIMPORTANT: Your previous response was not valid JSON. Respond with ONLY valid JSON."
 
 SCHEMA = {

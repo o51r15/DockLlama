@@ -324,6 +324,26 @@ def _m009_qwen_based(conn: sqlite3.Connection) -> None:
     """)
 
 
+def _m010_prompts(conn: sqlite3.Connection) -> None:
+    # Alternative AI instructions (Settings → Advanced). Exactly one prompt is active: the
+    # built-in Default (setting ai.active_prompt = 0) or one of these. Tests of a custom prompt
+    # use the normal test runner but are tagged with prompt_id and never feed suggestions.
+    _run(conn, """
+        CREATE TABLE prompts (
+            id         INTEGER PRIMARY KEY,
+            number     INTEGER NOT NULL UNIQUE,   -- shown as "Prompt 1", "Prompt 2"…; lowest free number
+            name       TEXT NOT NULL DEFAULT '',
+            text       TEXT NOT NULL,             -- the instructions; the answer format is added by DockLlama
+            revision   INTEGER NOT NULL DEFAULT 1,
+            created_at REAL NOT NULL,
+            updated_at REAL NOT NULL
+        );
+        ALTER TABLE test_runs ADD COLUMN prompt_id INTEGER REFERENCES prompts(id) ON DELETE CASCADE;
+        ALTER TABLE model_tests ADD COLUMN prompt_id INTEGER REFERENCES prompts(id) ON DELETE CASCADE;
+        ALTER TABLE model_tests ADD COLUMN prompt_rev INTEGER
+    """)
+
+
 MIGRATIONS: list[Callable[[sqlite3.Connection], None]] = [
     _m001_initial,
     _m002_machines_containers,
@@ -334,6 +354,7 @@ MIGRATIONS: list[Callable[[sqlite3.Connection], None]] = [
     _m007_restarts,
     _m008_gpu_share,
     _m009_qwen_based,
+    _m010_prompts,
 ]
 
 LATEST = len(MIGRATIONS)

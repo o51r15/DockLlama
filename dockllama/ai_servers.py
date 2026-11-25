@@ -45,7 +45,7 @@ def find_match(conn: sqlite3.Connection, address: str, fingerprint: list[str]) -
         if best is None:
             return None
     tested = conn.execute(
-        "SELECT COUNT(DISTINCT name) n FROM model_tests WHERE server_id = ? AND status = 'done'", (best["id"],)
+        "SELECT COUNT(DISTINCT name) n FROM model_tests WHERE server_id = ? AND status = 'done' AND prompt_id IS NULL", (best["id"],)
     ).fetchone()["n"]
     return Match(best["id"], best["name"], best["address"], how, tested)
 

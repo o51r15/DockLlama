@@ -21,7 +21,7 @@ from dataclasses import asdict, dataclass, field
 
 from starlette.concurrency import run_in_threadpool
 
-from . import advanced, ai_queue, ai_servers, analyzer, db, machines, rules, settings
+from . import advanced, ai_queue, ai_servers, analyzer, db, machines, prompts, rules, settings
 from .evaluate import RETRY_SUFFIX, SCHEMA, SYSTEM_PROMPT, AnswerError, parse_answer
 from .ollama import OllamaClient, OllamaError, build_generate_request, truncation_warnings
 from .redact import redact
@@ -31,7 +31,7 @@ log = logging.getLogger("dockllama.checks")
 MAX_LINE_CHARS = 2000
 FULL_CHECK_EVERY = 6 * 3600  # ask the AI at least this often even when nothing changed
 COLLECT_AT_ONCE = 6
-SYSTEM_PROMPT_TOKENS = 1300  # measured: the evaluate prompt is ~1.2K tokens
+SYSTEM_PROMPT_TOKENS = 1300  # measured: the built-in evaluate prompt is ~1.2K tokens
 CHARS_PER_TOKEN = 3.5
 DEFAULT_AI_TIMEOUT = 120
 
@@ -168,7 +168,8 @@ def facts_line(f: rules.Facts) -> str:
     return ", ".join(bits)
 
 
-def build_prompt(c: Collected, notes: str, interval_minutes: int, num_ctx: int) -> tuple[str, analyzer.LogSummary]:
+def build_prompt(c: Collected, notes: str, interval_minutes: int, num_ctx: int,
+                 system: str = SYSTEM_PROMPT) -> tuple[str, analyzer.LogSummary]:
     """The container's summary, trimmed to fit ~75% of the context window (plan 8.2)."""
     row = c.row
     summary = analyzer.analyze(c.lines, json.loads(row.get("ignore_patterns") or "[]"),
@@ -176,7 +177,8 @@ def build_prompt(c: Collected, notes: str, interval_minutes: int, num_ctx: int) 
     resources = (f"CPU {c.cpu if c.cpu is not None else 'N/A'}%"
                  f" | RAM {c.mem if c.mem is not None else 'N/A'}%") if c.facts.state == "running" else "N/A"
     window = f"{interval_minutes} minutes" if row.get("last_log_ts") else "the most recent log lines"
-    budget_chars = int((num_ctx * 0.75 - SYSTEM_PROMPT_TOKENS) * CHARS_PER_TOKEN)
+    system_tokens = max(SYSTEM_PROMPT_TOKENS, int(len(system) / CHARS_PER_TOKEN))  # custom prompts can be longer
+    budget_chars = int((num_ctx * 0.75 - system_tokens) * CHARS_PER_TOKEN)
     for tail, patterns in ((25, 10), (15, 8), (10, 5), (5, 3), (3, 2)):
         text = analyzer.build_prompt(row["name"], summary, facts_line=facts_line(c.facts), resources=resources,
                                      window=window, notes=notes, tail_lines=tail, max_patterns=patterns)
@@ -185,10 +187,11 @@ def build_prompt(c: Collected, notes: str, interval_minutes: int, num_ctx: int) 
     return text[:max(budget_chars, 1000)], summary
 
 
-async def ask_ai(client: OllamaClient, model, clean: dict, prompt: str, interval_minutes: int) -> dict:
+async def ask_ai(client: OllamaClient, model, clean: dict, prompt: str, interval_minutes: int,
+                 system: str = SYSTEM_PROMPT) -> dict:
     """One verdict. Returns {verdict | error, model, duration_s, prompt_tokens, done_reason, warnings}."""
     req = advanced.to_request(clean, interval_minutes)
-    payload = build_generate_request(model, prompt, system=SYSTEM_PROMPT, schema=SCHEMA, settings=req)
+    payload = build_generate_request(model, prompt, system=system, schema=SCHEMA, settings=req)
     timeout = clean.get("timeout") or DEFAULT_AI_TIMEOUT
     started = time.monotonic()
     out = {"model": model.name}
@@ -204,7 +207,7 @@ async def ask_ai(client: OllamaClient, model, clean: dict, prompt: str, interval
             resp = await client.generate(again, timeout=timeout)
             verdict = parse_answer(resp.get("response", ""))
         out.update(verdict=verdict, prompt_tokens=resp.get("prompt_eval_count"), done_reason=resp.get("done_reason"),
-                   warnings=truncation_warnings(payload, resp, len(SYSTEM_PROMPT) + len(prompt)))
+                   warnings=truncation_warnings(payload, resp, len(system) + len(prompt)))
     except OllamaError as exc:
         out["error"] = str(exc)
     except AnswerError as exc:
@@ -237,6 +240,8 @@ def _save(conn, c: Collected, status: str, source: str, summary: str, what_to_do
     interesting = status not in ("healthy", "stopped") or state is None or state["status"] != status
     evidence = {"facts": asdict(c.facts) if c.facts else None, "rule": c.rule.reason if c.rule else "",
                 "ai_error": (ai or {}).get("error"), "tail": c.lines[-25:] if interesting else c.lines[-3:]}
+    if ai and ai.get("instructions"):
+        evidence["instructions"] = ai["instructions"]  # which AI instructions judged it
     if interesting:
         evidence["prompt"] = prompt
     check_id = conn.execute(
@@ -302,9 +307,11 @@ async def decide(c: Collected, ai_ctx: dict | None, force_ai: bool, state: dict 
     if unchanged:
         return state["status"], "ai", state["summary"], state["what_to_do"], None, None, True
     model, clean = ai_ctx["model_for"](c.row)
+    system = ai_ctx.get("system", SYSTEM_PROMPT)
     prompt, _ = build_prompt(c, c.row.get("notes_for_ai") or "", interval_minutes,
-                             clean.get("num_ctx") or 8192)
-    ai = await ask_ai(ai_ctx["client"], model, clean, prompt, interval_minutes)
+                             clean.get("num_ctx") or 8192, system)
+    ai = await ask_ai(ai_ctx["client"], model, clean, prompt, interval_minutes, system)
+    ai["instructions"] = ai_ctx.get("prompt_label", "Default")
     if "error" in ai:
         status = rules.worse(c.rule.status or "unknown", "unknown")
         summary = f"Couldn't check: {ai['error']}"
@@ -342,6 +349,7 @@ def _load(container_ids: list[int] | None):
         server = ai_servers.connected(conn)
         interval = settings.get(conn, "checks.interval_minutes")
         log_lines = settings.get(conn, "checks.log_lines")
+        prompt_label, system = prompts.active_system(conn)
         server = dict(server) if server else None
         models = {}
         if server:
@@ -351,10 +359,11 @@ def _load(container_ids: list[int] | None):
                   conn.execute("SELECT name, settings FROM model_settings WHERE server_id = ?", (server["id"],))}
         else:
             ms = {}
-    return rows, states, server, interval, log_lines, models, ms
+    return rows, states, server, interval, log_lines, models, ms, (prompt_label, system)
 
 
-def _ai_context(server: dict | None, models: dict, model_settings: dict) -> dict | None:
+def _ai_context(server: dict | None, models: dict, model_settings: dict,
+                active_prompt: tuple[str, str] = ("Default", SYSTEM_PROMPT)) -> dict | None:
     if not server or not server.get("model") or server["model"] not in models:
         return None
     default = models[server["model"]]
@@ -366,12 +375,14 @@ def _ai_context(server: dict | None, models: dict, model_settings: dict) -> dict
         if not m.usable:
             m = default
         return m, model_settings.get(m.name, {})
-    return {"client": OllamaClient(server["address"]), "model_for": model_for, "paused": ai_queue.checks_paused}
+    return {"client": OllamaClient(server["address"]), "model_for": model_for, "paused": ai_queue.checks_paused,
+            "prompt_label": active_prompt[0], "system": active_prompt[1]}
 
 
 async def run_checks(container_ids: list[int] | None = None, force_ai: bool = False, track: bool = True) -> list[dict]:
     """Check the watched containers (or just the given ones). Returns what each one came to."""
-    rows, states, server, interval, log_lines, models, model_settings = await run_in_threadpool(_load, container_ids)
+    rows, states, server, interval, log_lines, models, model_settings, active_prompt = await run_in_threadpool(
+        _load, container_ids)
     if track:
         ROUND.__dict__.update(running=True, started_at=time.time(), finished_at=None, total=len(rows), done=0,
                               current=None, phase="collecting", note="")
@@ -422,7 +433,7 @@ async def run_checks(container_ids: list[int] | None = None, force_ai: bool = Fa
             async with sem:
                 return await collect(dockers[row["machine_id"]], row, states.get(row["id"]), log_lines)
         collected = await asyncio.gather(*(one(r) for r in rows))
-        ai_ctx = _ai_context(server, models, model_settings)
+        ai_ctx = _ai_context(server, models, model_settings, active_prompt)
         if track:
             ROUND.phase = "asking AI" if ai_ctx else "checking"
         async with ai_queue.lock():

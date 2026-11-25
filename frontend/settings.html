@@ -157,7 +157,9 @@
               <div>
                 <strong x-text="activeLine()"></strong>
                 <div class="hint" x-show="tests.active && tests.active.note" x-text="tests.active && tests.active.note"></div>
-                <div class="hint" x-show="tests.active && tests.active.status === 'waiting'">New models are waiting to be tested.</div>
+                <div class="hint" x-show="tests.active && tests.active.prompt"
+                     x-text="tests.active && ('Testing your AI instructions (' + tests.active.prompt + '), from Settings → Advanced. These results don\'t change suggestions.')"></div>
+                <div class="hint" x-show="tests.active && tests.active.status === 'waiting' && !tests.active.prompt">New models are waiting to be tested.</div>
               </div>
               <div class="actions-row tight">
                 <button class="secondary small" x-show="tests.active && tests.active.mode === 'watch'" @click="watching = tests.active.run_id">Watch</button>
@@ -725,6 +727,107 @@
               </select> new log lines from each container per check.</div>
             <div class="hint">More lines give the AI more to go on, but make each check slower and may not fit a
               model with a small context size. 300 suits most containers.</div>
+          </div>
+
+          <div class="panel" x-data="promptsEditor()" x-init="load()">
+            <h2>AI instructions</h2>
+            <p class="hint">The instructions that tell the AI how to judge a container. In use now:
+              <strong x-text="activeLabel"></strong>.</p>
+            <template x-if="!open">
+              <div>
+                <div class="warning">
+                    <p><strong>Changing these can make DockLlama miss real problems or raise false alarms.</strong>
+                      The Default was tuned and tested on many models. A prompt you write isn't, until you test it here.
+                      DockLlama always adds the answer format it needs, so a custom prompt can't break how answers are
+                      read, but it can change what the AI decides.</p>
+                    <label class="check tight"><input type="checkbox" x-model="understood">
+                      <span>I understand.</span></label>
+                </div>
+                <button class="secondary small" @click="begin()" :disabled="!understood || !data">Open the AI instructions</button>
+              </div>
+            </template>
+
+            <template x-if="open && data">
+              <div>
+                <div class="prompt-tabs">
+                  <button :class="sel === 0 ? 'small' : 'secondary small'" @click="select(0)">
+                    Default <span x-show="data.active === 0">· in use</span></button>
+                  <template x-for="p in data.prompts" :key="p.id">
+                    <button :class="sel === p.id ? 'small' : 'secondary small'" @click="select(p.id)">
+                      <span x-text="p.label"></span> <span x-show="data.active === p.id">· in use</span></button>
+                  </template>
+                  <button class="secondary small" @click="create()">+ New prompt</button>
+                </div>
+                <div class="error" x-show="error" x-text="error"></div>
+
+                <template x-if="sel === 0">
+                  <div>
+                    <p class="hint">Built into DockLlama and can't be edited, so updates can keep improving it.
+                      Model testing and model suggestions always use the Default. To change something, make a
+                      new prompt: it starts as a copy of this one.</p>
+                    <textarea class="prompt-text" readonly x-text="data.default"></textarea>
+                    <button class="small" x-show="data.active !== 0" @click="use(0)">Use the Default for checks</button>
+                  </div>
+                </template>
+
+                <template x-if="sel !== 0 && current">
+                  <div>
+                    <label>Name (optional)</label>
+                    <input type="text" maxlength="60" x-model="form.name" @input="dirty = true" placeholder="e.g. stricter about warnings">
+                    <label>Instructions</label>
+                    <textarea class="prompt-text" x-model="form.text" @input="dirty = true"></textarea>
+                    <div class="actions-row tight">
+                      <button class="small" @click="save()" :disabled="!dirty || busy">Save</button>
+                      <button class="secondary small" x-show="data.active !== sel && confirmUse !== sel" @click="confirmUse = sel">Use this for checks…</button>
+                      <button class="secondary small danger" @click="remove()">Delete</button>
+                    </div>
+                    <div class="warning" x-show="confirmUse === sel">
+                      <p>From the next check, every container is judged with <strong x-text="current.label"></strong>
+                        instead of the Default. Test it on the model you use first, below, to see whether it does better.</p>
+                      <button class="small" @click="use(sel)" :disabled="dirty">Yes, use it</button>
+                      <button class="secondary small" @click="confirmUse = null">Not yet</button>
+                      <span class="hint" x-show="dirty">Save your changes first.</span>
+                    </div>
+
+                    <h3>Test this prompt</h3>
+                    <p class="hint">Runs the same 8 test questions as normal model testing, with this prompt instead of
+                      the Default. Results show only here, next to each model's Default score.</p>
+                    <template x-if="results">
+                      <div>
+                        <p class="hint" x-show="results.busy && !results.models.some(m => m.pending)">Another model test is
+                          running. Wait for it to finish, or cancel it in Settings → AI.</p>
+                        <table class="prompt-results">
+                          <thead><tr><th><input type="checkbox" :checked="results.models.length && pickedNames.length === results.models.length"
+                              @change="pickAll($event.target.checked)" title="All"></th>
+                            <th>Model</th><th>Default</th><th>This prompt</th><th></th></tr></thead>
+                          <tbody>
+                            <template x-for="m in results.models" :key="m.name">
+                              <tr>
+                                <td><input type="checkbox" x-model="picked[m.name]" :disabled="!!m.pending"></td>
+                                <td><span x-text="m.name"></span>
+                                  <span class="badge" x-show="m.name === results.in_use">In use</span>
+                                  <span class="badge" x-show="m.qwen_based">Qwen-based</span></td>
+                                <td x-text="score(m.default)"></td>
+                                <td><span x-text="m.pending ? (m.pending === 'running' ? 'Testing…' : 'Waiting…') : score(m.this)"></span>
+                                  <span class="hint" x-show="m.this && m.this.outdated && !m.pending">(earlier version of this prompt)</span></td>
+                                <td x-text="m.pending ? '' : diff(m)"></td>
+                              </tr>
+                            </template>
+                          </tbody>
+                        </table>
+                        <button class="small prompt-run" @click="runTest()" :disabled="!pickedNames.length || !!results.busy"
+                                x-text="'Test on ' + pickedNames.length + (pickedNames.length === 1 ? ' model' : ' models')"></button>
+                      </div>
+                    </template>
+                  </div>
+                </template>
+
+                <details class="hint">
+                  <summary>The answer format DockLlama adds to every prompt (can't be changed)</summary>
+                  <pre class="prompt-format" x-text="data.answer_format"></pre>
+                </details>
+              </div>
+            </template>
           </div>
 
           <div class="panel">
