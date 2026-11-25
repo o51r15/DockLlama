@@ -133,6 +133,47 @@ def _valid_url(url: str) -> bool:
     return apprise.Apprise().add(url)
 
 
+SERVICE_NAMES = {"ntfy": "ntfy", "ntfys": "ntfy", "discord": "Discord", "tgram": "Telegram", "gotify": "Gotify",
+                 "gotifys": "Gotify", "pover": "Pushover", "mailto": "the email server", "mailtos": "the email server"}
+GENERIC_FAILURE = "The service didn't accept the message. Check the details and that it can be reached."
+
+
+def explain_failure(log: str, url: str) -> str:
+    """Turn what Apprise logged about a failed send into plain words. Apprise itself only
+    answers yes/no; the reason is in its log."""
+    service = SERVICE_NAMES.get(url.split("://", 1)[0].lower(), "The service")
+    host_m = re.search(r"host='([^']+)'", log)
+    host = host_m.group(1) if host_m else service
+    if "Socket Exception" in log or "Connection error" in log:
+        low = log.lower()
+        if "nameresolution" in low or "name or service not known" in low or "nodename nor servname" in low \
+                or "temporary failure in name resolution" in low:
+            return f"Couldn't find {host}: the name doesn't resolve. Check the address, and that DockLlama's machine has DNS."
+        if "timed out" in low or "timeout" in low:
+            return (f"No answer from {host} in time. If it works from your browser, the network between DockLlama and "
+                    "the internet may be the problem (for example a VPN or Tailscale exit node); see Troubleshooting.")
+        if "refused" in low or "newconnectionerror" in low:
+            return f"{host} refused the connection. Check the address and port, and that the service is running."
+        if "ssl" in low or "certificate" in low:
+            return f"The secure connection to {host} failed (a certificate problem)."
+        return f"Couldn't connect to {host}."
+    code_m = re.search(r"error=(\d{3})", log)
+    if code_m:
+        code = int(code_m.group(1))
+        name = "The email server" if service == "the email server" else service  # "ntfy" stays lowercase
+        if code in (401, 403):
+            return (f"{name} turned the message down (HTTP {code}): the token or password is probably wrong, "
+                    "or the topic is protected.")
+        if code == 404:
+            return f"{name} answered \"not found\" (HTTP 404). Check the address, topic or webhook."
+        if code == 429:
+            return f"{name} is limiting how many messages it takes (HTTP 429). Try again in a little while."
+        if code >= 500:
+            return f"{name} had a problem on its side (HTTP {code}). Try again later."
+        return f"{name} turned the message down (HTTP {code}). Check the details."
+    return GENERIC_FAILURE
+
+
 def send_now(url: str, title: str, body: str) -> tuple[bool, str]:
     """Blocking send through Apprise. Returns (ok, problem in plain words)."""
     import apprise
@@ -140,10 +181,13 @@ def send_now(url: str, title: str, body: str) -> tuple[bool, str]:
     if not a.add(url):
         return False, "DockLlama couldn't use those details. Check them and try again."
     try:
-        ok = a.notify(title=title, body=body)
+        with apprise.LogCapture(level=apprise.logging.DEBUG) as captured:
+            ok = a.notify(title=title, body=body)
     except Exception as exc:  # noqa: BLE001 - any delivery failure is reported, never raised
         return False, f"Sending failed: {exc}"
-    return (True, "") if ok else (False, "The service didn't accept the message. Check the details and that it can be reached.")
+    if ok:
+        return True, ""
+    return False, explain_failure(captured.getvalue(), url)
 
 
 # --- deciding what to send ------------------------------------------------------------------
