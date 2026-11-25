@@ -15,6 +15,40 @@ Watches your containers, analyzes logs with Ollama, and tells you what's wrong â
 
 ---
 
+> [!IMPORTANT]
+> **This branch is the original DockLlama, kept read-only for reference.** It was the first attempt, before a
+> full rewrite. **DockLlama 2** lives on the [`v2`](../../tree/v2) branch (now the default) and is what
+> `ghcr.io/o51r15/dockllama:latest` runs. If you're on this version, see
+> [Upgrading from v1](../../blob/v2/docs/upgrading-from-v1.md); the last build of this branch stays available as `:dev`.
+
+### What this version taught us
+
+This version worked: it watched 18+ containers every day and caught real problems. Using it is what showed
+where it needed to go, and those lessons shaped the rewrite.
+
+- **One place for settings.** Settings lived partly in `config.yaml` and partly in the database, and the web
+  page edited the YAML by pattern-matching. In v2 everything lives in the database and is changed from the
+  web page. There are no files to edit.
+- **One way to talk to the AI.** Requests to Ollama were built in five different places, so a fix in one
+  didn't reach the others. The context size wasn't always sent, so the same model gave different results on
+  different machines. v2 builds every request in one place.
+- **Finish features end to end, or leave them out.** The knowledge base, saved base prompts and known
+  patterns in the prompt editor looked done but never reached the AI's evaluations. v2 has fewer features,
+  each connected all the way through.
+- **When in doubt, say so.** If the AI call failed, v1 reported the container as healthy, which could hide a
+  real outage. v2 says "couldn't check" and why.
+- **Don't fight Docker.** v1 could restart crash loops and out-of-memory kills, which Docker already
+  restarts, and its restart limit had no time window. v2 leaves those to Docker, alerts instead, and limits
+  restarts per rolling hour. Stopping a container on purpose no longer raises an alarm either.
+- **Test models where they run.** Benchmarking showed the same model scores and runs differently on
+  different hardware. It also showed that the scoring rules themselves had mistakes (whether a restart helps
+  an out-of-memory loop). v2 tests every model on the user's own AI server, with the corrected rules.
+- **Built for people who aren't experts.** Group IDs, a config file, scripts loaded from the internet and an
+  x86-only image were fine for its author and a wall for anyone else. v2 is one compose file and a setup
+  guide in the browser, works offline, and runs on a Raspberry Pi.
+
+---
+
 > **Alpha** â€” functional and monitoring 18+ containers in production, but under active development. Expect rough edges.
 
 ## What It Does
