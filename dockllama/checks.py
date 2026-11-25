@@ -382,10 +382,8 @@ def _ai_context(server: dict | None, models: dict, model_settings: dict,
         return None
 
     def model_for(row: dict):
-        m = models.get(row.get("model_override") or "") or default
-        if not m.usable:
-            m = default
-        return m, model_settings.get(m.name, {})
+        """Every container is checked with the model chosen in Settings → AI (v2 has one model for all)."""
+        return default, model_settings.get(default.name, {})
     return {"client": OllamaClient(server["address"]), "model_for": model_for, "paused": ai_queue.checks_paused,
             "prompt_label": active_prompt[0], "system": active_prompt[1]}
 

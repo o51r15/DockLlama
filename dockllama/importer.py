@@ -2,11 +2,12 @@
 
 What comes across:
 - containers: watched or not, notes for the AI (v1 "context prompt"; the old database's version wins,
-  as it did in v1), ignore patterns, known patterns, model override;
+  as it did in v1), ignore patterns, known patterns;
 - restart groups: v1 dependency_groups (in their order), otherwise compose_group;
 - alert URLs (config and old database) as notification targets (Apprise URLs work unchanged);
 - check interval, restarts per hour, wait between restarts, daily summary time.
 What doesn't: v1's Ollama address and model (connect it in Settings → AI, which tests it first),
+per-container models (DockLlama 2 checks every container with one model),
 and history. DockLlama stays in Watch only; containers v1 was allowed to restart get "allow
 automatic restart" so turning on Auto-restart restores v1's behaviour.
 Running it twice is safe: it updates rather than duplicates.
@@ -83,6 +84,7 @@ def plan(config_text: str, old_db: dict | None = None, old_urls: list[str] | Non
         for order, name in enumerate(members or []):
             groups[str(name)] = (str(gname).lower()[:40], order)
     other_nodes = set()
+    own_model = []  # v1 containers that had their own model; v2 uses one model for all
     for c in cfg["containers"]:
         if not isinstance(c, dict) or not c.get("name"):
             continue
@@ -90,6 +92,8 @@ def plan(config_text: str, old_db: dict | None = None, old_urls: list[str] | Non
         if c.get("node", "local") != "local":
             other_nodes.add(c["node"])
             continue
+        if c.get("model_override"):
+            own_model.append(name)
         db_entry = old_db.get(name) or {}
         notes = db_entry.get("context_prompt") or c.get("context_prompt") or ""
         known = db_entry.get("known_patterns") if db_entry.get("known_patterns") is not None else (c.get("known_patterns") or [])
@@ -98,7 +102,7 @@ def plan(config_text: str, old_db: dict | None = None, old_urls: list[str] | Non
             "name": name, "monitored": bool(c.get("enabled", True)), "notes_for_ai": str(notes)[:4000],
             "ignore_patterns": [str(x) for x in (c.get("ignore_patterns") or [])],
             "known_patterns": [k for k in known if isinstance(k, dict) and k.get("pattern")],
-            "model_override": c.get("model_override") or None, "restart_group": group, "restart_order": order,
+            "restart_group": group, "restart_order": order,
             "allow_auto_restart": not dry_run and bool(c.get("enabled", True)),
         })
     urls = [str(u) for u in ((cfg.get("alerts") or {}).get("urls") or [])] + list(old_urls or [])
@@ -125,6 +129,10 @@ def plan(config_text: str, old_db: dict | None = None, old_urls: list[str] | Non
     if other_nodes:
         p.notes.append("Containers on other Docker hosts (" + ", ".join(sorted(other_nodes)) + ") weren't imported. "
                        "Add those machines in Settings → Machines, then pick their containers.")
+    if own_model:
+        p.notes.append("In v1, " + ", ".join(sorted(own_model)) + (" was" if len(own_model) == 1 else " were")
+                       + " checked with a model of its own. DockLlama 2 checks every container with the model "
+                       "chosen in Settings → AI.")
     if not dry_run:
         p.notes.append("v1 restarted containers by itself. DockLlama starts in Watch only; the containers v1 could "
                        "restart are allowed to, so switching to Auto-restart in Settings → Checking and fixing restores that.")
@@ -138,15 +146,15 @@ def apply(conn, p: Plan, machine_id: int = 1) -> dict:
     for c in p.containers:
         row = conn.execute("SELECT id FROM containers WHERE machine_id = ? AND name = ?", (machine_id, c["name"])).fetchone()
         values = (int(c["monitored"]), c["notes_for_ai"], json.dumps(c["ignore_patterns"]), json.dumps(c["known_patterns"]),
-                  c["model_override"], c["restart_group"], c["restart_order"], int(c["allow_auto_restart"]))
+                  c["restart_group"], c["restart_order"], int(c["allow_auto_restart"]))
         if row is None:
             conn.execute("""INSERT INTO containers (machine_id, name, monitored, notes_for_ai, ignore_patterns, known_patterns,
-                                model_override, restart_group, restart_order, allow_auto_restart, first_seen, last_seen)
-                            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""", (machine_id, c["name"], *values, now, now))
+                                restart_group, restart_order, allow_auto_restart, first_seen, last_seen)
+                            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""", (machine_id, c["name"], *values, now, now))
             added += 1
         else:
             conn.execute("""UPDATE containers SET monitored = ?, notes_for_ai = ?, ignore_patterns = ?, known_patterns = ?,
-                                model_override = ?, restart_group = ?, restart_order = ?, allow_auto_restart = ?
+                                restart_group = ?, restart_order = ?, allow_auto_restart = ?
                             WHERE id = ?""", (*values, row["id"]))
             updated += 1
     existing = {r["url"] for r in conn.execute("SELECT url FROM notify_targets")}

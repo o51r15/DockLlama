@@ -355,6 +355,12 @@ def _m011_web_checks(conn: sqlite3.Connection) -> None:
     """)
 
 
+def _m012_one_model(conn: sqlite3.Connection) -> None:
+    # DockLlama 2 checks every container with the model chosen in Settings → AI. Per-container models
+    # (only ever set by the v1 import) are cleared; the column stays, unused.
+    _run(conn, "UPDATE containers SET model_override = NULL")
+
+
 MIGRATIONS: list[Callable[[sqlite3.Connection], None]] = [
     _m001_initial,
     _m002_machines_containers,
@@ -367,6 +373,7 @@ MIGRATIONS: list[Callable[[sqlite3.Connection], None]] = [
     _m009_qwen_based,
     _m010_prompts,
     _m011_web_checks,
+    _m012_one_model,
 ]
 
 LATEST = len(MIGRATIONS)

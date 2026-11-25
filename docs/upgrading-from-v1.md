@@ -21,11 +21,11 @@ v2 is a rebuild: settings live in DockLlama's database and are changed from the 
      ```
 
 What comes across: which containers are watched, notes ("context prompts"), ignore and known
-patterns, model overrides, restart groups (`dependency_groups` in order, otherwise `compose_group`),
+patterns, restart groups (`dependency_groups` in order, otherwise `compose_group`),
 alert URLs (Apprise URLs work unchanged), the check interval, restart limits and the digest time.
 
 What doesn't: v1's Ollama address and model (connect it in Settings → AI, which checks it and suggests
-a model), containers on other Docker hosts (add those machines in Settings → Machines), and history.
+a model), per-container models (DockLlama 2 checks every container with one model), containers on other Docker hosts (add those machines in Settings → Machines), and history.
 
 v2 starts in **Watch only**. If v1 was restarting containers (`dry_run: false`), those containers are
 allowed to restart, so switching to Auto-restart restores what v1 did.

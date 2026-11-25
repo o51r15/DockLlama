@@ -207,6 +207,21 @@ def test_checks_use_the_prompt_in_use(data_dir, docker, fake):
     assert ev["instructions"] == "Prompt 1"
 
 
+def test_every_container_uses_the_main_model(data_dir, docker, fake):
+    """v2 has one model for all containers; a per-container model left over from a v1 import is ignored."""
+    fake.servers["thor"].tags = [*fake.servers["thor"].tags, tag("gemma4:latest", 6.6, "gemma4", "8.0B")]
+    setup_db([], with_ai=True)
+    fake.servers["thor"].generate_handler = verdict()
+    docker.add("web")
+    docker.log("web", "INFO started")
+    first_round(docker)
+    with db.session() as conn:
+        conn.execute("UPDATE containers SET model_override = 'gemma4:latest' WHERE name = 'web'")
+    docker.log("web", "WARN something")
+    run()
+    assert {c["model"] for c in fake.servers["thor"].generate_calls} == {"llama3.1:8b"}
+
+
 def test_rules_win_when_worse_and_ai_failure_is_never_healthy(data_dir, docker, fake):
     setup_db([], with_ai=True)
     fake.servers["thor"].generate_handler = verdict()

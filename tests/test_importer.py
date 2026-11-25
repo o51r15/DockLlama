@@ -51,7 +51,8 @@ def test_plan():
     assert by["qbittorrent"]["known_patterns"][0]["tag"] == "[ROUTINE: tracker timeout]"
     assert (by["gluetun"]["restart_group"], by["gluetun"]["restart_order"]) == ("vpn_stack", 0)
     assert (by["qbittorrent"]["restart_group"], by["qbittorrent"]["restart_order"]) == ("vpn_stack", 1)
-    assert by["karakeep_chrome"]["monitored"] is False and by["karakeep_chrome"]["model_override"] == "llama3.1:8b"
+    assert by["karakeep_chrome"]["monitored"] is False and "model_override" not in by["karakeep_chrome"]
+    assert any("karakeep_chrome was checked with a model of its own" in n for n in p.notes)
     assert by["gluetun"]["allow_auto_restart"] and not by["karakeep_chrome"]["allow_auto_restart"]
     assert p.alert_urls == ["ntfys://ntfy.sh/mytopic", "discord://123/abc", "pover://u@t"]
     assert p.settings == {"checks.interval_minutes": 5, "checks.log_lines": 200, "fixing.max_per_hour": 2,
