@@ -694,6 +694,60 @@
       </template>
     </section>
 
+    <!-- Advanced -->
+    <section x-show="section === 'advanced'" x-data="advancedSection()" x-init="load()">
+      <h1>Advanced</h1>
+      <p class="sub">Most people never need to change these.</p>
+      <div class="error" x-show="error" x-text="error"></div>
+      <template x-if="a">
+        <div>
+          <div class="panel">
+            <h2>How long to keep history</h2>
+            <div class="limit-line">Keep check results, logs and CPU/memory history for
+              <select @change="pickDays($event.target.value)">
+                <template x-for="d in withCurrent(dayChoices, a.retention_days)" :key="d">
+                  <option :value="d" x-text="d" :selected="!customDays && d === a.retention_days"></option></template>
+                <option value="custom" :selected="customDays">another number</option>
+              </select> days.</div>
+            <div class="limit-line" x-show="customDays">
+              <input type="number" min="1" max="3650" style="width: 7em" :value="a.retention_days"
+                     @change="save({retention_days: Number($event.target.value)})"> days</div>
+            <div class="hint">Older history is deleted once a day. Model test results, your settings and each
+              container's current status are always kept. Longer periods use more disk space.</div>
+          </div>
+
+          <div class="panel">
+            <h2>Log lines per check</h2>
+            <div class="limit-line">Read up to
+              <select @change="save({log_lines: Number($event.target.value)})">
+                <template x-for="n in withCurrent(lineChoices, a.log_lines)" :key="n">
+                  <option :value="n" x-text="n" :selected="n === a.log_lines"></option></template>
+              </select> new log lines from each container per check.</div>
+            <div class="hint">More lines give the AI more to go on, but make each check slower and may not fit a
+              model with a small context size. 300 suits most containers.</div>
+          </div>
+
+          <div class="panel">
+            <h2>Forget old AI servers</h2>
+            <p class="hint">DockLlama keeps the models, test results and settings of AI servers you used before, so
+              they come back if you reconnect. Forgetting one deletes that for good.</p>
+            <p class="hint" x-show="!servers.length">There are no other AI servers stored.</p>
+            <template x-for="s in servers" :key="s.id">
+              <div class="limit-line">
+                <strong x-text="s.name"></strong>
+                <span class="hint" x-text="s.address + ' · ' + s.models + ' models, ' + s.tests + ' test results · last used ' + seen(s.last_seen)"></span>
+                <button class="secondary small" x-show="confirmForget !== s.id" @click="confirmForget = s.id">Forget</button>
+                <span x-show="confirmForget === s.id">
+                  <button class="small danger" @click="forget(s)">Yes, delete it</button>
+                  <button class="secondary small" @click="confirmForget = null">Keep it</button>
+                </span>
+              </div>
+            </template>
+          </div>
+        </div>
+      </template>
+    </section>
+
     <!-- Account -->
     <section x-show="section === 'account'">
       <h1>Account</h1>
@@ -749,5 +803,6 @@
 <script src="static/settings.js"></script>
 <script src="static/settings-ai.js"></script>
 <script src="static/notify.js"></script>
+<script src="static/settings-advanced.js"></script>
 </body>
 </html>

@@ -46,6 +46,7 @@ button {
 }
 button:disabled { opacity: 0.5; cursor: not-allowed; }
 button.secondary { background: var(--surface-2); color: var(--text); width: auto; margin: 0; }
+button.danger { background: var(--bad); color: #fff; width: auto; margin: 0; }
 
 .error {
   margin-top: calc(var(--space) * 2); padding: 10px 12px; border-radius: 8px;

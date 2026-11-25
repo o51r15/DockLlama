@@ -85,6 +85,12 @@ def _per_hour(v: Any) -> int:
     raise SettingError("must be 1 to 20")
 
 
+def _days(v: Any) -> int:
+    if isinstance(v, int) and not isinstance(v, bool) and 1 <= v <= 3650:
+        return v
+    raise SettingError("must be a whole number of days from 1 to 3650")
+
+
 def _clock(v: Any) -> str:
     if isinstance(v, str):
         parts = v.split(":")
@@ -104,6 +110,9 @@ REGISTRY: dict[str, Setting] = {
     "ai.exclude_qwen": Setting(False, _bool),  # leave Qwen-based models out of suggestions
     "checks.interval_minutes": Setting(10, _minutes),
     "checks.log_lines": Setting(300, _log_lines),
+    # How long check history, evidence, CPU/RAM history and the event log are kept.
+    # Model test results, settings and each container's current status are always kept.
+    "data.retention_days": Setting(30, _days),
     "notify.reminder_hours": Setting(6, _hours),
     "general.base_url": Setting(None, _opt_str),  # how users reach DockLlama, for links in messages
     # Start of quiet hours, local time; "Run tonight" starts model tests then. Phase 8 adds the rest.

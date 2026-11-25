@@ -34,8 +34,6 @@ COLLECT_AT_ONCE = 6
 SYSTEM_PROMPT_TOKENS = 1300  # measured: the evaluate prompt is ~1.2K tokens
 CHARS_PER_TOKEN = 3.5
 DEFAULT_AI_TIMEOUT = 120
-CHECK_RETENTION_DAYS = 30
-STATS_RETENTION_DAYS = 7
 
 SHOWN = {"healthy": "Working fine", "degraded": "Needs a look", "unhealthy": "Having problems",
          "critical": "Down or failing", "stopped": "Stopped", "unknown": "Couldn't check", "gone": "No longer exists"}
@@ -462,12 +460,20 @@ async def run_checks(container_ids: list[int] | None = None, force_ai: bool = Fa
     return results
 
 
-def prune(conn) -> None:
-    now = time.time()
-    conn.execute("DELETE FROM checks WHERE at < ? AND id NOT IN (SELECT last_check_id FROM container_state "
-                 "WHERE last_check_id IS NOT NULL)", (now - CHECK_RETENTION_DAYS * 86400,))
-    conn.execute("DELETE FROM stats WHERE at < ?", (now - STATS_RETENTION_DAYS * 86400,))
-    conn.execute("DELETE FROM events WHERE at < ?", (now - 90 * 86400,))
+def prune(conn) -> dict[str, int]:
+    """Delete history older than the retention setting (Settings → Advanced). The check each
+    container's current status points at, and messages not sent yet, are always kept."""
+    cutoff = time.time() - settings.get(conn, "data.retention_days") * 86400
+    gone = {
+        "checks": conn.execute("DELETE FROM checks WHERE at < ? AND id NOT IN (SELECT last_check_id FROM "
+                               "container_state WHERE last_check_id IS NOT NULL)", (cutoff,)).rowcount,
+        "stats": conn.execute("DELETE FROM stats WHERE at < ?", (cutoff,)).rowcount,
+        "events": conn.execute("DELETE FROM events WHERE at < ? AND NOT (kind = 'status_change' AND handled = 0)",
+                               (cutoff,)).rowcount,
+    }
+    if any(gone.values()):
+        log.info("Removed history older than the retention setting: %s", gone)
+    return gone
 
 
 class Scheduler:
