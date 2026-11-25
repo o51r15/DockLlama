@@ -64,7 +64,8 @@ GROUPS = {
 }
 
 # Container columns that describe the user's choices; the rest is runtime state.
-CONTAINER_RUNTIME = {"id", "machine_id", "name", "first_seen", "last_seen", "gone", "last_log_ts"}
+CONTAINER_RUNTIME = {"id", "machine_id", "name", "first_seen", "last_seen", "gone", "last_log_ts",
+                     "web_fails", "web_last_ok", "web_last_error"}
 
 
 class BackupError(ValueError):

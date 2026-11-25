@@ -8,7 +8,7 @@ from fastapi import APIRouter, HTTPException
 from pydantic import BaseModel, Field
 from starlette.concurrency import run_in_threadpool
 
-from .. import db, machines
+from .. import db, machines, webcheck
 
 router = APIRouter(prefix="/api", tags=["containers"])
 
@@ -48,6 +48,11 @@ def _row_settings(row) -> dict:
         "allow_auto_restart": bool(row["allow_auto_restart"]),
         "ignore_patterns": json.loads(row["ignore_patterns"]),
         "known_patterns": json.loads(row["known_patterns"]),
+        "web_url": row["web_url"],
+        "web_word": row["web_word"],
+        "web_fails": row["web_fails"],
+        "web_last_ok": row["web_last_ok"],
+        "web_last_error": row["web_last_error"],
     }
 
 
@@ -197,11 +202,23 @@ class ContainerUpdate(BaseModel):
     restart_group: str | None = Field(default=None, max_length=40)  # "" = not in a group
     restart_order: int | None = Field(default=None, ge=0, le=99)
     model_override: str | None = Field(default=None, max_length=200)  # "" = use the main model
+    web_url: str | None = Field(default=None, max_length=500)  # "" = no web page check
+    web_word: str | None = Field(default=None, max_length=100)
 
 
 @router.patch("/containers/{db_id}")
 def update_container(db_id: int, body: ContainerUpdate):
     changes = body.model_dump(exclude_none=True)
+    if "web_url" in changes:
+        changes["web_url"] = changes["web_url"].strip() or None
+        if changes["web_url"]:
+            problem = webcheck.address_problem(changes["web_url"])
+            if problem:
+                raise HTTPException(400, problem)
+        changes["web_fails"] = 0  # a new address starts with a clean slate
+        changes["web_last_error"] = None
+    if "web_word" in changes:
+        changes["web_word"] = changes["web_word"].strip()
     if "restart_group" in changes:
         changes["restart_group"] = changes["restart_group"].strip().lower()  # "" = not in a group
     if "model_override" in changes:
@@ -215,6 +232,44 @@ def update_container(db_id: int, body: ContainerUpdate):
             conn.execute(f"UPDATE containers SET {column} = ? WHERE id = ?", (value, db_id))
         row = conn.execute("SELECT * FROM containers WHERE id = ?", (db_id,)).fetchone()
     return {"db_id": db_id, **_row_settings(row)}
+
+
+@router.get("/containers/{db_id}/web-check")
+async def web_check_info(db_id: int):
+    """The current web page check, plus addresses to suggest from the container's published ports."""
+    def read():
+        with db.session() as conn:
+            row = conn.execute("SELECT c.*, m.url AS machine_url, m.kind FROM containers c JOIN machines m "
+                               "ON m.id = c.machine_id WHERE c.id = ?", (db_id,)).fetchone()
+        if row is None:
+            raise HTTPException(404, "That container isn't known to DockLlama.")
+        return dict(row)
+    row = await run_in_threadpool(read)
+    suggested: list[str] = []
+    try:
+        machine = await run_in_threadpool(machines.get_machine, row["machine_id"])
+        inspect = await machine.ainspect(row["name"])
+        suggested = webcheck.suggestions(inspect, row["machine_url"] if row["kind"] == "remote" else None)
+    except machines.MachineError:
+        pass
+    return {"web_url": row["web_url"], "web_word": row["web_word"], "web_fails": row["web_fails"],
+            "web_last_ok": row["web_last_ok"], "web_last_error": row["web_last_error"],
+            "suggested": suggested, "fails_needed": webcheck.FAILS_NEEDED}
+
+
+class WebTest(BaseModel):
+    url: str = Field(max_length=500)
+    word: str = Field(default="", max_length=100)
+
+
+@router.post("/containers/{db_id}/web-check/test")
+async def web_check_test(db_id: int, body: WebTest):
+    """Try an address once, before saving it."""
+    problem = webcheck.address_problem(body.url)
+    if problem:
+        return {"ok": False, "detail": problem}
+    ok, detail = await webcheck.check(body.url.strip(), body.word)
+    return {"ok": ok, "detail": detail}
 
 
 class BulkMonitor(BaseModel):

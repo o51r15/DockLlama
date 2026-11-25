@@ -28,5 +28,16 @@ Every 10 minutes (Settings → Checking and fixing), for each watched container:
 Without AI, steps 1–2 still run every round, so crashes, restart loops, out-of-memory kills and
 health checks are still caught.
 
-Known blind spot: a container that hangs silently (stops logging, no health check) still looks fine.
-Adding a Docker health check to it fixes that.
+A container that hangs silently (stops logging, has no Docker health check) still looks fine from its logs and Docker's state. The **web page check** below covers that.
+
+## Web page check
+
+On a container's page, under **Web page check**, give the local address of its web page. DockLlama suggests one from the container's published ports, so usually you just click it, then **Try it** and **Save**.
+
+At each check DockLlama opens that address. Any answer counts as answering, including a login page or "not found", because it shows the app is alive. A connection that's refused, no answer within 10 seconds, or a server error (HTTP 500 and up) counts as not answering. After **3 checks in a row** without an answer, the container is marked **Having problems**: "Its web page stopped answering, but the container is still running, so it may be frozen." With automatic restarts allowed for that container, this can trigger a restart, like a failing Docker health check. The usual limits, cooldown and quiet hours apply.
+
+**Only local addresses work**: this machine (`host.docker.internal`), an IP on your network (`192.168.x.x`, `10.x.x.x`), a Tailscale `100.x` address, a container name, or a `.lan` / `.local` name. A public address like `https://jellyfin.example.com` is refused. It goes through Cloudflare or a reverse proxy, which can answer with its own error page while the app behind it is frozen, so a check would say "fine" when it isn't. That's why uptime monitors that check public URLs miss this.
+
+Optional: **the page must contain a word.** For the rare app that shows an error page with a normal answer code. When a word is set, DockLlama follows redirects that stay on the same local address to find it.
+
+For a container on another machine (DockLlama Remote), use that machine's IP and the published port; DockLlama checks it over your network.

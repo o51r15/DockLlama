@@ -8,6 +8,8 @@ from __future__ import annotations
 
 from dataclasses import dataclass, field
 
+WEB_FAILS_NEEDED = 3  # web page checks failed in a row before it counts (see webcheck.py)
+
 SEVERITY = {"healthy": 0, "stopped": 0, "unknown": 1, "degraded": 2, "unhealthy": 3, "critical": 4}
 
 SIGNALS = {130: "SIGINT", 137: "SIGKILL", 139: "SIGSEGV (crashed)", 143: "SIGTERM"}
@@ -29,10 +31,13 @@ class Facts:
     finished_at: float | None = None
     stopped_by_user: bool = False  # Docker logged a "stop" or "restart" event (the user did it)
     events: list[str] = field(default_factory=list)
+    web_fails: int = 0  # web page checks failed in a row (0 = answering, or no web check set up)
+    web_error: str = ""
 
     def key(self) -> list:
         """What has to change for a re-check to be worth asking the AI about."""
-        return [self.state, self.exit_code, self.oom_killed, self.restart_count, self.health, self.started_at]
+        return [self.state, self.exit_code, self.oom_killed, self.restart_count, self.health, self.started_at,
+                self.web_fails >= WEB_FAILS_NEEDED]
 
 
 @dataclass
@@ -86,6 +91,10 @@ def evaluate(f: Facts, previous: Facts | None) -> RuleResult:
             detail = f" Its health check says: {f.health_output.strip()[:200]}" if f.health_output.strip() else ""
             return RuleResult("unhealthy", f"It's failing its health check ({f.health_streak} times in a row).{detail}",
                               "Look at why the health check fails; a restart may help if it's stuck.", "health_failing")
+        if f.web_fails >= WEB_FAILS_NEEDED:
+            return RuleResult("unhealthy", f"Its web page stopped answering ({f.web_fails} checks in a row), but the "
+                              f"container is still running, so it may be frozen. {f.web_error}".strip(),
+                              "If it doesn't come back on its own, restart it.", "web_failing")
         if restarts_since == 1 and not f.stopped_by_user:
             return RuleResult("degraded", "It crashed once since the last check and Docker restarted it.",
                               "If it happens again, look at its log lines from just before the restart.", "crashed_once")

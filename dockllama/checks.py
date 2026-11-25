@@ -21,7 +21,7 @@ from dataclasses import asdict, dataclass, field
 
 from starlette.concurrency import run_in_threadpool
 
-from . import advanced, ai_queue, ai_servers, analyzer, db, machines, prompts, rules, settings
+from . import advanced, ai_queue, ai_servers, analyzer, db, machines, prompts, rules, settings, webcheck
 from .evaluate import RETRY_SUFFIX, SCHEMA, SYSTEM_PROMPT, AnswerError, parse_answer
 from .ollama import OllamaClient, OllamaError, build_generate_request, truncation_warnings
 from .redact import redact
@@ -51,6 +51,7 @@ class Collected:
     mem: float | None = None
     error: str | None = None
     gone: bool = False
+    web: tuple[bool, str] | None = None  # (answering, detail) when a web page check ran
 
 
 @dataclass
@@ -121,6 +122,11 @@ async def collect(docker: machines.LocalDocker, row: dict, state: dict | None, l
     if (not f.stopped_by_user and c.previous and c.previous.stopped_by_user and f.state in ("exited", "dead")
             and c.previous.finished_at == f.finished_at):
         f.stopped_by_user = True
+    if f.state == "running" and row.get("web_url"):
+        ok, detail = await webcheck.check(row["web_url"], row.get("web_word") or "")
+        f.web_fails = 0 if ok else (row.get("web_fails") or 0) + 1
+        f.web_error = "" if ok else detail
+        c.web = (ok, detail)
     c.facts = f
     c.rule = rules.evaluate(f, c.previous)
     log_driver = ((a.get("HostConfig") or {}).get("LogConfig") or {}).get("Type") or "json-file"
@@ -226,6 +232,11 @@ def _save(conn, c: Collected, status: str, source: str, summary: str, what_to_do
     state = conn.execute("SELECT * FROM container_state WHERE container_id = ?", (cid,)).fetchone()
     facts_json = json.dumps(asdict(c.facts)) if c.facts else None
     conn.execute("UPDATE containers SET last_log_ts = ? WHERE id = ?", (c.last_log_ts, cid))
+    if c.web is not None:
+        ok, detail = c.web
+        conn.execute("UPDATE containers SET web_fails = ?, web_last_ok = CASE WHEN ? THEN ? ELSE web_last_ok END, "
+                     "web_last_error = ? WHERE id = ?",
+                     (c.facts.web_fails, ok, now, None if ok else detail, cid))
     if c.cpu is not None or c.mem is not None:
         conn.execute("INSERT INTO stats (container_id, at, cpu, mem) VALUES (?, ?, ?, ?)", (cid, now, c.cpu, c.mem))
     health_failing = bool(c.rule and c.rule.rule == "health_failing")

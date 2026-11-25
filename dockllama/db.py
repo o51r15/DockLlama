@@ -344,6 +344,17 @@ def _m010_prompts(conn: sqlite3.Connection) -> None:
     """)
 
 
+def _m011_web_checks(conn: sqlite3.Connection) -> None:
+    # Optional web page check per container (local addresses only; see webcheck.py).
+    _run(conn, """
+        ALTER TABLE containers ADD COLUMN web_url TEXT;
+        ALTER TABLE containers ADD COLUMN web_word TEXT NOT NULL DEFAULT '';
+        ALTER TABLE containers ADD COLUMN web_fails INTEGER NOT NULL DEFAULT 0;
+        ALTER TABLE containers ADD COLUMN web_last_ok REAL;
+        ALTER TABLE containers ADD COLUMN web_last_error TEXT
+    """)
+
+
 MIGRATIONS: list[Callable[[sqlite3.Connection], None]] = [
     _m001_initial,
     _m002_machines_containers,
@@ -355,6 +366,7 @@ MIGRATIONS: list[Callable[[sqlite3.Connection], None]] = [
     _m008_gpu_share,
     _m009_qwen_based,
     _m010_prompts,
+    _m011_web_checks,
 ]
 
 LATEST = len(MIGRATIONS)

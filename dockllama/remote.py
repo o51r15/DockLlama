@@ -44,6 +44,8 @@ def safe_inspect(a: dict) -> dict:
     out["Config"] = {"Image": cfg.get("Image"), "Labels": {k: v for k, v in (cfg.get("Labels") or {}).items()
                                                             if k.startswith("com.docker.compose.")}}
     out["HostConfig"] = {"RestartPolicy": host.get("RestartPolicy"), "LogConfig": {"Type": (host.get("LogConfig") or {}).get("Type")}}
+    # Published ports only (no IPs, no networks): lets DockLlama suggest a web page check address.
+    out["NetworkSettings"] = {"Ports": (a.get("NetworkSettings") or {}).get("Ports") or {}}
     return out
 
 

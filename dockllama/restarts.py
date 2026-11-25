@@ -60,6 +60,8 @@ def wants_restart(result: dict, state: dict | None) -> str | None:
         return "The AI said a restart would help."
     if result.get("rule") == "health_failing" and (state or {}).get("health_fail_checks", 0) >= HEALTH_FAILS_NEEDED:
         return f"Its health check failed {HEALTH_FAILS_NEEDED} checks in a row."
+    if result.get("rule") == "web_failing":  # the rule only fires after WEB_FAILS_NEEDED checks in a row
+        return "Its web page stopped answering while the container kept running."
     return None
 
 

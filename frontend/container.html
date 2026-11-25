@@ -113,6 +113,41 @@
           <span>Watch this container</span></label>
       </div>
 
+      <h2>Web page check</h2>
+      <div class="panel" x-data="webCheck()" x-init="load()">
+        <p class="hint">Catches a container that's frozen but still running: DockLlama opens its web page at each check,
+          and if it stops answering <span x-text="w ? w.fails_needed : 3"></span> times in a row, it's marked as having problems.</p>
+        <template x-if="w">
+          <div>
+            <div class="hint" x-show="w.web_url && !w.web_fails && w.web_last_ok" x-text="'Last answered ' + ago(w.web_last_ok) + '.'"></div>
+            <div class="error" x-show="w.web_url && w.web_fails"
+                 x-text="'Not answering (' + w.web_fails + (w.web_fails === 1 ? ' check' : ' checks in a row') + '): ' + (w.web_last_error || '')"></div>
+            <label>Local address of its web page</label>
+            <input type="text" x-model="url" placeholder="http://192.168.1.20:8080" @input="result = null">
+            <div class="actions-row tight" x-show="w.suggested.length">
+              <span class="hint">From its published ports:</span>
+              <template x-for="s in w.suggested" :key="s">
+                <button class="secondary small" @click="url = s; result = null" x-text="s"></button>
+              </template>
+            </div>
+            <div class="hint">Use the address on your own network (this machine's IP and the container's port), <strong>not
+              a public address</strong>. A public address goes through Cloudflare or a proxy, which can answer with
+              its own page while the app is frozen, so DockLlama would think it's fine.</div>
+            <details class="hint" :open="!!word">
+              <summary>The page must contain a word (optional)</summary>
+              <input type="text" x-model="word" maxlength="100" placeholder="e.g. Jellyfin" @input="result = null">
+              <div class="hint">For apps that show an error page but still answer normally. Most don't need this.</div>
+            </details>
+            <div :class="result && result.ok ? 'success' : 'error'" x-show="result" x-text="result && result.detail"></div>
+            <div class="actions-row tight">
+              <button class="secondary small" @click="test()" :disabled="!url.trim() || busy">Try it</button>
+              <button class="small" @click="save()" :disabled="busy || (url.trim() === (w.web_url || '') && word.trim() === (w.web_word || ''))">Save</button>
+              <button class="secondary small" x-show="w.web_url" @click="url = ''; word = ''; save()">Turn off</button>
+            </div>
+          </div>
+        </template>
+      </div>
+
       <h2>Automatic restart</h2>
       <div class="panel">
         <template x-if="c.info && (c.info.is_self || c.info.is_ollama)">
@@ -167,6 +202,38 @@
 </main>
 <div class="toast" x-show="toast" x-text="toast" x-transition.opacity></div>
 <script>
+function webCheck() {
+  const id = new URLSearchParams(location.search).get('id');
+  return {
+    w: null, url: '', word: '', result: null, busy: false,
+    async load() {
+      try { this.w = await api('api/containers/' + id + '/web-check'); this.url = this.w.web_url || ''; this.word = this.w.web_word || ''; }
+      catch (e) { this.result = {ok: false, detail: e.message}; }
+    },
+    async test() {
+      this.busy = true; this.result = null;
+      try { this.result = await api('api/containers/' + id + '/web-check/test', {method: 'POST', body: {url: this.url, word: this.word}}); }
+      catch (e) { this.result = {ok: false, detail: e.message}; }
+      this.busy = false;
+    },
+    async save() {
+      this.busy = true;
+      try {
+        await api('api/containers/' + id, {method: 'PATCH', body: {web_url: this.url, web_word: this.word}});
+        await this.load();
+        this.result = {ok: true, detail: this.w.web_url ? 'Saved. Checked from the next round.' : 'Web page check turned off.'};
+      } catch (e) { this.result = {ok: false, detail: e.message}; }
+      this.busy = false;
+    },
+    ago(t) {
+      const s = Math.max(0, Date.now() / 1000 - t);
+      if (s < 90) return 'just now';
+      if (s < 5400) return Math.round(s / 60) + ' minutes ago';
+      return Math.round(s / 3600) + ' hours ago';
+    },
+  };
+}
+
 function page() {
   const id = new URLSearchParams(location.search).get('id');
   return {
