@@ -8,16 +8,16 @@ from fastapi import APIRouter, HTTPException
 from pydantic import BaseModel, Field
 from starlette.concurrency import run_in_threadpool
 
-from .. import db, machines, webcheck
+from .. import __version__, db, machines, webcheck
 
 router = APIRouter(prefix="/api", tags=["containers"])
 
 MAX_NOTES = 4000
 
 
-async def _refresh(machine_id: int) -> tuple[list[machines.ContainerInfo] | None, str | None, str | None]:
+async def _refresh(machine_id: int, m=None) -> tuple[list[machines.ContainerInfo] | None, str | None, str | None]:
     """Ask Docker for the machine's containers and record them. Returns (infos, version, error)."""
-    m = machines.get_machine(machine_id)
+    m = m or machines.get_machine(machine_id)
     try:
         version = await m.aversion()
         infos = await m.alist_containers()
@@ -74,8 +74,12 @@ async def list_machines():
     rows = await run_in_threadpool(_machine_rows)
 
     async def one(row):
-        infos, version, error = await _refresh(row["id"])
+        m = machines.get_machine(row["id"])
+        infos, version, error = await _refresh(row["id"], m)
+        remote_version = getattr(m, "remote_version", None) if row["kind"] == "remote" else None
+        older = row["kind"] == "remote" and error is None and machines.remote_is_older(remote_version)
         return {
+            "remote_version": remote_version, "remote_older": older, "version": __version__,
             "id": row["id"], "name": row["name"], "kind": row["kind"], "url": row["url"] if row["kind"] == "remote" else None,
             "allows_restart": bool(row["allows_restart"]),
             "connected": error is None, "error": error, "docker_version": version,

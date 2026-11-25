@@ -673,6 +673,10 @@
                     x-text="m.kind === 'local' || m.allows_restart ? 'Restarts allowed' : 'Watch only'"></span>
               <div class="hint" x-show="m.connected" x-text="'Docker ' + m.docker_version + ' · ' + m.container_count + ' containers'
                     + (m.kind === 'remote' ? ' · ' + m.url : '')"></div>
+              <div class="picker-note" x-show="m.remote_older">
+                <span x-text="'This DockLlama Remote is ' + (m.remote_version ? 'version ' + m.remote_version : 'an older version')
+                              + ', older than DockLlama (' + m.version + '). Some features, like suggested web page check addresses, need the newer one.'"></span>
+                To update it, run <code>docker compose pull &amp;&amp; docker compose up -d</code> next to its compose file on that machine.</div>
               <div class="picker-note" x-show="m.kind === 'remote' && !m.allows_restart">DockLlama can't restart containers here.
                 To allow it, change <code>DOCKLLAMA_REMOTE_RESTARTS=no</code> to <code>yes</code> in this machine's compose file
                 and recreate the Remote.</div>

@@ -390,7 +390,9 @@ class RemoteDocker:
         return await self._req("GET", "/remote/v1/info", timeout=8)
 
     async def aversion(self) -> str:
-        return (await self.ainfo()).get("docker_version", "unknown")
+        info = await self.ainfo()
+        self.remote_version = info.get("version")  # DockLlama Remote's own version, for the "out of date" note
+        return info.get("docker_version", "unknown")
 
     async def alist_containers(self) -> list[ContainerInfo]:
         rows = await self._req("GET", "/remote/v1/containers")
@@ -465,3 +467,21 @@ def sync_containers(conn: sqlite3.Connection, machine_id: int, infos: list[Conta
 
 def record_machine_error(conn: sqlite3.Connection, machine_id: int, message: str) -> None:
     conn.execute("UPDATE machines SET last_error = ? WHERE id = ?", (message, machine_id))
+
+def version_key(v: str | None) -> tuple:
+    """Order version strings like 2.0.0.dev0 < 2.0.0 < 2.0.1 < 2.1.0, without extra libraries."""
+    import re
+    m = re.match(r"(\d+)\.(\d+)(?:\.(\d+))?(?:[.-]?(dev|a|b|rc)(\d*))?", (v or "").strip())
+    if not m:
+        return (0, 0, 0, 0, 0)
+    major, minor, patch, pre, n = m.groups()
+    order = {"dev": 0, "a": 1, "b": 2, "rc": 3, None: 4}[pre]
+    return (int(major), int(minor), int(patch or 0), order, int(n or 0))
+
+
+def remote_is_older(remote_version: str | None) -> bool:
+    """True when a paired DockLlama Remote runs an older version than this DockLlama."""
+    from . import __version__
+    if not remote_version:
+        return True  # very old Remotes didn't report a version at all
+    return version_key(remote_version) < version_key(__version__)

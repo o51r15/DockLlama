@@ -110,6 +110,12 @@ def test_add_a_machine_and_check_its_containers(client, far, monkeypatch):
     assert client.post("/api/machines", json={"name": "NAS2", "address": "nas", "token": TOKEN}).status_code == 409
     ms = client.get("/api/machines").json()
     assert [(m["name"], m["connected"]) for m in ms] == [("This machine", True), ("NAS", True)]
+    # same version as DockLlama: no "update your Remote" note
+    assert ms[1]["remote_version"] == ms[1]["version"] and ms[1]["remote_older"] is False and ms[0]["remote_older"] is False
+    import dockllama
+    monkeypatch.setattr(dockllama, "__version__", "99.0.0")  # DockLlama is newer than the Remote
+    assert client.get("/api/machines").json()[1]["remote_older"] is True
+    monkeypatch.setattr(dockllama, "__version__", ms[1]["version"])
     cs = client.get(f"/api/machines/{r['id']}/containers").json()["containers"]
     assert {c["name"] for c in cs} == {"nas-app", "nas-db"}
     with db.session() as conn:
