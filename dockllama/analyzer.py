@@ -163,14 +163,14 @@ def analyze(lines: list[str], ignore_patterns: list[str] | None = None,
     c = Counter(s.levels)
     s.counts = {k: c.get(k, 0) for k in ("info", "warn", "error", "unknown")}
     s.routine = {
-        "warn": sum(1 for lv, r in zip(s.levels, routine_flags) if r and lv == "warn"),
-        "error": sum(1 for lv, r in zip(s.levels, routine_flags) if r and lv == "error"),
+        "warn": sum(1 for lv, r in zip(s.levels, routine_flags, strict=True) if r and lv == "warn"),
+        "error": sum(1 for lv, r in zip(s.levels, routine_flags, strict=True) if r and lv == "error"),
     }
     s.real_errors = s.counts["error"] - s.routine["error"]
     s.real_warnings = s.counts["warn"] - s.routine["warn"]
 
     # Recovery: only real (non-routine) problems count.
-    problem_idx = [i for i, (lv, r) in enumerate(zip(s.levels, routine_flags)) if lv in ("error", "warn") and not r]
+    problem_idx = [i for i, (lv, r) in enumerate(zip(s.levels, routine_flags, strict=True)) if lv in ("error", "warn") and not r]
     if not problem_idx:
         s.recovery = "none"
     else:
@@ -192,7 +192,7 @@ def analyze(lines: list[str], ignore_patterns: list[str] | None = None,
         s.restart = f"Container started at line {startup + 1}."
 
     groups: dict[str, Pattern] = {}
-    for i, (line, level, routine) in enumerate(zip(s.lines, s.levels, routine_flags)):
+    for i, (line, level, routine) in enumerate(zip(s.lines, s.levels, routine_flags, strict=True)):
         if level not in ("error", "warn"):
             continue
         key = level + "|" + _normalize(line)

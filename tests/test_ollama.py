@@ -116,7 +116,7 @@ def test_truncation_warnings():
 def test_fingerprint_survives_new_models_and_ignores_address():
     base = [tag("a", 1, "x", "1B", pulled="t1"), tag("b", 1, "x", "1B", pulled="t2")]
     fp = ollama.inventory_fingerprint(base)
-    assert ollama.fingerprint_overlap(fp, ollama.inventory_fingerprint(base + [tag("c", 1, "x", "1B")])) == 1.0
+    assert ollama.fingerprint_overlap(fp, ollama.inventory_fingerprint([*base, tag("c", 1, "x", "1B")])) == 1.0
     same_models_other_machine = [tag("a", 1, "x", "1B", pulled="t9"), tag("b", 1, "x", "1B", pulled="t8")]
     assert ollama.fingerprint_overlap(fp, ollama.inventory_fingerprint(same_models_other_machine)) == 0.0
 

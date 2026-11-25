@@ -1,0 +1,23 @@
+# Lint settings for DockLlama (run: ruff check .)
+line-length = 120
+target-version = "py312"
+
+[lint]
+select = [
+    "E", "W", "F",   # pycodestyle, pyflakes
+    "I",             # import order
+    "B",             # likely bugs
+    "SIM",           # simpler code
+    "RUF",           # ruff's own checks
+    "UP",            # modern Python syntax
+]
+ignore = [
+    "E501",    # long lines: wrapped by hand where it helps reading
+    "SIM105",  # try/except/pass is clearer than contextlib.suppress for best-effort steps
+    "RUF001", "RUF002", "RUF003",  # typographic characters (… → ’) in user-facing text are intended
+]
+
+[lint.per-file-ignores]
+# pytest fixtures are imported into test modules by name, which looks like a redefinition.
+# Several short setup steps on one line (a; b; c) is the house style in tests.
+"tests/*" = ["F811", "F401", "E702"]

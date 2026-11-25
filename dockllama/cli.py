@@ -52,7 +52,8 @@ def _import_v1(args) -> int:
     from . import importer
     db.migrate()
     try:
-        text = open(args.config, encoding="utf-8").read()
+        with open(args.config, encoding="utf-8") as f:
+            text = f.read()
     except OSError as exc:
         print(f"Can't read {args.config}: {exc}", file=sys.stderr)
         return 1
@@ -60,7 +61,7 @@ def _import_v1(args) -> int:
     if args.db:
         try:
             old, urls = importer.read_old_db(args.db)
-        except Exception as exc:  # noqa: BLE001
+        except Exception as exc:
             print(f"Can't read the old database {args.db}: {exc}", file=sys.stderr)
             return 1
     try:

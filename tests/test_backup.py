@@ -7,7 +7,7 @@ import zipfile
 
 from dockllama import backup, db, paths, settings
 
-from .test_model_tests import c, fake, wait_idle  # noqa: F401  (fixtures)
+from .test_model_tests import c, fake, wait_idle
 
 
 def _container(conn, name, machine_id=1, **prefs):

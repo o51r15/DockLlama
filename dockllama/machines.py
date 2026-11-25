@@ -17,8 +17,9 @@ from collections import deque
 from dataclasses import asdict, dataclass
 from functools import lru_cache
 
-import docker
 from docker.errors import DockerException
+
+import docker
 
 SOCKET_PATH = "/var/run/docker.sock"
 
@@ -165,7 +166,7 @@ class LocalDocker:
             return self._connect().version().get("Version", "unknown")
         except MachineError:
             raise
-        except Exception as exc:  # noqa: BLE001 - any Docker/HTTP failure becomes a user message
+        except Exception as exc:  # any Docker/HTTP failure becomes a user message
             self._client = None
             raise MachineError(f"Docker didn't answer: {exc}") from exc
 
@@ -174,14 +175,14 @@ class LocalDocker:
             raw = self._connect().containers.list(all=True)
         except MachineError:
             raise
-        except Exception as exc:  # noqa: BLE001
+        except Exception as exc:
             self._client = None
             raise MachineError(f"Docker didn't answer: {exc}") from exc
         result = []
         for c in raw:
             try:
                 result.append(_info(c))
-            except Exception:  # noqa: BLE001 - a container removed mid-listing; skip it
+            except Exception:  # a container removed mid-listing; skip it
                 continue
         return sorted(result, key=lambda i: ((i.compose_project or "~"), i.name))
 
@@ -194,7 +195,7 @@ class LocalDocker:
             raise
         except docker.errors.NotFound as exc:
             raise MachineError("That container doesn't exist any more.") from exc
-        except Exception as exc:  # noqa: BLE001
+        except Exception as exc:
             raise MachineError(f"Docker didn't answer: {exc}") from exc
 
     def inspect(self, name: str) -> dict:
@@ -271,7 +272,7 @@ class LocalDocker:
                     t = (e.get("timeNano") or 0) / 1e9 or float(e.get("time") or time.time())
                     with self._seen_lock:
                         self._seen.setdefault(cid, deque(maxlen=50)).append((t, e.get("Action") or e.get("status") or ""))
-            except Exception:  # noqa: BLE001 - socket gone, Docker restarting: try again shortly
+            except Exception:  # socket gone, Docker restarting: try again shortly
                 time.sleep(5)
 
     def remembered_events(self, container_id: str, since: float, until: float) -> list[str]:

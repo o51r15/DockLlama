@@ -12,25 +12,25 @@ from fastapi.staticfiles import StaticFiles
 from starlette.concurrency import run_in_threadpool
 
 from . import __version__, db, machines, paths, settings
+from .api import advanced as advanced_api
 from .api import ai as ai_api
 from .api import auth as auth_api
+from .api import backup as backup_api
 from .api import checks as checks_api
 from .api import containers as containers_api
 from .api import dashboard as dashboard_api
 from .api import fixing as fixing_api
 from .api import importer as importer_api
-from .api import advanced as advanced_api
-from .api import prompts as prompts_api
-from .api import backup as backup_api
-from .api import summary as summary_api
 from .api import notify as notify_api
+from .api import prompts as prompts_api
 from .api import setup as setup_api
+from .api import summary as summary_api
 from .api import tests as tests_api
+from .backup import AUTO as AUTO_BACKUP
 from .checks import SCHEDULER
 from .model_tests import RUNNER
 from .notify import NOTIFIER
 from .summary import SUMMARY
-from .backup import AUTO as AUTO_BACKUP
 
 log = logging.getLogger("dockllama")
 

@@ -105,7 +105,7 @@ def _new_name(kind: str) -> Path:
         with db.session() as conn:
             tz = ZoneInfo(settings.get(conn, "general.timezone"))
         stamp = datetime.now(tz).strftime("%Y%m%d-%H%M%S")
-    except Exception:  # noqa: BLE001 - a name is never worth failing a backup over
+    except Exception:  # a name is never worth failing a backup over
         stamp = time.strftime("%Y%m%d-%H%M%S")
     p = folder() / f"dockllama-{kind}-{stamp}.zip"
     n = 2
@@ -228,9 +228,8 @@ def contents(name: str) -> dict:
 
 def _open_copy(p: Path, tmp: Path) -> Path:
     """Extract the backup's database and bring it up to this DockLlama's schema."""
-    with zipfile.ZipFile(p) as z:
-        with z.open("dockllama.db") as src, open(tmp / "backup.db", "wb") as dst:
-            shutil.copyfileobj(src, dst)
+    with zipfile.ZipFile(p) as z, z.open("dockllama.db") as src, open(tmp / "backup.db", "wb") as dst:
+        shutil.copyfileobj(src, dst)
     db.migrate(tmp / "backup.db", backup_dir=tmp / "migration-copies")
     return tmp / "backup.db"
 
@@ -455,7 +454,7 @@ class AutoBackup:
             self._task.cancel()
             try:
                 await self._task
-            except (asyncio.CancelledError, Exception):  # noqa: BLE001
+            except (asyncio.CancelledError, Exception):
                 pass
         self._task = None
 
@@ -476,7 +475,7 @@ class AutoBackup:
                     await asyncio.to_thread(make, "auto")
             except asyncio.CancelledError:
                 raise
-            except Exception:  # noqa: BLE001 - never let backups take the app down
+            except Exception:  # never let backups take the app down
                 log.exception("Automatic backup failed; will try again later")
             await asyncio.sleep(self.CHECK_EVERY)
 

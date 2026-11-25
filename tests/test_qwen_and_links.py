@@ -7,7 +7,7 @@ from dockllama.links import REMOVED, strip_links
 from dockllama.ollama import is_qwen_based
 
 from .fake_ollama import perfect_answer, tag
-from .test_model_tests import c, fake, wait_idle  # noqa: F401  (fixtures)
+from .test_model_tests import c, fake, wait_idle
 
 
 def test_qwen_detection_uses_name_family_architecture_and_base_model():
@@ -46,7 +46,7 @@ def test_parsed_answers_have_no_links():
 
 
 def _add_glimmer(c, fake):
-    fake.servers["thor"].tags = fake.servers["thor"].tags + [tag("glimmer:latest", 5.0, "glimmer", "8.2B")]
+    fake.servers["thor"].tags = [*fake.servers["thor"].tags, tag("glimmer:latest", 5.0, "glimmer", "8.2B")]
     return c.get("/api/ai/models").json()
 
 

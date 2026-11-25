@@ -10,5 +10,5 @@ else:
     url = f"http://127.0.0.1:{os.environ.get('DOCKLLAMA_PORT', '8556')}/api/health"
 try:
     urllib.request.urlopen(url, timeout=4)
-except Exception:  # noqa: BLE001
+except Exception:
     sys.exit(1)

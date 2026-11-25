@@ -1,12 +1,14 @@
 import asyncio
 import json
+import re
 import time
 
 import httpx
 import pytest
 
 from dockllama import ai_servers, db, evaluate, model_tests, ollama
-from dockllama.model_tests import Progress, TooSlow, meaningfully_better, test_model as run_model_test
+from dockllama.model_tests import Progress, TooSlow, meaningfully_better
+from dockllama.model_tests import test_model as run_model_test
 from dockllama.scenarios import SCENARIOS, score_answer
 
 from .fake_ollama import FakeOllama, FakeServer, perfect_answer, tag
@@ -139,7 +141,7 @@ def test_crawling_model_stops_early(fake):
     def crawl(payload, request):
         return dict(perfect_answer(payload), eval_count=10, eval_duration=10_000_000_000)  # 1 token/s
     fake.servers["thor"].generate_handler = crawl
-    with pytest.raises(TooSlow, match="1.0 tokens a second"):
+    with pytest.raises(TooSlow, match=re.escape("1.0 tokens a second")):
         _run(run_model_test(ollama.OllamaClient("http://thor:11434"), _model(), {}, Progress(1, "x"), keep_loaded=False))
 
 
@@ -275,7 +277,7 @@ def test_test_all_raises_the_banner_when_something_is_better(c, fake):
         return a
     fake.servers["thor"].generate_handler = llama_worse
     plan = c.get("/api/ai/tests/plan").json()
-    assert [m["name"] for m in plan["models"]][0] == "llama3.1:8b"  # the current model goes first
+    assert next(m["name"] for m in plan["models"]) == "llama3.1:8b"  # the current model goes first
     assert all(m["ticked"] for m in plan["models"]) and plan["total_s"] > 0
     assert "bge-m3:latest" not in [m["name"] for m in plan["models"]]
     c.post("/api/ai/tests", json={"names": [m["name"] for m in plan["models"]], "kind": "all"})

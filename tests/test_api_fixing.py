@@ -45,7 +45,7 @@ def test_a_round_records_how_long_it_took(data_dir, monkeypatch):
 
     from dockllama import checks
 
-    from .test_checks import FakeDocker, first_round, setup_db  # noqa: F401
+    from .test_checks import FakeDocker, first_round, setup_db
     d = FakeDocker()
     monkeypatch.setattr(checks.machines, "get_machine", lambda mid: d)
     setup_db([], with_ai=False)

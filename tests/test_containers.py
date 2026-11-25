@@ -1,3 +1,5 @@
+import re
+
 import pytest
 
 from dockllama import db, machines
@@ -83,7 +85,7 @@ def test_own_container_id_from_mountinfo(tmp_path, monkeypatch):
 
 
 def test_missing_socket_gives_plain_message(tmp_path):
-    with pytest.raises(MachineError, match="compose file needs the /var/run/docker.sock"):
+    with pytest.raises(MachineError, match=re.escape("compose file needs the /var/run/docker.sock")):
         machines.LocalDocker(str(tmp_path / "nope.sock")).list_containers()
 
 

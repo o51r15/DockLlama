@@ -233,9 +233,8 @@ def meaningfully_better(candidate: dict, current: dict | None) -> bool:
     similar_speed = c_sec is None or cur_sec is None or c_sec <= cur_sec * 1.3
     if candidate["score"] >= current["score"] + 3 and similar_speed:
         return True
-    if abs(candidate["score"] - current["score"]) <= 2 and c_sec is not None and cur_sec and c_sec <= cur_sec * 0.7:
-        return True
-    return False
+    return abs(candidate["score"] - current["score"]) <= 2 and c_sec is not None and bool(cur_sec) \
+        and c_sec <= cur_sec * 0.7
 
 
 def best_result(results: dict[str, dict], exclude: set[str] | frozenset = frozenset()) -> dict | None:
@@ -476,7 +475,7 @@ class Runner:
             self._task.cancel()
             try:
                 await self._task
-            except (asyncio.CancelledError, Exception):  # noqa: BLE001
+            except (asyncio.CancelledError, Exception):
                 pass
         self._task = None
         ai_queue.checks_paused = False
@@ -510,13 +509,13 @@ class Runner:
                     self._wake.clear()
                     try:
                         await asyncio.wait_for(self._wake.wait(), timeout=30)
-                    except asyncio.TimeoutError:
+                    except TimeoutError:
                         pass
                     continue
                 await self._run(*job)
             except asyncio.CancelledError:
                 raise
-            except Exception:  # noqa: BLE001 - the runner must never die
+            except Exception:  # the runner must never die
                 log.exception("Model test runner hit an error; carrying on")
                 await asyncio.sleep(5)
 

@@ -100,3 +100,14 @@ def test_only_watched_containers_count(conn):
     conn.execute("UPDATE containers SET monitored = 0 WHERE name = 'plex'")
     data = summary.gather(conn, now)
     assert data["restarts_last_24h"] == [] and data["changes_last_24h"] == []
+
+
+def test_summary_links_to_the_dashboard_when_the_address_is_set(conn):
+    """Like alerts, the daily summary ends with a link to DockLlama when its address is known."""
+    from dockllama import settings
+    seed(conn, time.time())
+    _, body, _ = asyncio.run(summary.build(time.time()))
+    assert "http" not in body
+    settings.set(conn, "general.base_url", "http://192.168.1.200:8556")
+    _, body, _ = asyncio.run(summary.build(time.time()))
+    assert body.endswith("\nhttp://192.168.1.200:8556/")

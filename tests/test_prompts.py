@@ -7,7 +7,7 @@ from dockllama import db, evaluate, prompts
 from dockllama.evaluate import ANSWER_FORMAT, DEFAULT_INSTRUCTIONS, SYSTEM_PROMPT, system_prompt
 
 from .fake_ollama import perfect_answer
-from .test_model_tests import c, fake, wait_idle  # noqa: F401  (fixtures)
+from .test_model_tests import c, fake, wait_idle
 
 
 def test_default_is_sent_unchanged_and_custom_gets_the_locked_format():
@@ -61,7 +61,7 @@ def test_prompt_tests_use_the_prompt_and_never_feed_suggestions(c, fake):
     st = c.get("/api/ai/tests").json()
     assert "gemma4:latest" not in st["results"]
     assert c.get("/api/ai/banner").json()["banner"] is None
-    assert c.get(f"/api/ai/tests/history?name=gemma4:latest").json().get("history", []) == []
+    assert c.get("/api/ai/tests/history?name=gemma4:latest").json().get("history", []) == []
 
     # editing the prompt marks the result as from an earlier version
     text = c.get("/api/prompts").json()["prompts"][0]["text"]

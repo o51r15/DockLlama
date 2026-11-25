@@ -317,7 +317,7 @@ class OllamaClient:
         tags = await self.tags()
         shows = await asyncio.gather(*(self.show(t["name"]) for t in tags), return_exceptions=True)
         result = []
-        for tag, show in zip(tags, shows):
+        for tag, show in zip(tags, shows, strict=True):
             result.append(details_from(tag, show if isinstance(show, dict) else {}))
         return result
 
@@ -325,18 +325,18 @@ class OllamaClient:
         """Download a model. Yields Ollama's progress events: {status, total?, completed?}."""
         try:
             async with httpx.AsyncClient(base_url=self.base_url, timeout=httpx.Timeout(30.0, read=600.0),
-                                         trust_env=False, transport=TEST_TRANSPORT) as http:
-                async with http.stream("POST", "/api/pull", json={"model": name, "stream": True}) as r:
-                    if r.status_code != 200:
-                        body = (await r.aread()).decode(errors="replace")
-                        raise OllamaError("bad_request", _pull_error(name, body))
-                    async for line in r.aiter_lines():
-                        if not line.strip():
-                            continue
-                        event = json.loads(line)
-                        if "error" in event:
-                            raise OllamaError("bad_request", _pull_error(name, event["error"]))
-                        yield event
+                                         trust_env=False, transport=TEST_TRANSPORT) as http, \
+                    http.stream("POST", "/api/pull", json={"model": name, "stream": True}) as r:
+                if r.status_code != 200:
+                    body = (await r.aread()).decode(errors="replace")
+                    raise OllamaError("bad_request", _pull_error(name, body))
+                async for line in r.aiter_lines():
+                    if not line.strip():
+                        continue
+                    event = json.loads(line)
+                    if "error" in event:
+                        raise OllamaError("bad_request", _pull_error(name, event["error"]))
+                    yield event
         except httpx.HTTPError as exc:
             raise OllamaError("unreachable", f"The download from {self.base_url} stopped: {exc}") from exc
 

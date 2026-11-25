@@ -413,8 +413,9 @@ async def run_checks(container_ids: list[int] | None = None, force_ai: bool = Fa
                 docker = machines.get_machine(mid)
                 if isinstance(docker, machines.RemoteDocker):
                     info = await docker.ainfo()
+                    allows = bool(info.get("allows_restart"))
 
-                    def note_restarts(mid=mid, allowed=bool(info.get("allows_restart"))):
+                    def note_restarts(mid=mid, allowed=allows):
                         with db.session() as conn:
                             conn.execute("UPDATE machines SET allows_restart = ? WHERE id = ?", (int(allowed), mid))
                     await run_in_threadpool(note_restarts)
@@ -462,9 +463,9 @@ async def run_checks(container_ids: list[int] | None = None, force_ai: bool = Fa
                         and state["summary"] == summary and not force_ai):
                     unchanged = True  # rules-only verdict that hasn't changed: no new history row
 
-                def save():
+                def save(c=c, verdict=(status, source, summary, todo, ai, prompt, unchanged)):
                     with db.session() as conn, db.transaction(conn):
-                        _save(conn, c, status, source, summary, todo, ai, prompt, unchanged)
+                        _save(conn, c, *verdict)
                 await run_in_threadpool(save)
                 verdict = (ai or {}).get("verdict") or {}
                 if unchanged and state is not None and ai is None:
@@ -525,7 +526,7 @@ class Scheduler:
             self._task.cancel()
             try:
                 await self._task
-            except (asyncio.CancelledError, Exception):  # noqa: BLE001
+            except (asyncio.CancelledError, Exception):
                 pass
         self._task = None
 
@@ -548,7 +549,7 @@ class Scheduler:
                 self._wake.clear()
                 try:
                     await asyncio.wait_for(self._wake.wait(), timeout=wait)
-                except asyncio.TimeoutError:
+                except TimeoutError:
                     pass
                 if time.time() < self.next_at - 0.5:
                     continue  # woken for another reason
@@ -566,7 +567,7 @@ class Scheduler:
                         self._last_prune = time.time()
             except asyncio.CancelledError:
                 raise
-            except Exception:  # noqa: BLE001 - the scheduler must never die
+            except Exception:  # the scheduler must never die
                 log.exception("Check round failed; trying again next round")
                 self.next_at = time.time() + 60
 

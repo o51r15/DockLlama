@@ -8,7 +8,7 @@ import pytest
 from dockllama import db, rules, webcheck
 from dockllama.restarts import wants_restart
 
-from .test_checks import FakeDocker, docker, fake, first_round, run, setup_db, state, verdict  # noqa: F401
+from .test_checks import FakeDocker, docker, fake, first_round, run, setup_db, state, verdict
 
 
 @pytest.mark.parametrize("url", [
@@ -123,7 +123,7 @@ def test_round_marks_a_frozen_container_and_recovers(data_dir, docker, fake, mon
         return httpx.Response(200)
     _serve(monkeypatch, app)
     calls = len(fake.servers["thor"].generate_calls)
-    for n in (1, 2):
+    for _ in (1, 2):
         run()
         assert state("web")["status"] == "healthy"
     with db.session() as conn:

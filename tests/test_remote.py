@@ -38,7 +38,7 @@ class FakeLocal(FakeDocker):
         return self.events_by_id.get(cid, [])
 
     def restart(self, name, timeout=10):
-        self.restarted = getattr(self, "restarted", []) + [name]
+        self.restarted = [*getattr(self, "restarted", []), name]
 
     def start_event_watch(self):
         pass

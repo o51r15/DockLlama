@@ -171,7 +171,7 @@ def get(conn: sqlite3.Connection, key: str) -> Any:
     return spec.default if row is None else json.loads(row["value"])
 
 
-def set(conn: sqlite3.Connection, key: str, value: Any) -> Any:  # noqa: A001 - module API
+def set(conn: sqlite3.Connection, key: str, value: Any) -> Any:  # module API
     spec = _spec(key)
     clean = spec.validate(value)
     conn.execute(

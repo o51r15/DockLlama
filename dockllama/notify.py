@@ -183,7 +183,7 @@ def send_now(url: str, title: str, body: str) -> tuple[bool, str]:
     try:
         with apprise.LogCapture(level=apprise.logging.DEBUG) as captured:
             ok = a.notify(title=title, body=body)
-    except Exception as exc:  # noqa: BLE001 - any delivery failure is reported, never raised
+    except Exception as exc:  # any delivery failure is reported, never raised
         return False, f"Sending failed: {exc}"
     if ok:
         return True, ""
@@ -315,13 +315,13 @@ async def deliver(messages: list[dict]) -> int:
     """Send each message to every target that wants its kind. Returns how many sends worked."""
     sent = 0
     for m in messages:
-        def targets():
+        def targets(kind=m["kind"]):
             with db.session() as conn:
-                return _targets(conn, m["kind"])
+                return _targets(conn, kind)
         for t in await run_in_threadpool(targets):
             ok, problem = await asyncio.to_thread(send_now, t["url"], m["title"], m["body"])
 
-            def record(t=t, ok=ok, problem=problem):
+            def record(t=t, ok=ok, problem=problem, m=m):
                 with db.session() as conn:
                     conn.execute("UPDATE notify_targets SET last_ok = CASE WHEN ? THEN ? ELSE last_ok END, "
                                  "last_error = ? WHERE id = ?", (ok, time.time(), None if ok else problem, t["id"]))
@@ -367,7 +367,7 @@ class Notifier:
             self._task.cancel()
             try:
                 await self._task
-            except (asyncio.CancelledError, Exception):  # noqa: BLE001
+            except (asyncio.CancelledError, Exception):
                 pass
         self._task = None
 
@@ -381,12 +381,12 @@ class Notifier:
                 self._wake.clear()
                 try:
                     await asyncio.wait_for(self._wake.wait(), timeout=60)
-                except asyncio.TimeoutError:
+                except TimeoutError:
                     pass
                 await process()
             except asyncio.CancelledError:
                 raise
-            except Exception:  # noqa: BLE001 - never stop notifying because one pass failed
+            except Exception:  # never stop notifying because one pass failed
                 log.exception("Notification pass failed")
                 await asyncio.sleep(10)
 

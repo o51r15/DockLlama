@@ -2,18 +2,16 @@
 
 from __future__ import annotations
 
-from fastapi import APIRouter, HTTPException
-from pydantic import BaseModel
-
 import asyncio
 import math
 
-from .. import db, settings
-from ..restarts import in_quiet_hours
-from .setup import per_check, watched_count
+from fastapi import APIRouter, HTTPException
+from pydantic import BaseModel
 from starlette.concurrency import run_in_threadpool
 
-from .. import machines
+from .. import db, machines, settings
+from ..restarts import in_quiet_hours
+from .setup import per_check, watched_count
 
 HEADROOM = 1.25  # an interval must leave a quarter of a round spare
 
@@ -88,13 +86,13 @@ async def coverage():
         machine can't be reached quickly; the list still shows, without those marks."""
         try:
             infos = await asyncio.wait_for(machines.get_machine(m["id"]).alist_containers(), timeout=3)
-        except (machines.MachineError, asyncio.TimeoutError):
+        except (TimeoutError, machines.MachineError):
             return None
         return {i.name: ("DockLlama itself" if i.is_self else "runs your AI") for i in infos if i.is_self or i.is_ollama}
 
     nevers = await asyncio.gather(*(never_for(m) for m in ms))  # all machines at once
     out = []
-    for m, found in zip(ms, nevers):
+    for m, found in zip(ms, nevers, strict=True):
         never, reachable = found or {}, found is not None
         mine = [{"id": c["id"], "name": c["name"], "allowed": bool(c["allow_auto_restart"]),
                  "never": never.get(c["name"])} for c in cs if c["machine_id"] == m["id"]]

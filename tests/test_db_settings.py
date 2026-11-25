@@ -28,7 +28,7 @@ def test_upgrade_takes_backup_first(data_dir, monkeypatch):
         conn.execute("CREATE TABLE extra (x INTEGER)")
 
     before = db.LATEST
-    monkeypatch.setattr(db, "MIGRATIONS", db.MIGRATIONS + [_m002])
+    monkeypatch.setattr(db, "MIGRATIONS", [*db.MIGRATIONS, _m002])
     monkeypatch.setattr(db, "LATEST", len(db.MIGRATIONS))
     assert db.migrate() == before + 1
     backups = list((data_dir / "backups").glob(f"dockllama-v{before}-*.db"))
@@ -46,7 +46,7 @@ def test_failed_migration_rolls_back_completely(data_dir, monkeypatch):
         raise RuntimeError("boom")
 
     before = db.LATEST
-    monkeypatch.setattr(db, "MIGRATIONS", db.MIGRATIONS + [_bad])
+    monkeypatch.setattr(db, "MIGRATIONS", [*db.MIGRATIONS, _bad])
     monkeypatch.setattr(db, "LATEST", len(db.MIGRATIONS))
     with pytest.raises(RuntimeError):
         db.migrate()

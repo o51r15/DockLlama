@@ -131,6 +131,8 @@ async def build(now: float | None = None) -> tuple[str, str, bool]:
     by_ai = body is not None
     if not by_ai:
         body = template(data)
+    if base:  # DockLlama's own link to the dashboard, like alerts have (added after the AI's links are removed)
+        body = body.rstrip() + f"\n{base.rstrip('/')}/"
     n = len(data["problems_now"])
     title = "DockLlama daily summary: " + (f"{n} need{'s' if n == 1 else ''} attention" if n else "all fine")
     return title, body, by_ai
@@ -173,7 +175,7 @@ class SummaryScheduler:
             self._task.cancel()
             try:
                 await self._task
-            except (asyncio.CancelledError, Exception):  # noqa: BLE001
+            except (asyncio.CancelledError, Exception):
                 pass
 
     async def _loop(self) -> None:
@@ -188,7 +190,7 @@ class SummaryScheduler:
                     await send()
             except asyncio.CancelledError:
                 raise
-            except Exception:  # noqa: BLE001
+            except Exception:
                 log.exception("Daily summary failed")
                 await asyncio.sleep(300)
 

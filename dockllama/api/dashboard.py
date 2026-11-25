@@ -13,6 +13,8 @@ from .. import ai_servers, db, machines, settings
 from ..checks import ROUND, SCHEDULER, SHOWN, run_checks
 from ..redact import redact
 
+_FOLLOW_UPS: set[asyncio.Task] = set()  # restart follow-up checks still running
+
 router = APIRouter(prefix="/api", tags=["dashboard"])
 
 PROBLEMS = ("critical", "unhealthy", "degraded", "unknown", "gone")
@@ -159,7 +161,9 @@ async def restart(db_id: int):
         await asyncio.sleep(10)
         try:
             await run_checks([db_id], force_ai=False, track=False)
-        except Exception:  # noqa: BLE001 - best effort
+        except Exception:  # best effort
             pass
-    asyncio.create_task(follow_up())
+    task = asyncio.create_task(follow_up())
+    _FOLLOW_UPS.add(task)  # keep a reference, or Python may drop the task before it finishes
+    task.add_done_callback(_FOLLOW_UPS.discard)
     return {"ok": True}

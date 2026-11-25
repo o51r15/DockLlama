@@ -4,7 +4,7 @@ import time
 
 from dockllama import checks, db, settings
 
-from .test_model_tests import c, fake  # noqa: F401  (fixtures)
+from .test_model_tests import c, fake
 
 
 def _container(conn) -> int:
@@ -26,7 +26,7 @@ def test_prune_follows_the_setting_and_keeps_what_matters(c):
     now = time.time()
     with db.session() as conn, db.transaction(conn):
         cid = _container(conn)
-        old, new, current = (conn.execute(
+        _old, new, current = (conn.execute(
             "INSERT INTO checks (container_id, at, status, source) VALUES (?, ?, 'healthy', 'ai')", (cid, t)).lastrowid
             for t in (now - 40 * 86400, now - 10 * 86400, now - 50 * 86400))
         conn.execute("INSERT INTO container_state (container_id, status, since, last_check_id) VALUES (?, 'healthy', 0, ?)",

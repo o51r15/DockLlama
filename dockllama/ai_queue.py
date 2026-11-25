@@ -34,7 +34,7 @@ def lock() -> asyncio.Lock:
 # --- who is in line (for "Check now: waiting in line, 2 ahead") ------------------------------
 
 class _Turn:
-    __slots__ = ("kind", "label", "container_id", "holding")
+    __slots__ = ("container_id", "holding", "kind", "label")
 
     def __init__(self, kind: str, label: str, container_id: int | None):
         self.kind, self.label, self.container_id, self.holding = kind, label, container_id, False

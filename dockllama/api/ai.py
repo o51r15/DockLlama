@@ -288,7 +288,7 @@ async def _run_pull(address: str, name: str) -> None:
         await _after_download(address, name)
     except OllamaError as exc:
         state.update(done=True, error=str(exc))
-    except Exception as exc:  # noqa: BLE001 - never leave a pull stuck at "downloading"
+    except Exception as exc:  # never leave a pull stuck at "downloading"
         state.update(done=True, error=f"The download failed: {exc}")
     state["finished_at"] = time.time()
 
