@@ -11,7 +11,7 @@ different command: no AI, no web page, no database.
    ```yaml
    services:
      dockllama-remote:
-       image: ghcr.io/o51r15/dockllama:v2-dev
+       image: ghcr.io/o51r15/dockllama:latest
        container_name: dockllama-remote
        command: ["dockllama", "remote"]
        restart: unless-stopped

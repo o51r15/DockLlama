@@ -3,6 +3,10 @@
 v2 is a rebuild: settings live in DockLlama's database and are changed from the web page, not in
 `config.yaml`. Your v1 setup can be brought over.
 
+> **If your v1 compose file uses `:latest`**, your next `docker compose pull` gets v2, which won't read
+> v1's `config.yaml` or data. To stay on v1 for now, change the image to `ghcr.io/o51r15/dockllama:dev`
+> (the last v1 build) before pulling. When you're ready, follow the steps below.
+
 1. Start v2 with the [compose file](../README.md#install) (a new data volume; v1's isn't reused) and
    go through the setup guide, or skip ahead.
 2. Bring over v1's setup, either way:

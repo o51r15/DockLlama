@@ -9,8 +9,9 @@ containers' logs. Your logs never leave your network.
 
 Everything is set up from the web page: no config files, no group IDs, nothing to edit.
 
-> **v2 is in testing.** Until the 2.0 release the image tag is `v2-dev`. The old v1 code is kept under
-> the [`v1-final`](../../tree/v1-final) tag. Coming from v1? See [Upgrading from v1](docs/upgrading-from-v1.md).
+> **This is DockLlama 2**, a full rewrite. The first version is kept, read-only, on the
+> [`main`](../../tree/main) branch (and the [`v1-final`](../../tree/v1-final) tag), with a note on what it taught us.
+> Coming from v1? See [Upgrading from v1](docs/upgrading-from-v1.md).
 
 ## Install
 
@@ -24,7 +25,7 @@ docker compose up -d
 ```yaml
 services:
   dockllama:
-    image: ghcr.io/o51r15/dockllama:v2-dev
+    image: ghcr.io/o51r15/dockllama:latest
     container_name: dockllama
     restart: unless-stopped
     ports:
@@ -120,4 +121,5 @@ python -m pytest
 ```
 
 Pushes to the `v2` branch build multi-arch images (`linux/amd64`, `linux/arm64`) as
-`ghcr.io/o51r15/dockllama:v2-dev`.
+`ghcr.io/o51r15/dockllama:v2-dev`, for testing. Releases build `latest` and the version tags
+(`2.0.0`, `2.0`); see [Releasing](docs/releasing.md).

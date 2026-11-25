@@ -89,7 +89,7 @@ async def list_machines():
     return list(await asyncio.gather(*(one(r) for r in rows)))
 
 
-REMOTE_IMAGE = "ghcr.io/o51r15/dockllama:v2-dev"  # switches to :latest at the 2.0 release
+REMOTE_IMAGE = "ghcr.io/o51r15/dockllama:latest"
 
 
 class SnippetBody(BaseModel):
