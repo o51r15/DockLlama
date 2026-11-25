@@ -15,4 +15,35 @@
 | Can't reach DockLlama Remote | Is it running on that machine, is port 8557 open, and is the address right? |
 | "didn't accept the pairing token" | Copy the snippet again from Settings → Machines and recreate the Remote container. |
 | A test message didn't arrive | Check the details; ntfy needs the app subscribed to the exact topic. |
+| "No answer from ntfy.sh in time" (or another service) although it works from your browser | Usually a VPN or Tailscale exit node on the machine running DockLlama; see [below](#a-vpn-or-tailscale-exit-node-on-the-docker-machine). |
+| "This DockLlama Remote is … older than DockLlama" | On that machine, next to the Remote's compose file: `docker compose pull && docker compose up -d`. |
 | Forgot the password | `docker exec -it dockllama dockllama reset-password` |
+
+## A VPN or Tailscale exit node on the Docker machine
+
+**What you see:** sending a notification fails with "No answer from ntfy.sh in time" (or Discord, Telegram…), web
+page checks or downloads to some sites time out, but the same address works fine from the machine itself or
+from your browser.
+
+**Why:** the machine's internet traffic goes through a tunnel (a VPN, or a Tailscale exit node) that only carries
+smaller packets, often 1280 bytes. Docker gives containers 1500-byte packets. The machine itself knows about the
+smaller limit, but traffic coming out of a container doesn't, and larger packets are silently dropped inside the
+tunnel. A secure (HTTPS) connection needs a few large packets to start, so it stalls.
+
+**Check:** on the Docker machine, `ip route get 1.1.1.1` shows `dev tailscale0`, `wg0` or similar, and
+`ip link show <that device>` shows `mtu 1280` (or anything below 1500).
+
+**Fix:** give DockLlama's own network the same packet size. Add this to the end of DockLlama's compose file,
+using the number from the check, and recreate it with `docker compose down && docker compose up -d`:
+
+```yaml
+networks:
+  default:
+    driver_opts:
+      com.docker.network.driver.mtu: "1280"
+```
+
+Other containers on that machine can have the same problem with some sites. To fix it for all of them at once,
+the usual way is "MSS clamping" on the machine:
+`iptables -t mangle -A FORWARD -o tailscale0 -p tcp --tcp-flags SYN,RST SYN -j TCPMSS --clamp-mss-to-pmtu`
+(it has to be made to survive a reboot).
