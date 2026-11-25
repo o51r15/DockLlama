@@ -156,6 +156,51 @@ function fixingSection() {
     f: null, error: '',
     withCurrent(list, value) { return [...new Set([...list, value])].sort((a, b) => a - b); },
     async load() { try { this.f = await api('api/fixing'); } catch (e) { this.error = e.message; } },
+    // --- How often to check: a slider coloured by how busy the AI server would be ----------------
+    sliderIdx: 0, snapNote: '',
+    steps() {
+      const base = [1, 2, 3, 5, 10, 15, 20, 30, 45, 60, 90, 120, 180, 240, 360, 720, 1440];
+      const extra = this.f ? [this.f.min_interval, this.f.interval_minutes] : [];
+      return [...new Set([...base, ...extra])].filter(m => m >= 1 && m <= 1440).sort((a, b) => a - b);
+    },
+    resetSlider() { if (this.f) this.sliderIdx = Math.max(0, this.steps().indexOf(this.f.interval_minutes)); },
+    sliderMinutes() { return this.steps()[this.sliderIdx] || (this.f && this.f.interval_minutes) || 10; },
+    busyShare(m) { return this.f ? this.f.round_seconds / (m * 60) : 0; },  // how much of the time the AI is checking
+    zone(m) {
+      if (!this.f) return 'green';
+      if (m < this.f.min_interval) return 'red';
+      return this.busyShare(m) > 0.5 ? 'yellow' : 'green';
+    },
+    zoneText(m) {
+      const z = this.zone(m), busy = Math.min(100, Math.round(this.busyShare(m) * 100));
+      if (z === 'red') return 'Too short: a round takes longer than this';
+      if (busy < 1) return 'AI server barely used';
+      return 'AI server busy about ' + busy + '% of the time' + (z === 'yellow' ? ' (busy)' : '');
+    },
+    everyText(m) {
+      if (m < 60) return m + (m === 1 ? ' minute' : ' minutes');
+      if (m === 1440) return 'day';
+      const h = m / 60;
+      return (Number.isInteger(h) ? h : h.toFixed(1)) + (h === 1 ? ' hour' : ' hours');
+    },
+    trackGradient() {
+      const steps = this.steps(), n = steps.length - 1, colours = {red: 'var(--bad)', yellow: 'var(--warn)', green: 'var(--ok)'};
+      const parts = steps.map((m, i) => {
+        const at = n ? (i / n) * 100 : 0, c = colours[this.zone(m)];
+        return c + ' ' + Math.max(0, at - 50 / n) + '% ' + Math.min(100, at + 50 / n) + '%';
+      });
+      return 'linear-gradient(to right, ' + parts.join(', ') + ')';
+    },
+    async commitSlider() {
+      let m = this.sliderMinutes();
+      if (m < this.f.min_interval) {
+        this.snapNote = 'A check round ' + (this.f.round_measured ? 'takes' : 'should take') + ' longer than ' +
+          this.everyText(m) + ' here, so it was set to every ' + this.everyText(this.f.min_interval) + ', the shortest that fits.';
+        m = this.f.min_interval;
+      }
+      if (m !== this.f.interval_minutes) await this.save({interval_minutes: m});
+      this.resetSlider();
+    },
     roundLine() {
       if (!this.f) return '';
       const s = this.f.round_seconds, t = s < 90 ? Math.max(1, Math.round(s)) + ' seconds' : Math.round(s / 60) + ' minutes';

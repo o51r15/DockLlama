@@ -462,12 +462,18 @@
             </select> restarts in an hour, stop and tell me instead.</div>
 
           <h2>How often to check</h2>
-          <div class="limit-line">Every
-            <select x-model.number="f.interval_minutes" @change="save({interval_minutes: f.interval_minutes})">
-              <template x-for="m in withCurrent([2, 5, 10, 15, 30, 60], f.interval_minutes)" :key="m">
-                <option :value="m" x-text="m < f.min_interval ? m + ' (too short)' : m" :selected="m === f.interval_minutes"
-                        :disabled="m < f.min_interval && m !== f.interval_minutes"></option></template>
-            </select> minutes.</div>
+          <div class="interval-slider" x-init="resetSlider(); $watch('f', () => resetSlider())">
+            <div class="interval-label">
+              <strong x-text="'Every ' + everyText(sliderMinutes())"></strong>
+              <span :class="'zone zone-' + zone(sliderMinutes())" x-text="zoneText(sliderMinutes())"></span>
+            </div>
+            <input type="range" min="0" :max="steps().length - 1" step="1" :value="sliderIdx"
+                   :style="'background: ' + trackGradient()"
+                   @input="sliderIdx = Number($event.target.value); snapNote = ''"
+                   @change="commitSlider()" aria-label="How often to check">
+            <div class="interval-ends"><span x-text="everyText(steps()[0])"></span><span>once a day</span></div>
+          </div>
+          <div class="warning" x-show="snapNote" x-text="snapNote"></div>
           <div class="hint" x-text="roundLine()"></div>
           <div class="warning" x-show="f.interval_minutes < f.min_interval">Checking every
             <span x-text="f.interval_minutes"></span> minutes is shorter than a round takes now, so rounds run back to back
