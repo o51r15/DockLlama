@@ -148,3 +148,12 @@ def test_setup_guide_needs_sign_in(client):
     r = client.get("/welcome", follow_redirects=False)
     assert r.status_code == 303 and r.headers["location"] == "login"
     assert client.post("/api/setup/finish", json={}).status_code == 401
+
+
+def test_pages_and_static_files_are_always_rechecked(client):
+    """After an update the browser must not pair a new page with an old cached stylesheet."""
+    r = client.get("/static/app.css")
+    assert r.status_code == 200 and r.headers["cache-control"] == "no-cache" and r.headers.get("etag")
+    again = client.get("/static/app.css", headers={"If-None-Match": r.headers["etag"]})
+    assert again.status_code == 304  # unchanged: nothing is downloaded again
+    assert client.get("/login").headers["cache-control"] in ("no-cache", "no-store")

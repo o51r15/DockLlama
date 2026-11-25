@@ -81,6 +81,17 @@ def create_app() -> FastAPI:
     app = FastAPI(title="DockLlama", version=__version__, lifespan=lifespan, docs_url=None, redoc_url=None)
 
     @app.middleware("http")
+    async def always_check_for_updates(request: Request, call_next):
+        """Pages, scripts and styles may be kept by the browser but must be checked with the server
+        each time (a quick 304 when unchanged). Without this, after an update a browser can pair the
+        new page with an old cached stylesheet or script and show it broken."""
+        response = await call_next(request)
+        path = request.url.path
+        if path.startswith("/static/") or path in PAGES:
+            response.headers.setdefault("Cache-Control", "no-cache")
+        return response
+
+    @app.middleware("http")
     async def sign_in_gate(request: Request, call_next):
         path = request.url.path
         if path.startswith("/static/") or path in PUBLIC_API:
