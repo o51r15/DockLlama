@@ -21,6 +21,7 @@ function settingsPage() {
       {id: 'fixing', label: 'Checking and fixing'},
       {id: 'notifications', label: 'Notifications'},
       {id: 'account', label: 'Account'},
+      {id: 'backup', label: 'Backup'},
       {id: 'advanced', label: 'Advanced'},
     ],
     section: 'containers',

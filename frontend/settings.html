@@ -696,6 +696,89 @@
       </template>
     </section>
 
+    <!-- Backup -->
+    <section x-show="section === 'backup'" x-data="backupSection()" x-init="load()">
+      <h1>Backup</h1>
+      <p class="sub">A backup holds all your settings and DockLlama's history. Your password is never included,
+        but notification and machine tokens are, so keep backup files private.</p>
+      <div class="error" x-show="error" x-text="error"></div>
+      <template x-if="b">
+        <div>
+          <div class="warning" x-show="b.mapped === false">
+            <strong>Backups are only stored inside the container right now,</strong> so they'd be lost if it's removed.
+            Add this line under <code>volumes:</code> in your compose file, then run <code>docker compose up -d</code>:
+            <pre>      - ./backups:/app/backups</pre>
+          </div>
+
+          <div class="panel">
+            <h2>Automatic backups</h2>
+            <label class="check"><input type="checkbox" :checked="b.auto" @change="save({auto: $event.target.checked})">
+              <span>Back up automatically</span></label>
+            <div class="limit-line" x-show="b.auto">Back up
+              <select @change="save({every_hours: Number($event.target.value)})">
+                <template x-for="c in everyChoices" :key="c[0]">
+                  <option :value="c[0]" x-text="c[1]" :selected="c[0] === b.every_hours"></option></template>
+              </select> and keep the last
+              <select @change="save({keep: Number($event.target.value)})">
+                <template x-for="n in withCurrent(keepChoices, b.keep)" :key="n">
+                  <option :value="n" x-text="n" :selected="n === b.keep"></option></template>
+              </select> automatic backups.</div>
+            <div class="hint">Backups you make yourself are kept until you delete them.</div>
+            <button class="small" style="width:auto" @click="now()" :disabled="busy">Back up now</button>
+          </div>
+
+          <div class="panel">
+            <h2>Backups</h2>
+            <p class="hint" x-show="!b.files.length">No backups yet.</p>
+            <table class="prompt-results" x-show="b.files.length">
+              <thead><tr><th>Made</th><th>Kind</th><th>Size</th><th></th></tr></thead>
+              <tbody>
+                <template x-for="f in b.files" :key="f.name">
+                  <tr>
+                    <td x-text="when(f.created)"></td>
+                    <td x-text="kindLabel[f.kind]"></td>
+                    <td x-text="size(f.size)"></td>
+                    <td class="actions-row tight">
+                      <a class="button secondary small" :href="'api/backup/files/' + encodeURIComponent(f.name)" download>Download</a>
+                      <button class="secondary small" @click="startRestore(f)">Restore…</button>
+                      <button class="secondary small" x-show="confirmDelete !== f.name" @click="confirmDelete = f.name">Delete</button>
+                      <button class="small danger" x-show="confirmDelete === f.name" @click="remove(f)">Yes, delete</button>
+                    </td>
+                  </tr>
+                </template>
+              </tbody>
+            </table>
+            <label>Restore from a file</label>
+            <input type="file" accept=".zip,application/zip" @change="upload($event.target.files[0])" :disabled="uploading">
+            <div class="hint">A backup downloaded from this or another DockLlama.</div>
+          </div>
+
+          <template x-if="restoring">
+            <div class="panel confirm">
+              <h2>Restore from the backup made <span x-text="when(restoring.created)"></span></h2>
+              <p class="hint">Tick what to bring back. Anything you don't tick stays as it is now. Machines and containers
+                are matched by name, and ones added since the backup are kept.</p>
+              <template x-for="(label, g) in restoring.groups" :key="g">
+                <label class="check tight"><input type="checkbox" x-model="picked[g]"><span x-text="label"></span></label>
+              </template>
+              <p class="hint">DockLlama saves a backup of how things are now first, so you can undo this.</p>
+              <div class="actions-row tight">
+                <button class="small" @click="doRestore()" :disabled="busy || !pickedGroups.length">Restore</button>
+                <button class="secondary small" @click="restoring = null">Cancel</button>
+              </div>
+            </div>
+          </template>
+
+          <div class="panel" x-show="result">
+            <div class="success">Restored. The way things were just before is saved as
+              <span x-text="result && result.saved_first"></span>.</div>
+            <p class="hint" x-show="result && result.details.containers_skipped"
+               x-text="result && (result.details.containers_skipped + ' containers were skipped because their machine isn\'t here. Restore Machines too to bring them back.')"></p>
+          </div>
+        </div>
+      </template>
+    </section>
+
     <!-- Advanced -->
     <section x-show="section === 'advanced'" x-data="advancedSection()" x-init="load()">
       <h1>Advanced</h1>

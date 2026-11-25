@@ -91,6 +91,18 @@ def _prompt_id(v: Any) -> int:
     raise SettingError("must be a prompt number")
 
 
+def _backup_hours(v: Any) -> int:
+    if isinstance(v, int) and not isinstance(v, bool) and v in (6, 12, 24, 48, 72, 168):
+        return v
+    raise SettingError("must be every 6, 12, 24, 48 or 72 hours, or once a week")
+
+
+def _keep(v: Any) -> int:
+    if isinstance(v, int) and not isinstance(v, bool) and 1 <= v <= 365:
+        return v
+    raise SettingError("must be from 1 to 365")
+
+
 def _days(v: Any) -> int:
     if isinstance(v, int) and not isinstance(v, bool) and 1 <= v <= 3650:
         return v
@@ -120,6 +132,9 @@ REGISTRY: dict[str, Setting] = {
     # How long check history, evidence, CPU/RAM history and the event log are kept.
     # Model test results, settings and each container's current status are always kept.
     "data.retention_days": Setting(30, _days),
+    "backup.auto": Setting(True, _bool),          # automatic backups to the backups folder
+    "backup.every_hours": Setting(24, _backup_hours),
+    "backup.keep": Setting(7, _keep),             # how many automatic backups to keep
     "notify.reminder_hours": Setting(6, _hours),
     "general.base_url": Setting(None, _opt_str),  # how users reach DockLlama, for links in messages
     # Start of quiet hours, local time; "Run tonight" starts model tests then. Phase 8 adds the rest.

@@ -21,6 +21,7 @@ from .api import fixing as fixing_api
 from .api import importer as importer_api
 from .api import advanced as advanced_api
 from .api import prompts as prompts_api
+from .api import backup as backup_api
 from .api import summary as summary_api
 from .api import notify as notify_api
 from .api import setup as setup_api
@@ -29,6 +30,7 @@ from .checks import SCHEDULER
 from .model_tests import RUNNER
 from .notify import NOTIFIER
 from .summary import SUMMARY
+from .backup import AUTO as AUTO_BACKUP
 
 log = logging.getLogger("dockllama")
 
@@ -48,9 +50,11 @@ async def lifespan(app: FastAPI):
     await SCHEDULER.start()
     await NOTIFIER.start()
     await SUMMARY.start()
+    await AUTO_BACKUP.start()
     try:
         yield
     finally:
+        await AUTO_BACKUP.stop()
         await SUMMARY.stop()
         await NOTIFIER.stop()
         await SCHEDULER.stop()
@@ -115,6 +119,7 @@ def create_app() -> FastAPI:
     app.include_router(importer_api.router)
     app.include_router(advanced_api.router)
     app.include_router(prompts_api.router)
+    app.include_router(backup_api.router)
 
     for route, filename in PAGES.items():
         app.add_api_route(route, _page(filename), methods=["GET"], include_in_schema=False)

@@ -121,3 +121,64 @@ function promptsEditor() {
     },
   };
 }
+
+// Settings → Backup
+function backupSection() {
+  return {
+    b: null, error: '', busy: false, restoring: null, picked: {}, result: null, confirmDelete: null, uploading: false,
+    everyChoices: [[6, 'every 6 hours'], [12, 'every 12 hours'], [24, 'once a day'], [48, 'every 2 days'],
+                   [72, 'every 3 days'], [168, 'once a week']],
+    keepChoices: [3, 7, 14, 30],
+    kindLabel: {auto: 'Automatic', manual: 'Made by you', 'before-restore': 'Saved before a restore', uploaded: 'Uploaded'},
+    async load() { try { this.b = await api('api/backup'); } catch (e) { this.error = e.message; } },
+    withCurrent(list, value) { return [...new Set([...list, value])].sort((a, b) => a - b); },
+    async save(change) {
+      this.error = '';
+      try { this.b = await api('api/backup', {method: 'PUT', body: change}); this.$dispatch('toast', 'Saved.'); }
+      catch (e) { this.error = e.message; await this.load(); }
+    },
+    async now() {
+      this.error = ''; this.busy = true;
+      try { await api('api/backup/now', {method: 'POST'}); await this.load(); this.$dispatch('toast', 'Backup saved.'); }
+      catch (e) { this.error = e.message; }
+      this.busy = false;
+    },
+    async remove(f) {
+      this.error = '';
+      try { await api('api/backup/files/' + encodeURIComponent(f.name), {method: 'DELETE'}); this.confirmDelete = null; await this.load(); }
+      catch (e) { this.error = e.message; }
+    },
+    async upload(file) {
+      if (!file) return;
+      this.error = ''; this.uploading = true;
+      try {
+        const r = await fetch('api/backup/upload', {method: 'POST', body: file, headers: {'Content-Type': 'application/zip'}});
+        const data = await r.json().catch(() => ({}));
+        if (!r.ok) throw new Error(data.detail || 'That file couldn\'t be uploaded.');
+        await this.load();
+        await this.startRestore({name: data.name});
+      } catch (e) { this.error = e.message; }
+      this.uploading = false;
+    },
+    async startRestore(f) {
+      this.error = ''; this.result = null;
+      try {
+        this.restoring = await api('api/backup/files/' + encodeURIComponent(f.name) + '/contents');
+        this.picked = {};
+        for (const g of Object.keys(this.restoring.groups)) this.picked[g] = true;
+      } catch (e) { this.error = e.message; }
+    },
+    get pickedGroups() { return Object.keys(this.picked).filter(g => this.picked[g]); },
+    async doRestore() {
+      this.error = ''; this.busy = true;
+      try {
+        this.result = await api('api/backup/files/' + encodeURIComponent(this.restoring.name) + '/restore',
+                                {method: 'POST', body: {groups: this.pickedGroups}});
+        this.restoring = null; await this.load();
+      } catch (e) { this.error = e.message; }
+      this.busy = false;
+    },
+    size(n) { return n > 1048576 ? (n / 1048576).toFixed(1) + ' MB' : Math.max(1, Math.round(n / 1024)) + ' KB'; },
+    when(t) { return new Date(t * 1000).toLocaleString(); },
+  };
+}

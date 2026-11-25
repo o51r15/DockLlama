@@ -15,6 +15,7 @@ def data_dir(tmp_path, monkeypatch):
     monkeypatch.setattr(paths, "DATA_DIR", tmp_path)
     monkeypatch.setattr(paths, "DB_PATH", tmp_path / "dockllama.db")
     monkeypatch.setattr(paths, "BACKUP_DIR", tmp_path / "backups")
+    monkeypatch.setattr(paths, "USER_BACKUP_DIR", tmp_path / "user-backups")
     auth_api.throttle._state.clear()
     return tmp_path
 

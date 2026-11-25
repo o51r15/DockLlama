@@ -9,8 +9,8 @@ WORKDIR /app
 # Unprivileged app user. No USER line: the entrypoint starts as root to fix the
 # data-folder owner and Docker-socket group, then drops to this user.
 RUN useradd -r -u 1000 -m -s /usr/sbin/nologin dockllama \
-    && mkdir -p /app/data \
-    && chown dockllama:dockllama /app/data
+    && mkdir -p /app/data /app/backups \
+    && chown dockllama:dockllama /app/data /app/backups
 
 COPY requirements.txt .
 RUN pip install --no-cache-dir -r requirements.txt

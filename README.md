@@ -32,6 +32,7 @@ services:
     volumes:
       - /var/run/docker.sock:/var/run/docker.sock
       - dockllama-data:/app/data
+      - ./backups:/app/backups
     extra_hosts:
       - "host.docker.internal:host-gateway"
 volumes:
@@ -99,6 +100,7 @@ Everything can be changed later in **Settings**, and the guide can be run again 
 - [Notifications](docs/notifications.md)
 - [Restarts and quiet hours](docs/restarts.md)
 - [Watching other machines](docs/other-machines.md)
+- [Backup and restore](docs/backup.md)
 - [Upgrading from v1](docs/upgrading-from-v1.md)
 - [Troubleshooting](docs/troubleshooting.md)
 

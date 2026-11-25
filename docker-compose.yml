@@ -11,6 +11,9 @@ services:
       # (":ro" is left off on purpose: it doesn't restrict what can be done through the socket.)
       - /var/run/docker.sock:/var/run/docker.sock
       - dockllama-data:/app/data
+      # Backups (Settings → Backup) land in a "backups" folder next to this file, so they
+      # survive the container or its volume being removed.
+      - ./backups:/app/backups
     extra_hosts:
       # Lets DockLlama reach an Ollama running on this same machine as host.docker.internal.
       - "host.docker.internal:host-gateway"

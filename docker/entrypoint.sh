@@ -31,11 +31,14 @@ if [ -n "${PUID:-}" ] && [ "$PUID" != "$(id -u "$APP_USER")" ]; then
     usermod -o -u "$PUID" "$APP_USER"
 fi
 
-mkdir -p "$DATA"
+BACKUPS="${DOCKLLAMA_BACKUPS:-/app/backups}"
+mkdir -p "$DATA" "$BACKUPS"
 app_uid="$(id -u "$APP_USER")"
-if [ "$(stat -c %u "$DATA")" != "$app_uid" ] || [ -n "$(find "$DATA" ! -user "$APP_USER" -print -quit)" ]; then
-    chown -R "$APP_USER:$APP_USER" "$DATA"
-fi
+for dir in "$DATA" "$BACKUPS"; do
+    if [ "$(stat -c %u "$dir")" != "$app_uid" ] || [ -n "$(find "$dir" ! -user "$APP_USER" -print -quit)" ]; then
+        chown -R "$APP_USER:$APP_USER" "$dir"
+    fi
+done
 
 if [ -S "$SOCK" ]; then
     sock_gid="$(stat -c %g "$SOCK")"
