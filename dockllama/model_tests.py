@@ -453,6 +453,7 @@ class Runner:
     def __init__(self) -> None:
         self._task: asyncio.Task | None = None
         self._wake: asyncio.Event | None = None
+        self._loop_ref: asyncio.AbstractEventLoop | None = None  # API handlers run in other threads
         self._current: asyncio.Task | None = None
         self._stop_reason: str | None = None  # "pause" | "cancel" when the user interrupts
         self.progress: Progress | None = None
@@ -464,6 +465,7 @@ class Runner:
                 recover(conn)
         await run_in_threadpool(_recover)
         self._wake = asyncio.Event()
+        self._loop_ref = asyncio.get_running_loop()
         self._task = asyncio.create_task(self._loop(), name="model-tests")
 
     async def stop(self) -> None:
@@ -476,14 +478,25 @@ class Runner:
         self._task = None
         ai_queue.checks_paused = False
 
+    # wake() and interrupt() are called from API handlers, which run in worker threads, so they
+    # hand the work to the runner's own event loop rather than touching asyncio objects directly.
+
     def wake(self) -> None:
-        if self._wake is not None:
-            self._wake.set()
+        if self._wake is not None and self._loop_ref is not None:
+            self._loop_ref.call_soon_threadsafe(self._wake.set)
 
     def interrupt(self, run_id: int, reason: str) -> None:
         """Stop the test in progress, if it belongs to run_id (pause or cancel)."""
-        if self._current is not None and self.current_run == run_id and not self._current.done():
-            self._stop_reason = reason
+        if self._loop_ref is not None:
+            self._loop_ref.call_soon_threadsafe(self._interrupt, run_id, reason)
+
+    def _interrupt(self, run_id: int, reason: str) -> None:
+        if self.current_run != run_id:
+            return
+        # Remembered even if the test hasn't started yet, so a stop that arrives while the
+        # runner is still getting ready isn't lost (_run checks it before starting the test).
+        self._stop_reason = reason
+        if self._current is not None and not self._current.done():
             self._current.cancel()
 
     async def _loop(self) -> None:
@@ -565,8 +578,10 @@ class Runner:
             except OllamaError:
                 loaded_before = set()
             keep = model.name in loaded_before or model.name == server["model"]
-            self._current = asyncio.create_task(test_model(client, model, clean, self.progress, keep))
             try:
+                if self._stop_reason is not None:  # paused or cancelled while it was getting ready
+                    raise asyncio.CancelledError
+                self._current = asyncio.create_task(test_model(client, model, clean, self.progress, keep))
                 outcome = await self._current
             except asyncio.CancelledError:
                 if self._stop_reason is None:

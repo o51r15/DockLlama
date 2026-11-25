@@ -208,6 +208,21 @@ def wait_idle(c, seconds=10):
     raise AssertionError(f"tests still running: {st}")
 
 
+def wait_for(c, check, seconds=10):
+    """Poll the test status until check(status) is true, instead of guessing with a fixed sleep."""
+    end = time.time() + seconds
+    while time.time() < end:
+        st = c.get("/api/ai/tests").json()
+        if check(st):
+            return st
+        time.sleep(0.02)
+    raise AssertionError(f"never reached the expected state: {st}")
+
+
+def _running(st):
+    return st["active"] is not None and any(m["status"] == "running" for m in st["active"]["models"])
+
+
 def test_test_one_model_through_the_api(c, fake):
     r = c.post("/api/ai/tests", json={"names": ["gemma4:latest"]})
     assert r.status_code == 200
@@ -289,11 +304,11 @@ def test_cancel_and_pause(c, fake):
         return perfect_answer(payload)
     fake.servers["thor"].generate_handler = held
     run_id = c.post("/api/ai/tests", json={"names": ["gemma4:latest", "llama3.1:8b"], "kind": "all"}).json()["run_id"]
-    time.sleep(0.2)
+    wait_for(c, _running)  # the first model is mid-test
     assert c.post(f"/api/ai/tests/{run_id}/pause").status_code == 200
     gate["open"] = True
-    time.sleep(0.3)
-    st = c.get("/api/ai/tests").json()
+    st = wait_for(c, lambda st: st["active"] is not None and st["active"]["status"] == "paused"
+                  and not _running(st))
     assert st["busy"] and st["active"]["status"] == "paused"
     assert {m["status"] for m in st["active"]["models"]} == {"queued"}
     assert c.post("/api/ai/tests", json={"names": ["gemma4:latest"]}).status_code == 409
@@ -303,13 +318,20 @@ def test_cancel_and_pause(c, fake):
 
     gate["open"] = False
     run_id = c.post("/api/ai/tests", json={"names": ["gemma4:latest", "llama3.1:8b"], "kind": "all"}).json()["run_id"]
-    time.sleep(0.2)
+    wait_for(c, _running)
     assert c.post(f"/api/ai/tests/{run_id}/cancel").status_code == 200
     gate["open"] = True
     st = wait_idle(c)
+    # The run shows as cancelled straight away; the runner records the interrupted test a moment later.
+    end = time.time() + 10
+    while True:
+        with db.session() as conn:
+            statuses = {r["status"] for r in conn.execute("SELECT status FROM model_tests WHERE run_id = ?", (run_id,))}
+        if "running" not in statuses or time.time() > end:
+            break
+        time.sleep(0.02)
+    assert statuses == {"cancelled"}  # not "done": a cancel during start-up must stop the test
     with db.session() as conn:
-        statuses = {r["status"] for r in conn.execute("SELECT status FROM model_tests WHERE run_id = ?", (run_id,))}
-        assert statuses == {"cancelled"}
         assert conn.execute("SELECT banner FROM test_runs WHERE id = ?", (run_id,)).fetchone()["banner"] == "none"
 
 
@@ -483,3 +505,35 @@ def test_test_all_ticks_models_that_may_not_fit(c, fake):
     plan = {m["name"]: m for m in c.get("/api/ai/tests/plan").json()["models"]}
     big = plan["deepseek-r1:32b"]
     assert big["fits"] is False and big["ticked"] is True  # hint shown, still tested
+
+
+def test_a_stop_while_the_test_is_starting_is_not_lost(c, fake, monkeypatch):
+    """Cancel pressed after the test is marked running but before it begins (while DockLlama
+    asks Ollama what's loaded) must still stop it, not let it run to the end."""
+    from dockllama.ollama import OllamaClient
+    starting = {"held": False, "open": False}
+    real_ps = OllamaClient.ps
+
+    async def slow_ps(self):
+        starting["held"] = True
+        while not starting["open"]:
+            await asyncio.sleep(0.01)
+        return await real_ps(self)
+    monkeypatch.setattr(OllamaClient, "ps", slow_ps)
+    run_id = c.post("/api/ai/tests", json={"names": ["gemma4:latest"]}).json()["run_id"]
+    end = time.time() + 10
+    while not starting["held"]:
+        assert time.time() < end, "the runner never reached the start-up step"
+        time.sleep(0.01)
+    assert c.post(f"/api/ai/tests/{run_id}/cancel").status_code == 200
+    time.sleep(0.1)  # let the stop request reach the runner while it's still held
+    starting["open"] = True
+    end = time.time() + 10
+    while True:
+        with db.session() as conn:
+            status = conn.execute("SELECT status FROM model_tests WHERE run_id = ?", (run_id,)).fetchone()["status"]
+        if status not in ("queued", "running") or time.time() > end:
+            break
+        time.sleep(0.02)
+    assert status == "cancelled"
+    assert fake.servers["thor"].generate_calls == []  # Ollama was never asked a test question
