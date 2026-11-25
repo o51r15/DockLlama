@@ -36,6 +36,23 @@ def state():
         }
 
 
+class TimezoneBody(BaseModel):
+    timezone: str
+
+
+@router.post("/timezone")
+def browser_timezone(body: TimezoneBody):
+    """The browser's time zone, saved once if none is saved yet. Normally the password step
+    saves it; with sign-in off in the compose file there's no password step."""
+    with db.session() as conn, db.transaction(conn):
+        if conn.execute("SELECT 1 FROM settings WHERE key = 'general.timezone'").fetchone() is None:
+            try:
+                settings.set(conn, "general.timezone", body.timezone)
+            except settings.SettingError:
+                pass
+        return {"timezone": settings.get(conn, "general.timezone")}
+
+
 class FinishBody(BaseModel):
     complete: bool = True
 

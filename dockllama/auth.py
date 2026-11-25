@@ -10,6 +10,7 @@
 from __future__ import annotations
 
 import base64
+import os
 import hashlib
 import hmac
 import secrets
@@ -74,6 +75,12 @@ def set_password(conn: sqlite3.Connection, password: str) -> None:
     """Store a new password and sign out every existing session."""
     settings.set(conn, "auth.password_hash", hash_password(password))
     conn.execute("DELETE FROM sessions")
+
+
+def login_off_by_compose() -> bool:
+    """Sign-in can only be turned off in the compose file (DOCKLLAMA_LOGIN=off), never from the
+    web page: someone who can open the page shouldn't be able to switch the lock off."""
+    return os.environ.get("DOCKLLAMA_LOGIN", "").strip().lower() in ("off", "no", "false", "0", "disabled")
 
 
 def password_is_set(conn: sqlite3.Connection) -> bool:

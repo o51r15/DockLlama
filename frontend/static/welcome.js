@@ -12,6 +12,9 @@ function welcome() {
     finishing: false,
 
     async init() {
+      try {  // saved once, if the password step didn't (sign-in off in the compose file)
+        await api('api/setup/timezone', {method: 'POST', body: {timezone: Intl.DateTimeFormat().resolvedOptions().timeZone || 'UTC'}});
+      } catch (e) { /* not important enough to stop the guide */ }
       await this.loadStatus();
       this.setup = await api('api/setup/state');
       if (this.status.connected) { await this.loadModels(); this.pollTests(); } else this.discover();

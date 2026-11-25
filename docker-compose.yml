@@ -21,6 +21,8 @@ services:
     # environment:
     #   - PUID=1000
     #   - PGID=1000
+    #   # No password at all. Only on a private network: anyone who can open the page can restart containers.
+    #   - DOCKLLAMA_LOGIN=off
 
 volumes:
   dockllama-data:

@@ -12,12 +12,12 @@ throttle = auth.LoginThrottle()
 
 
 def auth_configured(conn) -> bool:
-    """True once the user has either set a password or chosen to run without one."""
-    return auth.password_is_set(conn) or not settings.get(conn, "auth.login_required")
+    """True once a password is set, or sign-in is turned off in the compose file."""
+    return auth.login_off_by_compose() or auth.password_is_set(conn)
 
 
 def is_signed_in(conn, request: Request) -> bool:
-    if not settings.get(conn, "auth.login_required"):
+    if auth.login_off_by_compose():
         return True
     return auth.session_valid(conn, request.cookies.get(auth.COOKIE_NAME))
 
@@ -60,7 +60,8 @@ def status(request: Request):
         configured = auth_configured(conn)
         return {
             "setup_needed": not configured,
-            "login_required": settings.get(conn, "auth.login_required"),
+            "login_required": not auth.login_off_by_compose(),
+            "login_off_by_compose": auth.login_off_by_compose(),
             "signed_in": configured and is_signed_in(conn, request),
         }
 
@@ -72,17 +73,15 @@ def first_run_setup(body: SetupBody, request: Request, response: Response):
         settings.REGISTRY["general.timezone"].validate(tz)
     except settings.SettingError:
         tz = "UTC"  # a browser reporting an odd zone shouldn't block setup
-    if not body.skip_password:
-        problem = auth.check_new_password(body.password or "")
-        if problem:
-            raise HTTPException(400, problem)
+    if body.skip_password:
+        raise HTTPException(400, "Sign-in can only be turned off in the compose file, with DOCKLLAMA_LOGIN=off.")
+    problem = auth.check_new_password(body.password or "")
+    if problem:
+        raise HTTPException(400, problem)
     with db.session() as conn, db.transaction(conn):
         if auth_configured(conn):
             raise HTTPException(409, "Setup has already been done. Sign in instead.")
         settings.set(conn, "general.timezone", tz)
-        if body.skip_password:
-            settings.set(conn, "auth.login_required", False)
-            return {"ok": True}
         auth.set_password(conn, body.password)
         settings.set(conn, "auth.login_required", True)
         token = auth.create_session(conn, request.headers.get("user-agent"))

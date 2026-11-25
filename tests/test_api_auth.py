@@ -11,7 +11,7 @@ def test_fresh_install_sends_everything_to_setup(client):
         assert r.status_code == 303 and r.headers["location"] == "setup"
     assert client.get("/setup").status_code == 200
     assert client.get("/api/auth/status").json() == {
-        "setup_needed": True, "login_required": True, "signed_in": False,
+        "setup_needed": True, "login_required": True, "login_off_by_compose": False, "signed_in": False,
     }
 
 
@@ -83,13 +83,34 @@ def test_login_throttled_after_five_failures(client):
     assert r.status_code == 429 and "Try again in" in r.json()["detail"]
 
 
-def test_skip_password_opens_everything(client):
+def test_the_page_cant_turn_sign_in_off(client):
     r = client.post("/api/auth/setup", json={"skip_password": True, "timezone": "UTC"})
-    assert r.status_code == 200
-    assert client.get("/settings", follow_redirects=False).status_code == 200
+    assert r.status_code == 400 and "DOCKLLAMA_LOGIN=off" in r.json()["detail"]
+    assert client.get("/api/auth/status").json()["setup_needed"] is True
+
+
+def test_sign_in_off_in_the_compose_file(client, monkeypatch):
+    monkeypatch.setenv("DOCKLLAMA_LOGIN", "off")
     assert client.get("/api/auth/status").json() == {
-        "setup_needed": False, "login_required": False, "signed_in": True,
+        "setup_needed": False, "login_required": False, "login_off_by_compose": True, "signed_in": True,
     }
+    assert client.get("/settings", follow_redirects=False).status_code == 200
+    assert client.get("/api/fixing").status_code == 200
+    # the setup guide saves the browser's time zone once, since there was no password step
+    assert client.post("/api/setup/timezone", json={"timezone": "America/New_York"}).json()["timezone"] == "America/New_York"
+    assert client.post("/api/setup/timezone", json={"timezone": "Europe/Paris"}).json()["timezone"] == "America/New_York"
+
+
+def test_an_install_that_skipped_the_password_is_asked_for_one(client):
+    """Before this change the page could turn sign-in off; such installs now need a password
+    (or DOCKLLAMA_LOGIN=off in the compose file)."""
+    from dockllama import db, settings
+    db.migrate()
+    with db.session() as conn:
+        settings.set(conn, "auth.login_required", False)
+    assert client.get("/api/auth/status").json()["setup_needed"] is True
+    assert client.get("/api/fixing").status_code == 401
+    assert client.get("/", follow_redirects=False).headers["location"].endswith("setup")
 
 
 def test_change_password_keeps_me_signed_in_and_signs_out_others(client):

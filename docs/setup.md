@@ -60,3 +60,14 @@ the Docker socket's group and fix the data folder's owner, then drops to its own
 
 The setup guide takes your browser's time zone, so quiet hours and the daily summary use your local
 time without setting `TZ`.
+
+## Running without a password
+
+DockLlama asks for a password on first start. If it only runs on a private network and you don't want one, add this to the compose file and recreate the container (`docker compose up -d`):
+
+```yaml
+    environment:
+      - DOCKLLAMA_LOGIN=off
+```
+
+Anyone who can open the page can then see your containers and restart them. This can only be switched in the compose file, not from the web page, so someone who opens the page can't turn the lock off. Remove the line to turn sign-in back on; you'll be asked to create a password if there isn't one.

@@ -938,12 +938,12 @@
     <section x-show="section === 'account'">
       <h1>Account</h1>
       <p class="sub" x-show="loginRequired">Change the password you use to sign in. Everyone else gets signed out.</p>
-      <p class="sub" x-show="!loginRequired">DockLlama isn't using a password. Set one to turn sign-in on.</p>
-      <form class="panel narrow" @submit.prevent="changePassword()">
-        <template x-if="loginRequired">
-          <div><label for="cur">Current password</label>
-          <input id="cur" type="password" x-model="pw.current" autocomplete="current-password"></div>
-        </template>
+      <div class="warning" x-show="!loginRequired">Sign-in is turned off in the compose file
+        (<code>DOCKLLAMA_LOGIN=off</code>), so anyone who can open this page can use DockLlama. To turn it back on,
+        remove that line and recreate the container; you'll be asked to create a password.</div>
+      <form class="panel narrow" x-show="loginRequired" @submit.prevent="changePassword()">
+        <label for="cur">Current password</label>
+        <input id="cur" type="password" x-model="pw.current" autocomplete="current-password">
         <label for="new">New password</label>
         <input id="new" type="password" x-model="pw.next" autocomplete="new-password">
         <div class="hint">At least 8 characters.</div>

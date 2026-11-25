@@ -15,24 +15,17 @@
     <h1>Create a password</h1>
     <p class="sub">You'll use it to sign in to DockLlama from any device.</p>
 
-    <template x-if="!skip">
-      <div>
+    <div>
         <label for="pw">Password</label>
         <input id="pw" type="password" x-model="password" autocomplete="new-password" autofocus>
         <div class="hint">At least 8 characters.</div>
         <label for="pw2">Type it again</label>
         <input id="pw2" type="password" x-model="password2" autocomplete="new-password">
       </div>
-    </template>
 
-    <label class="check">
-      <input type="checkbox" x-model="skip">
-      <span>Don't use a password. This is a private network.</span>
-    </label>
-    <div class="warning" x-show="skip">
-      Anyone who can open this page will be able to restart your containers.
-      You can turn the password on later in Settings.
-    </div>
+    <p class="hint">Only on a private network and don't want a password? Add <code>DOCKLLAMA_LOGIN=off</code> under
+      <code>environment:</code> in the compose file and recreate the container. Anyone who can open this page could then
+      restart your containers.</p>
 
     <div class="error" x-show="error" x-text="error"></div>
     <button type="submit" :disabled="busy" x-text="busy ? 'Saving…' : 'Continue'"></button>
@@ -41,20 +34,18 @@
 <script>
 function setup() {
   return {
-    password: '', password2: '', skip: false, error: '', busy: false,
+    password: '', password2: '', error: '', busy: false,
     async submit() {
       this.error = '';
-      if (!this.skip) {
-        if (this.password.length < 8) { this.error = 'Use at least 8 characters.'; return; }
-        if (this.password !== this.password2) { this.error = "The two passwords don't match."; return; }
-      }
+      if (this.password.length < 8) { this.error = 'Use at least 8 characters.'; return; }
+      if (this.password !== this.password2) { this.error = "The two passwords don't match."; return; }
       this.busy = true;
       let tz = 'UTC';
       try { tz = Intl.DateTimeFormat().resolvedOptions().timeZone || 'UTC'; } catch (e) {}
       try {
         const r = await fetch('api/auth/setup', {
           method: 'POST', headers: {'Content-Type': 'application/json'},
-          body: JSON.stringify({password: this.skip ? null : this.password, skip_password: this.skip, timezone: tz}),
+          body: JSON.stringify({password: this.password, timezone: tz}),
         });
         if (r.ok || r.status === 409) { window.location.href = './'; return; }
         const d = await r.json().catch(() => ({}));
