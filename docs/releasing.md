@@ -10,6 +10,9 @@
    `latest`, `<version>` and `<major>.<minor>` for `linux/amd64` and `linux/arm64`.
 4. DockLlama Remotes on other machines show "older than DockLlama" on the Machines page until they're
    updated (`docker compose pull && docker compose up -d` on each).
+5. Refresh the [wiki](https://github.com/o51r15/DockLlama/wiki) from `docs/`:
+   `git clone https://github.com/o51r15/DockLlama.wiki.git ../DockLlama.wiki`, then
+   `python docs/make_wiki.py ../DockLlama.wiki`, commit and push the wiki.
 
 History: `v2.0.0` (November 2026) was the first release of the rewrite. The original version is on the
 locked `main` branch and the `v1-final` tag.

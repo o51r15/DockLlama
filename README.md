@@ -52,7 +52,8 @@ gives a false sense of safety.
 
 ## The setup guide
 
-1. **Create a password** (or skip it on a private network, with a warning).
+1. **Create a password.** (On a private network you can turn sign-in off instead, in the compose file;
+   see [Setup in detail](docs/setup.md#running-without-a-password).)
 2. **Connect your AI.** DockLlama looks for Ollama by itself. If nothing answers, it shows the one
    setting to change on Windows, Mac, Linux or Docker. No Ollama? Add it next to DockLlama with the
    snippet it gives you, or **continue without AI**: DockLlama still watches every container's state,
@@ -86,12 +87,17 @@ Everything can be changed later in **Settings**, and the guide can be run again 
   reconnects are normal").
 - **Messages when something breaks and when it recovers**, not every check. Optional "still broken"
   reminders, a daily summary, and quiet hours.
-- **Optional automatic restarts**, off by default, only for containers you allow and only when a
+- **Web page checks** for containers that freeze but keep running: DockLlama opens the container's own
+  page on your network and notices when it stops answering. See [How checks work](docs/how-checks-work.md#web-page-check).
+- **Optional automatic restarts**, off by default, for the containers you choose, and only when a
   restart would help. See [Restarts](docs/restarts.md).
 - **Model testing on your own computer.** Every model can be tested with the same 8 practice
   questions; DockLlama suggests the best one for your hardware, and you choose.
 - **Other Docker machines** on the same dashboard, with a small helper (DockLlama Remote). See
   [Watching other machines](docs/other-machines.md).
+- **Backups** of all settings and history, automatic and on demand; restore only the parts you pick.
+  See [Backup and restore](docs/backup.md).
+- **Your own AI instructions** for advanced users, testable on every model before you use them.
 
 ## Learn more
 
