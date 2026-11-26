@@ -14,5 +14,13 @@
    `git clone https://github.com/o51r15/DockLlama.wiki.git ../DockLlama.wiki`, then
    `python docs/make_wiki.py ../DockLlama.wiki`, commit and push the wiki.
 
-History: `v2.0.0` (November 2026) was the first release of the rewrite. The original version is on the
+**Database migrations ship in a release straight away.** `v2-dev` and `latest` share data volumes in
+practice (people switch between them), and a DockLlama refuses to start on a database newer than it
+knows. So a commit that adds a migration to `db.py` must be followed by a release before anyone is
+told to use `latest` again. 2.0.1 exists because schema v12 reached `v2-dev` after 2.0.0, and a
+container recreated on `latest` then stopped with "Database schema v12 is newer than this DockLlama
+(v11)".
+
+History: `v2.0.0` (November 2026) was the first release of the rewrite; `v2.0.1` followed the next day to
+ship schema v12 (one model for every container). The original version is on the
 locked `main` branch and the `v1-final` tag.

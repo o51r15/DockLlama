@@ -128,4 +128,4 @@ python -m pytest
 
 Pushes to the `v2` branch build multi-arch images (`linux/amd64`, `linux/arm64`) as
 `ghcr.io/o51r15/dockllama:v2-dev`, for testing. Releases build `latest` and the version tags
-(`2.0.0`, `2.0`); see [Releasing](docs/releasing.md).
+(`2.0.1`, `2.0`); see [Releasing](docs/releasing.md).
